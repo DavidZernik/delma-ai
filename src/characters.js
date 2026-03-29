@@ -69,6 +69,16 @@ function buildCharacter(scene, def) {
   const torsoMat = new THREE.MeshLambertMaterial({ color: def.colorInt })
   const pantsMat = new THREE.MeshLambertMaterial({ color: def.pantsInt })
 
+  // Floor ring — glows when working
+  const ringMat = new THREE.MeshLambertMaterial({
+    color: def.colorInt, emissive: def.colorInt, emissiveIntensity: 0.8,
+    transparent: true, opacity: 0
+  })
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.28, 0.38, 32), ringMat)
+  ring.rotation.x = -Math.PI / 2
+  ring.position.y = 0.01
+  group.add(ring)
+
   // ── Head pivot (rotates independently for head tracking) ──
   const headPivot = new THREE.Group()
   headPivot.position.y = 1.58
@@ -197,7 +207,7 @@ function buildCharacter(scene, def) {
   // ── Animation state ───────────────────────────────
   const state = {
     def, group, headPivot, torso, lForearm, rForearm, lLeg, rLeg, lShoe, rShoe,
-    tickerEl, tickerObj, charLight, dots,
+    tickerEl, tickerObj, charLight, dots, ring, ringMat, labelEl,
 
     _breathOffset: Math.random() * Math.PI * 2,
     _isWalking: false,
@@ -209,6 +219,7 @@ function buildCharacter(scene, def) {
     _targetSeatOffset: 0,
     _lightIntensity: 0,
     _dotsAlpha: 0,
+    _ringAlpha: 0,
 
     update(elapsed) {
       // ── Seat offset lerp ─────────────────────────
@@ -263,10 +274,19 @@ function buildCharacter(scene, def) {
       }
 
       // ── Glow light ───────────────────────────────
-      const targetIntensity = this._isWorking ? 0.35 : 0
+      const targetIntensity = this._isWorking ? 0.8 : 0
       this._lightIntensity += (targetIntensity - this._lightIntensity) * 0.05
-      const pulse = this._isWorking ? 0.08 * Math.sin(elapsed * 3.5 + this._breathOffset) : 0
+      const pulse = this._isWorking ? 0.15 * Math.sin(elapsed * 3.5 + this._breathOffset) : 0
       this.charLight.intensity = Math.max(0, this._lightIntensity + pulse)
+
+      // ── Floor ring ───────────────────────────────
+      const ringTarget = this._isWorking ? 0.55 : 0
+      this._ringAlpha += (ringTarget - this._ringAlpha) * 0.06
+      this.ringMat.opacity = this._ringAlpha
+      if (this._isWorking) {
+        const ringPulse = 0.15 * Math.sin(elapsed * 2.8 + this._breathOffset)
+        this.ringMat.emissiveIntensity = 0.8 + ringPulse
+      }
 
       // ── Thinking dots ────────────────────────────
       const dotTarget = this._isWorking ? 1 : 0
@@ -352,8 +372,14 @@ function buildCharacter(scene, def) {
     },
 
     // ── Working animation ────────────────────────
-    startWorking() { this._isWorking = true },
-    stopWorking()  { this._isWorking = false }
+    startWorking() {
+      this._isWorking = true
+      this.labelEl.classList.add('char-label-active')
+    },
+    stopWorking() {
+      this._isWorking = false
+      this.labelEl.classList.remove('char-label-active')
+    }
   }
 
   return state

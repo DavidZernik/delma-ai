@@ -153,7 +153,7 @@ async function runAnalysis(query) {
   analysisStatus.textContent = 'Analyzing...'
   analysisBody.textContent = ''
 
-  const system = `You are evaluating two AI responses to the same user request. Write one short paragraph in plain English — 3 to 4 sentences. Be specific about what each did well or poorly. Name a clear winner and say why. Be honest; Single Claude sometimes wins. No bullet points, no headers.`
+  const system = `Compare these two AI responses in one short paragraph of plain English. Be direct and specific. Name a clear winner and say why in 2-3 sentences — no hedging, no bullet points.`
   const user = `Request: "${query}"\n\nSingle Claude:\n${claudeText}\n\nDelma Team:\n${delmaDeliverable}`
 
   try {
