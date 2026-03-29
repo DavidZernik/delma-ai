@@ -1,5 +1,5 @@
 {
-  "name": "delma-poc",
+  "name": "delma-ai",
   "type": "module",
   "scripts": {
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
