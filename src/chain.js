@@ -8,14 +8,17 @@
  *   Display track — working_steps, log_summary → tickers
  *   Content track — document → flows through every step, delivered at end
  *
- * Model assignment:
- *   Sonnet: James on complex tasks (validation/skepticism)
- *   Haiku:  Delma (step 1), Marcus (production), Sarah (synthesis)
+ * Lead agent routing (set by Delma at step 1):
+ *   lead_agent=sarah  → Sarah reads request, forms opinion, briefs Marcus per section
+ *                       Use for: advice, strategy, judgment, "what should I do?" tasks
+ *   lead_agent=marcus → Marcus produces sections; Sarah optionally structures or improves
+ *                       Use for: writing, guides, plans, production tasks
  *
- * Complexity routing:
- *   skip_sarah=true  → skip steps 2, 3, Sarah in section pipeline, step 11
- *   skip_sarah=false → full pipeline
- *   James rejection  → step 12b (Marcus revise) + 12c (James re-check), one retry
+ * Marcus-led sub-routing:
+ *   skip_sarah=true  → Marcus writes directly (structure obvious); skips steps 2, 3, 11
+ *   skip_sarah=false → Sarah does architecture (step 2) + section improvement
+ *
+ * James rejection → step 12b (Marcus revise) + 12c (James re-check), one retry
  */
 
 import * as THREE from 'three'
@@ -69,14 +72,51 @@ export async function runChain(query, chars, opts = {}) {
   steps.push(logStep(1, 'User', 'Delma', s1.log_summary, stepStart))
 
   const routing    = s1.routing || {}
-  const skipSarah  = s1.skip_sarah === true
+  const leadAgent  = s1.lead_agent === 'sarah' ? 'sarah' : 'marcus'
+  const skipSarah  = leadAgent === 'marcus' && s1.skip_sarah === true
   const jamesModel = s1.model_james === 'sonnet' ? SONNET : HAIKU
   const wordBudget = s1.task_spec?.word_budget || 800
-  console.log('[chain] plan — skip_sarah:', skipSarah, '| model_james:', s1.model_james, '| needs_arch_review:', routing.needs_arch_review, '| word_budget:', wordBudget)
+  console.log('[chain] plan — lead_agent:', leadAgent, '| skip_sarah:', skipSarah, '| model_james:', s1.model_james, '| word_budget:', wordBudget)
 
-  // ── Step 2: Sarah — architecture (skipped when Delma says structure is obvious) ──
+  // ── Step 2: Sarah or architecture phase ───────────────────────────────────
   let approvedArch
-  if (skipSarah) {
+  let sarahLead = null  // populated when lead_agent=sarah
+
+  if (leadAgent === 'sarah') {
+    // Sarah-led: she reads the full request, forms the strategic opinion, briefs Marcus
+    delma.faceCharacter(sarah)
+    delma.setLookTarget(sarah)
+    sarah.faceCharacter(delma)
+    sarah.setLookTarget(delma)
+
+    console.log('  [ticker:Delma] briefing Sarah (lead):', s1.briefing_to_sarah)
+    await showLine(delma.tickerEl, s1.briefing_to_sarah, 1000, delma.def.distanceOpacity)
+    await handoff.send(delma, sarah)
+    delma.faceCamera(); delma.setLookTarget(CAMERA_POS)
+    sarah.faceDesk()
+
+    console.log('[chain] step 2 — Sarah strategic lead')
+    stepStart = Date.now()
+    sarahLead = await withWorking(sarah,
+      ['reading the situation...', 'forming a position...', 'structuring the recommendation...'],
+      P.SARAH_LEAD, { task_spec: s1.task_spec, original_query: query, word_budget: wordBudget }
+    )
+    console.log('[chain] step 2 done — recommendation:', sarahLead.recommendation, '|', sarahLead.log_summary)
+    await displayWorking(sarah, sarahLead.working_steps, sarahLead.log_summary)
+    steps.push(logStep(2, 'Delma', 'Sarah', sarahLead.log_summary, stepStart))
+
+    await handoff.send(sarah, marcus)
+
+    // Build approvedArch from Sarah's lead output
+    approvedArch = {
+      subjects: (sarahLead.subjects || []).slice(0, 3),
+      section_briefs: sarahLead.section_briefs || [],
+      shared_context: sarahLead.shared_context || '',
+      recommendation: sarahLead.recommendation,
+      data_fields: []
+    }
+
+  } else if (skipSarah) {
     console.log('[chain] skip_sarah=true — using Delma\'s subjects directly')
     approvedArch = {
       subjects: s1.subjects || [],
@@ -84,6 +124,7 @@ export async function runChain(query, chars, opts = {}) {
       output_format: s1.task_spec.deliverable
     }
   } else {
+    // Marcus-led, Sarah does architecture
     delma.faceCharacter(sarah)
     delma.setLookTarget(sarah)
     sarah.faceCharacter(delma)
@@ -105,7 +146,7 @@ export async function runChain(query, chars, opts = {}) {
     await displayWorking(sarah, s2.working_steps, s2.log_summary)
     steps.push(logStep(2, 'Delma', 'Sarah', s2.log_summary, stepStart))
 
-    // ── Step 3: Delma — validate architecture (skipped when not needed) ────────
+    // ── Step 3: Delma — validate architecture ──────────────────────────────
     await handoff.send(sarah, delma)
     approvedArch = s2
     if (routing.needs_arch_review !== false) {
@@ -126,7 +167,6 @@ export async function runChain(query, chars, opts = {}) {
         }
       }
       steps.push(logStep(3, 'Delma', 'Delma', s3.log_summary, stepStart))
-      // Preserve shared_context from Sarah's architecture even if Delma corrects subjects/fields
       const base = s3.approved_architecture || s2
       approvedArch = { ...base, shared_context: base.shared_context || s2.shared_context }
     } else {
@@ -139,7 +179,7 @@ export async function runChain(query, chars, opts = {}) {
   const perSectionBudget = Math.floor(wordBudget / sectionCount)
   console.log('[chain] budget — word_budget:', wordBudget, '| sections:', sectionCount, '| per_section:', perSectionBudget)
 
-  // ── Step 4: Parallel pipeline — each section: Marcus → Sarah → James ──────
+  // ── Step 4: Parallel pipeline ──────────────────────────────────────────
   delma.faceCharacter(marcus)
   delma.setLookTarget(marcus)
   marcus.faceCharacter(delma)
@@ -147,44 +187,59 @@ export async function runChain(query, chars, opts = {}) {
 
   console.log(`  [ticker:Delma] → Team: ${cappedArch.subjects.join(', ')}`)
   await showLine(delma.tickerEl, `→ Team: ${cappedArch.subjects.join(', ')}`, 1000, delma.def.distanceOpacity)
-  await handoff.send(delma, marcus)
+  if (leadAgent !== 'sarah') await handoff.send(delma, marcus)
   delma.faceCamera(); delma.setLookTarget(CAMERA_POS)
   marcus.faceDesk(); sarah.faceDesk(); james.faceDesk()
 
-  const pipelineLabel = skipSarah
-    ? '[chain] step 4 — parallel section pipelines (Marcus → James per section)'
-    : '[chain] step 4 — parallel section pipelines (Marcus → Sarah → James per section)'
-  console.log(pipelineLabel)
-  stepStart = Date.now()
-  if (skipSarah) {
+  if (leadAgent === 'sarah') {
+    console.log('[chain] step 4 — parallel section pipelines (Sarah leads: Marcus support → James per section)')
+    marcus.startWorking(); james.startWorking()
+  } else if (skipSarah) {
+    console.log('[chain] step 4 — parallel section pipelines (Marcus → James per section)')
     marcus.startWorking(); james.startWorking()
   } else {
+    console.log('[chain] step 4 — parallel section pipelines (Marcus → Sarah → James per section)')
     marcus.startWorking(); sarah.startWorking(); james.startWorking()
   }
 
-  // Per-section pipeline: Marcus writes, Sarah improves (if !skipSarah), James validates.
-  // All sections run this pipeline simultaneously.
+  stepStart = Date.now()
+
   const runSectionPipeline = async (sectionIdx, subject) => {
+    // Find Sarah's brief for this section (sarah-led only)
+    const sectionBrief = cappedArch.section_briefs?.find(b => b.section === subject)
+
+    const marcusPrompt = leadAgent === 'sarah' ? P.MARCUS_SUPPORT : P.MARCUS_SUBAGENT
+    const marcusMessage = leadAgent === 'sarah'
+      ? {
+          sarah_recommendation: cappedArch.recommendation,
+          shared_context: cappedArch.shared_context || '',
+          all_sections: cappedArch.subjects,
+          section_title: subject,
+          section_brief: sectionBrief || { section: subject, argument: subject, marcus_task: 'provide supporting details' },
+          section_word_limit: perSectionBudget
+        }
+      : {
+          task_spec: {
+            objective: s1.task_spec.objective,
+            deliverable: s1.task_spec.deliverable,
+            key_constraints: s1.task_spec.key_constraints
+          },
+          shared_context: cappedArch.shared_context || '',
+          all_sections: cappedArch.subjects,
+          section_title: subject,
+          fields_to_cover: cappedArch.data_fields,
+          section_word_limit: perSectionBudget
+        }
+
     const marcusResult = await runSingleNode(_scene, marcus, sectionIdx, {
       label: subject,
-      systemPrompt: P.MARCUS_SUBAGENT,
-      userMessage: {
-        task_spec: {
-          objective: s1.task_spec.objective,
-          deliverable: s1.task_spec.deliverable,
-          key_constraints: s1.task_spec.key_constraints
-        },
-        shared_context: cappedArch.shared_context || '',
-        all_sections: cappedArch.subjects,
-        section_title: subject,
-        fields_to_cover: cappedArch.data_fields,
-        section_word_limit: perSectionBudget
-      },
+      systemPrompt: marcusPrompt,
+      userMessage: marcusMessage
     })
     if (!marcusResult) return null
 
     let afterSarah = marcusResult
-    if (!skipSarah) {
+    if (leadAgent === 'marcus' && !skipSarah) {
       const sarahResult = await runSingleNode(_scene, sarah, sectionIdx, {
         label: subject,
         systemPrompt: P.SARAH_SECTION_IMPROVE,
@@ -212,7 +267,7 @@ export async function runChain(query, chars, opts = {}) {
     cappedArch.subjects.map((subject, idx) => runSectionPipeline(idx, subject))
   )
 
-  if (skipSarah) {
+  if (leadAgent === 'sarah' || skipSarah) {
     marcus.stopWorking(); james.stopWorking()
   } else {
     marcus.stopWorking(); sarah.stopWorking(); james.stopWorking()
@@ -236,8 +291,8 @@ export async function runChain(query, chars, opts = {}) {
   // ── Marcus assembly: stitch sections into one coherent document ────────────
   marcus.startWorking()
   console.log('[chain] step 4b — Marcus assembly pass')
-  // Complex tasks use Sonnet for assembly — faster at generating large outputs
-  const assemblyModel = skipSarah ? HAIKU : SONNET
+  // Sarah-led and complex marcus-led tasks use Sonnet for assembly
+  const assemblyModel = (leadAgent === 'sarah' || !skipSarah) ? SONNET : HAIKU
   const assemblyResult = await withWorking(marcus,
     ['reading across sections...', 'checking coherence...', 'assembling...'],
     P.MARCUS_ASSEMBLE,
@@ -263,15 +318,17 @@ export async function runChain(query, chars, opts = {}) {
   console.log('[chain] step 4b done —', assemblyResult?.log_summary)
   await showLine(marcus.tickerEl, assemblyResult?.log_summary || 'assembled', 1200, marcus.def.distanceOpacity)
 
-  const step4summary = skipSarah
-    ? `${validSections.length}/${cappedArch.subjects.length} sections — Marcus wrote, James validated in parallel`
-    : `${validSections.length}/${cappedArch.subjects.length} sections — Marcus wrote, Sarah improved, James validated in parallel`
+  const step4summary = leadAgent === 'sarah'
+    ? `${validSections.length}/${cappedArch.subjects.length} sections — Sarah led, Marcus supported, James validated in parallel`
+    : skipSarah
+      ? `${validSections.length}/${cappedArch.subjects.length} sections — Marcus wrote, James validated in parallel`
+      : `${validSections.length}/${cappedArch.subjects.length} sections — Marcus wrote, Sarah improved, James validated in parallel`
   steps.push(logStep(4, 'Delma', 'Team', step4summary, stepStart))
   await handoff.send(marcus, delma)
 
-  // ── Step 11: Delma — final format + validate (skipped for simple tasks) ────
+  // ── Step 11: Delma — final format + validate (skipped for simple/sarah-led tasks) ────
   let s11 = null
-  if (!skipSarah) {
+  if (leadAgent === 'marcus' && !skipSarah) {
     console.log('[chain] step 11 — Delma assemble + validate')
     stepStart = Date.now()
     s11 = await withWorking(delma,
@@ -298,7 +355,7 @@ export async function runChain(query, chars, opts = {}) {
     steps.push(logStep(11, 'Delma', 'Delma', s11.log_summary, stepStart))
     await handoff.send(delma, james)
   } else {
-    console.log('[chain] skip_sarah=true — skipping step 11')
+    console.log('[chain] skipping step 11 — lead_agent:', leadAgent, '| skip_sarah:', skipSarah)
   }
 
   // ── Step 12: James — final release ────────────────────────────────────────
