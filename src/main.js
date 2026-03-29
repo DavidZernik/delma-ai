@@ -2,6 +2,7 @@ import { initScene, LEFT_FRAC } from './scene.js'
 import { createCharacters } from './characters.js'
 import { initChain, runChain } from './chain.js'
 import { runComparison } from './comparison.js'
+import { callClaudeRaw } from './api.js'
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────
 const { scene, camera, renderer, css2dRenderer, clock } = initScene()
@@ -17,9 +18,11 @@ const input       = document.getElementById('input')
 const sendBtn     = document.getElementById('send-btn')
 const suggestion  = document.getElementById('suggestion')
 const summary     = document.getElementById('summary')
-const delmaStatus = document.getElementById('delma-status')
-const delmaBody   = document.getElementById('delma-body')
-const delmaTime   = document.getElementById('delma-time')
+const delmaStatus    = document.getElementById('delma-status')
+const delmaBody      = document.getElementById('delma-body')
+const delmaTime      = document.getElementById('delma-time')
+const analysisStatus = document.getElementById('analysis-status')
+const analysisBody   = document.getElementById('analysis-body')
 
 let isRunning = false
 let checkpointResolve = null
@@ -67,6 +70,10 @@ async function handleSubmit() {
   delmaBody.textContent = ''
   delmaTime.textContent = ''
 
+  // Reset analysis panel
+  analysisStatus.textContent = ''
+  analysisBody.textContent = ''
+
   isRunning = true
   input.disabled = true
   input.placeholder = 'Working on it...'
@@ -113,6 +120,7 @@ async function handleSubmit() {
   input.focus()
 
   await compPromise
+  await runAnalysis(query)
 }
 
 // ── Delma panel renderers ─────────────────────────────────────────────────
@@ -131,6 +139,30 @@ function renderLog(steps, totalSeconds) {
   log += `Total: ${totalSeconds}s across ${steps.length} steps`
   delmaBody.textContent += log
   delmaBody.scrollTop = delmaBody.scrollHeight
+}
+
+async function runAnalysis(query) {
+  const claudeText = document.getElementById('claude-body').textContent.trim()
+  const delmaText  = delmaBody.textContent.trim()
+  if (!claudeText || !delmaText) return
+
+  // Use only the deliverable portion of Delma (before the chain log divider)
+  const dividerIdx = delmaText.indexOf('────')
+  const delmaDeliverable = dividerIdx > 0 ? delmaText.slice(0, dividerIdx).trim() : delmaText
+
+  analysisStatus.textContent = 'Analyzing...'
+  analysisBody.textContent = ''
+
+  const system = `You are evaluating two AI responses to the same user request. Write one short paragraph in plain English — 3 to 4 sentences. Be specific about what each did well or poorly. Name a clear winner and say why. Be honest; Single Claude sometimes wins. No bullet points, no headers.`
+  const user = `Request: "${query}"\n\nSingle Claude:\n${claudeText}\n\nDelma Team:\n${delmaDeliverable}`
+
+  try {
+    const analysis = await callClaudeRaw(system, user)
+    analysisBody.textContent = analysis
+  } catch (err) {
+    analysisBody.textContent = 'Analysis unavailable.'
+  }
+  analysisStatus.textContent = ''
 }
 
 sendBtn.addEventListener('click', handleSubmit)

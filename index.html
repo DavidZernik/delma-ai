@@ -150,14 +150,70 @@
     }
 
     /* ── Shared styles for middle + right panels ── */
+    #right-side {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    #panels-row {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+      min-height: 0;
+    }
+
     .output-panel {
       flex: 1;
-      height: 100vh;
+      height: 100%;
       background: #0D1117;
       border-left: 1px solid rgba(255, 255, 255, 0.07);
       display: flex;
       flex-direction: column;
       overflow: hidden;
+    }
+
+    #analysis-panel {
+      flex-shrink: 0;
+      background: #0D1117;
+      border-top: 1px solid rgba(255, 255, 255, 0.10);
+      border-left: 1px solid rgba(255, 255, 255, 0.07);
+      padding: 16px 28px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    #analysis-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    #analysis-title {
+      font-size: 10px;
+      font-weight: 600;
+      color: rgba(255, 255, 255, 0.35);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    #analysis-status {
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.3);
+    }
+
+    #analysis-body {
+      font-size: 13px;
+      line-height: 1.65;
+      color: rgba(255, 255, 255, 0.62);
+      max-height: 120px;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255,255,255,0.1) transparent;
     }
 
     .panel-header {
@@ -265,31 +321,44 @@
     </div>
   </div>
 
-  <!-- Middle: single Claude output -->
-  <div id="claude-panel" class="output-panel">
-    <div class="panel-header">
-      <div class="panel-title">Single Claude</div>
-      <div class="panel-subtitle">Single Opus call</div>
-    </div>
-    <div id="claude-status" class="panel-status">Waiting for input...</div>
-    <div id="claude-body" class="panel-body"></div>
-    <div class="panel-footer">
-      <span id="claude-time" class="panel-time"></span>
-      <span class="panel-label">Claude Opus 4.5</span>
-    </div>
-  </div>
+  <div id="right-side">
+    <div id="panels-row">
+      <!-- Middle: single Claude output -->
+      <div id="claude-panel" class="output-panel">
+        <div class="panel-header">
+          <div class="panel-title">Single Claude</div>
+          <div class="panel-subtitle">Single Opus call</div>
+        </div>
+        <div id="claude-status" class="panel-status">Waiting for input...</div>
+        <div id="claude-body" class="panel-body"></div>
+        <div class="panel-footer">
+          <span id="claude-time" class="panel-time"></span>
+          <span class="panel-label">Claude Opus 4.5</span>
+        </div>
+      </div>
 
-  <!-- Right: Delma team output -->
-  <div id="delma-panel" class="output-panel">
-    <div class="panel-header">
-      <div class="panel-title">Delma Team</div>
-      <div class="panel-subtitle">Team deliverable · Chain log</div>
+      <!-- Right: Delma team output -->
+      <div id="delma-panel" class="output-panel">
+        <div class="panel-header">
+          <div class="panel-title">Delma Team</div>
+          <div class="panel-subtitle">Team deliverable · Chain log</div>
+        </div>
+        <div id="delma-status" class="panel-status">Waiting for input...</div>
+        <div id="delma-body" class="panel-body"></div>
+        <div class="panel-footer">
+          <span id="delma-time" class="panel-time"></span>
+          <span class="panel-label">Multi-agent</span>
+        </div>
+      </div>
     </div>
-    <div id="delma-status" class="panel-status">Waiting for input...</div>
-    <div id="delma-body" class="panel-body"></div>
-    <div class="panel-footer">
-      <span id="delma-time" class="panel-time"></span>
-      <span class="panel-label">Multi-agent</span>
+
+    <!-- Analysis: spans both columns -->
+    <div id="analysis-panel">
+      <div id="analysis-header">
+        <span id="analysis-title">Analysis</span>
+        <span id="analysis-status"></span>
+      </div>
+      <div id="analysis-body"></div>
     </div>
   </div>
 
