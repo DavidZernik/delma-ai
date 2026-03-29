@@ -9,7 +9,7 @@ export const HAIKU  = 'claude-haiku-4-5-20251001'
 // Timeout per model tier
 const TIMEOUT_MS = { [HAIKU]: 55000, [SONNET]: 55000 }
 // Max tokens per model tier
-const MAX_TOKENS = { [HAIKU]: 4000, [SONNET]: 4000 }
+const MAX_TOKENS = { [HAIKU]: 6000, [SONNET]: 8000 }
 
 async function _post(body) {
   let response

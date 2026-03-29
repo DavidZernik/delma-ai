@@ -238,7 +238,8 @@ export async function runChain(query, chars, opts = {}) {
       task_spec: { objective: s1.task_spec.objective, deliverable: s1.task_spec.deliverable },
       shared_context: cappedArch.shared_context || '',
       sections: validSections.map(s => ({ section_title: s.section_title, content: s.content }))
-    }
+    },
+    HAIKU, 12000
   )
   marcus.stopWorking()
 
@@ -429,7 +430,7 @@ function logStep(step, from, to, summary, startMs) {
 
 const MIN_WORKING_MS = 600
 
-async function withWorking(char, loadingMessages, systemPrompt, userMessage, model) {
+async function withWorking(char, loadingMessages, systemPrompt, userMessage, model, maxTokens) {
   model = model || MODEL[char.def.name] || SONNET
   console.log(`  [api] ${char.def.name} → ${model.split('-').slice(-2).join('-')}`)
   char.startWorking()
@@ -445,7 +446,8 @@ async function withWorking(char, loadingMessages, systemPrompt, userMessage, mod
       systemPrompt,
       userMessage,
       () => showLine(char.tickerEl, 'retrying...', 2000, char.def.distanceOpacity),
-      model
+      model,
+      maxTokens
     )
   } catch (err) {
     signal.done = true
