@@ -27,8 +27,8 @@ import * as P from './prompts.js'
 
 const CAMERA_POS = new THREE.Vector3(0.5, 3.5, -0.5)
 
-// Model per agent (Delma uses HAIKU at step 1; James upgrades to SONNET on complex tasks)
-const MODEL = { Delma: HAIKU, James: HAIKU, Marcus: HAIKU, Sarah: HAIKU }
+// Default model per agent. James is overridden at runtime via jamesModel (haiku or sonnet).
+const MODEL = { Delma: HAIKU, Marcus: HAIKU, Sarah: HAIKU, James: HAIKU }
 
 // Token budgets per step role
 
