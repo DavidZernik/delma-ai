@@ -74,7 +74,7 @@ export async function runChain(query, chars, opts = {}) {
   const routing    = s1.routing || {}
   const leadAgent  = s1.lead_agent === 'sarah' ? 'sarah' : 'marcus'
   const skipSarah  = leadAgent === 'marcus' && s1.skip_sarah === true
-  const jamesModel = s1.model_james === 'sonnet' ? SONNET : HAIKU
+  const jamesModel = SONNET
   const wordBudget = s1.task_spec?.word_budget || 800
   console.log('[chain] plan — lead_agent:', leadAgent, '| skip_sarah:', skipSarah, '| model_james:', s1.model_james, '| word_budget:', wordBudget)
 
@@ -99,7 +99,7 @@ export async function runChain(query, chars, opts = {}) {
     stepStart = Date.now()
     sarahLead = await withWorking(sarah,
       ['reading the situation...', 'forming a position...', 'structuring the recommendation...'],
-      P.SARAH_LEAD, { task_spec: s1.task_spec, original_query: query, word_budget: wordBudget }
+      P.SARAH_LEAD, { task_spec: s1.task_spec, original_query: query, word_budget: wordBudget }, SONNET
     )
     console.log('[chain] step 2 done — recommendation:', sarahLead.recommendation, '|', sarahLead.log_summary)
     await displayWorking(sarah, sarahLead.working_steps, sarahLead.log_summary)
@@ -291,8 +291,7 @@ export async function runChain(query, chars, opts = {}) {
   // ── Marcus assembly: stitch sections into one coherent document ────────────
   marcus.startWorking()
   console.log('[chain] step 4b — Marcus assembly pass')
-  // Sarah-led and complex marcus-led tasks use Sonnet for assembly
-  const assemblyModel = (leadAgent === 'sarah' || !skipSarah) ? SONNET : HAIKU
+  const assemblyModel = HAIKU
   const assemblyResult = await withWorking(marcus,
     ['reading across sections...', 'checking coherence...', 'assembling...'],
     P.MARCUS_ASSEMBLE,

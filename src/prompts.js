@@ -245,6 +245,8 @@ BANNED: producing new content, recommendations, preferences.
 
 Check the section against the task_spec.key_constraints first — if the user specified brevity, length, format, or audience, verify the section honors those constraints before checking anything else. A section that is accurate but violates the user's explicit constraints has failed.
 
+WORD COUNT TOLERANCE: Apply a 5% band. A 200-word section limit passes anything under 210 words. Only flag word count if significantly over.
+
 Respond with ONLY a JSON object:
 {
   "section_title": "exact section title unchanged",
@@ -295,6 +297,8 @@ STEP 2 — LITERAL COMPLIANCE: Compare the request word-for-word against the doc
 - User said "2 options"? Count the options.
 - User specified a format? Verify it matches exactly.
 These are not judgment calls. Count. Measure. Compare. A mismatch here is an automatic rejection.
+
+WORD COUNT TOLERANCE: Apply a 5% band. A 750-word limit passes anything under 788 words. Only reject for word count if significantly over — rounding noise is not a failure. Save rejections for real quality issues.
 
 STEP 3 — WHOLE-DOCUMENT COHERENCE: Read across sections, not just within them:
 - Does the beginning set up what the middle delivers?
