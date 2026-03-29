@@ -23,14 +23,14 @@ import { sleep } from './tickers.js'
 const OFFSETS = {
   marcus: [[-1.2, 1.5], [0, 1.8], [1.2, 1.5]],
   james:  [[-1.2, 1.5], [0, 1.8], [1.2, 1.5]],
-  alyssa: [[-1.2, 1.5], [0, 1.8], [1.2, 1.5]]
+  sarah:  [[-1.2, 1.5], [0, 1.8], [1.2, 1.5]]
 }
 
 // Lighter tints of each character's primary color
 const TINT = {
   marcus: 0x72B890,
   james:  0x8A8A8A,
-  alyssa: 0xA06070,
+  sarah:  0xA06070,
   delma:  0x5A8AB0
 }
 

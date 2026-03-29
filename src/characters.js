@@ -28,9 +28,9 @@ const DEFS = {
     cameraRotY:  -Math.PI / 2,
     distanceOpacity: 0.90
   },
-  alyssa: {
+  sarah: {
     // Across from James + Marcus — profile to camera
-    name: 'Alyssa', role: 'Architect',
+    name: 'Sarah', role: 'Architect',
     colorHex: '#6B2D3D', colorInt: 0x6B2D3D,
     skinInt: 0xBF8060,   hairInt: 0x0D0808,   pantsInt: 0x201018,
     homeX: 0.2,  homeZ: -12,
