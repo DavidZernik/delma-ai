@@ -124,7 +124,9 @@ export async function runChain(query, chars, opts = {}) {
         }
       }
       steps.push(logStep(3, 'Delma', 'Delma', s3.log_summary, stepStart))
-      approvedArch = s3.approved_architecture || s2
+      // Preserve shared_context from Alyssa's architecture even if Delma corrects subjects/fields
+      const base = s3.approved_architecture || s2
+      approvedArch = { ...base, shared_context: base.shared_context || s2.shared_context }
     } else {
       console.log('[chain] needs_arch_review=false — skipping step 3')
     }
@@ -160,6 +162,8 @@ export async function runChain(query, chars, opts = {}) {
           deliverable: s1.task_spec.deliverable,
           key_constraints: s1.task_spec.key_constraints
         },
+        shared_context: cappedArch.shared_context || '',
+        all_sections: cappedArch.subjects,
         section_title: subject,
         fields_to_cover: cappedArch.data_fields
       },
@@ -195,17 +199,12 @@ export async function runChain(query, chars, opts = {}) {
   marcus.stopWorking(); alyssa.stopWorking(); james.stopWorking()
 
   const validSections = sectionResults.filter(Boolean)
-  finalDocument = validSections
-    .map(s => `## ${s.section_title}\n\n${s.content}`)
-    .join('\n\n')
 
   for (const s of validSections) {
     corrections += (s.checks || []).filter(c => c.correction).length
   }
   improvements = validSections.length
 
-  const step4summary = `${validSections.length}/${cappedArch.subjects.length} sections — Marcus wrote, Alyssa improved, James validated in parallel`
-  console.log('[chain] step 4 done —', step4summary)
   for (const s of validSections) {
     if (s.log_summary) {
       console.log(`  [ticker:James] ${s.log_summary}`)
@@ -213,6 +212,35 @@ export async function runChain(query, chars, opts = {}) {
       await sleep(40)
     }
   }
+
+  // ── Marcus assembly: stitch sections into one coherent document ────────────
+  marcus.startWorking()
+  console.log('[chain] step 4b — Marcus assembly pass')
+  const assemblyResult = await withWorking(marcus,
+    ['reading across sections...', 'checking coherence...', 'assembling...'],
+    P.MARCUS_ASSEMBLE,
+    {
+      task_spec: { objective: s1.task_spec.objective, deliverable: s1.task_spec.deliverable },
+      shared_context: cappedArch.shared_context || '',
+      sections: validSections.map(s => ({ section_title: s.section_title, content: s.content }))
+    }
+  )
+  marcus.stopWorking()
+
+  finalDocument = assemblyResult?.document
+    || validSections.map(s => `## ${s.section_title}\n\n${s.content}`).join('\n\n')
+
+  if (assemblyResult?.coherence_fixes?.length) {
+    for (const fix of assemblyResult.coherence_fixes) {
+      console.log(`  [ticker:Marcus] ↳ ${fix}`)
+      await showLine(marcus.tickerEl, `↳ ${fix}`, 1000, marcus.def.distanceOpacity)
+      await sleep(50)
+    }
+  }
+  console.log('[chain] step 4b done —', assemblyResult?.log_summary)
+  await showLine(marcus.tickerEl, assemblyResult?.log_summary || 'assembled', 1200, marcus.def.distanceOpacity)
+
+  const step4summary = `${validSections.length}/${cappedArch.subjects.length} sections — Marcus wrote, Alyssa improved, James validated in parallel`
   steps.push(logStep(4, 'Delma', 'Team', step4summary, stepStart))
   await handoff.send(marcus, delma)
 
