@@ -10,7 +10,7 @@ const DEFS = {
   delma: {
     name: 'Delma', role: 'Coordinator',
     colorHex: '#1B3A5C', colorInt: 0x1B3A5C,
-    skinInt: 0xD4956A,   hairInt: 0x2C1A0E,   pantsInt: 0x2A3040,
+    skinInt: 0xD4956A,   pantsInt: 0x2A3040,
     homeX: 0,    homeZ: -3.5,
     homeRotY:    0,
     deskRotY:    Math.PI,
@@ -21,7 +21,7 @@ const DEFS = {
     // Right side of the back row — profile to camera
     name: 'Marcus', role: 'Producer',
     colorHex: '#2D5A3D', colorInt: 0x2D5A3D,
-    skinInt: 0xC68642,   hairInt: 0x111111,   pantsInt: 0x1C2820,
+    skinInt: 0xC68642,   pantsInt: 0x1C2820,
     homeX: 1.0,  homeZ: -9,
     homeRotY:    -Math.PI / 2,
     deskRotY:    Math.PI,
@@ -32,7 +32,7 @@ const DEFS = {
     // Across from James + Marcus — profile to camera
     name: 'Sarah', role: 'Architect',
     colorHex: '#6B2D3D', colorInt: 0x6B2D3D,
-    skinInt: 0xBF8060,   hairInt: 0x0D0808,   pantsInt: 0x201018,
+    skinInt: 0xBF8060,   pantsInt: 0x201018,
     homeX: 0.2,  homeZ: -12,
     homeRotY:    -Math.PI / 2,
     deskRotY:    0,
@@ -43,7 +43,7 @@ const DEFS = {
     // Left side of the back row — profile to camera
     name: 'James', role: 'Validator',
     colorHex: '#4A4A4A', colorInt: 0x4A4A4A,
-    skinInt: 0xDBA07A,   hairInt: 0x777070,   pantsInt: 0x1A1A22,
+    skinInt: 0xDBA07A,   pantsInt: 0x1A1A22,
     homeX: -0.6, homeZ: -9,
     homeRotY:    -Math.PI / 2,
     deskRotY:    Math.PI,
@@ -68,9 +68,6 @@ function buildCharacter(scene, def) {
   const skinMat  = new THREE.MeshLambertMaterial({ color: def.skinInt })
   const torsoMat = new THREE.MeshLambertMaterial({ color: def.colorInt })
   const pantsMat = new THREE.MeshLambertMaterial({ color: def.pantsInt })
-  const hairMat  = new THREE.MeshLambertMaterial({ color: def.hairInt })
-  const eyeWhite = new THREE.MeshLambertMaterial({ color: 0xF5F5F0 })
-  const pupilMat = new THREE.MeshLambertMaterial({ color: 0x111111 })
 
   // ── Head pivot (rotates independently for head tracking) ──
   const headPivot = new THREE.Group()
@@ -82,66 +79,6 @@ function buildCharacter(scene, def) {
   head.castShadow = true
   headPivot.add(head)
 
-  // Hair — top hemisphere
-  const hair = new THREE.Mesh(
-    new THREE.SphereGeometry(0.149, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.52),
-    hairMat
-  )
-  hair.position.y = 0.01
-  headPivot.add(hair)
-
-  // Eyes — white sclera
-  const eyeGeo = new THREE.SphereGeometry(0.034, 8, 6)
-  const lEye = new THREE.Mesh(eyeGeo, eyeWhite)
-  lEye.position.set(-0.048, 0.03, 0.122)
-  headPivot.add(lEye)
-  const rEye = new THREE.Mesh(eyeGeo, eyeWhite)
-  rEye.position.set(0.048, 0.03, 0.122)
-  headPivot.add(rEye)
-
-  // Pupils
-  const pupilGeo = new THREE.SphereGeometry(0.018, 6, 6)
-  const lPupil = new THREE.Mesh(pupilGeo, pupilMat)
-  lPupil.position.set(-0.048, 0.03, 0.139)
-  headPivot.add(lPupil)
-  const rPupil = new THREE.Mesh(pupilGeo, pupilMat)
-  rPupil.position.set(0.048, 0.03, 0.139)
-  headPivot.add(rPupil)
-
-  // Iris tint
-  const irisMat = new THREE.MeshLambertMaterial({ color: def.colorInt })
-  const lIris = new THREE.Mesh(new THREE.SphereGeometry(0.024, 6, 6), irisMat)
-  lIris.position.set(-0.048, 0.03, 0.133)
-  headPivot.add(lIris)
-  const rIris = new THREE.Mesh(new THREE.SphereGeometry(0.024, 6, 6), irisMat)
-  rIris.position.set(0.048, 0.03, 0.133)
-  headPivot.add(rIris)
-
-  // Eyebrows
-  const browMat = new THREE.MeshLambertMaterial({ color: def.hairInt })
-  const browGeo = new THREE.BoxGeometry(0.05, 0.01, 0.012)
-  const lBrow = new THREE.Mesh(browGeo, browMat)
-  lBrow.position.set(-0.048, 0.072, 0.125)
-  lBrow.rotation.z = 0.08
-  headPivot.add(lBrow)
-  const rBrow = new THREE.Mesh(browGeo, browMat)
-  rBrow.position.set(0.048, 0.072, 0.125)
-  rBrow.rotation.z = -0.08
-  headPivot.add(rBrow)
-
-  // Nose
-  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.018, 6, 5), skinMat)
-  nose.position.set(0, -0.01, 0.138)
-  nose.scale.set(1, 0.7, 0.8)
-  headPivot.add(nose)
-
-  // Mouth
-  const mouthMat = new THREE.MeshLambertMaterial({ color: 0x8B4040 })
-  const mouthGeo = new THREE.TorusGeometry(0.022, 0.007, 4, 10, Math.PI)
-  const mouth = new THREE.Mesh(mouthGeo, mouthMat)
-  mouth.position.set(0, -0.048, 0.126)
-  mouth.rotation.x = 0.4
-  headPivot.add(mouth)
 
   // Neck
   const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.065, 0.12, 10), skinMat)
