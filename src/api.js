@@ -7,7 +7,7 @@ export const SONNET = 'claude-sonnet-4-20250514'
 export const HAIKU  = 'claude-haiku-4-5-20251001'
 
 // Timeout per model tier
-const TIMEOUT_MS = { [HAIKU]: 55000, [SONNET]: 55000 }
+const TIMEOUT_MS = { [HAIKU]: 55000, [SONNET]: 120000 }
 // Max tokens per model tier
 const MAX_TOKENS = { [HAIKU]: 6000, [SONNET]: 8000 }
 

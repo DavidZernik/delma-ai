@@ -231,6 +231,8 @@ export async function runChain(query, chars, opts = {}) {
   // ── Marcus assembly: stitch sections into one coherent document ────────────
   marcus.startWorking()
   console.log('[chain] step 4b — Marcus assembly pass')
+  // Complex tasks use Sonnet for assembly — faster at generating large outputs
+  const assemblyModel = skipSarah ? HAIKU : SONNET
   const assemblyResult = await withWorking(marcus,
     ['reading across sections...', 'checking coherence...', 'assembling...'],
     P.MARCUS_ASSEMBLE,
@@ -239,7 +241,7 @@ export async function runChain(query, chars, opts = {}) {
       shared_context: cappedArch.shared_context || '',
       sections: validSections.map(s => ({ section_title: s.section_title, content: s.content }))
     },
-    HAIKU, 12000
+    assemblyModel, 12000
   )
   marcus.stopWorking()
 
