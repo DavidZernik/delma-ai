@@ -35,7 +35,7 @@
       bottom: 32px;
       left: 50%;
       transform: translateX(-50%);
-      width: min(560px, 88%);
+      width: min(480px, 88%);
       z-index: 100;
       display: flex;
       flex-direction: column;
@@ -105,64 +105,6 @@
       letter-spacing: 0.03em;
     }
 
-    /* ── Result panel ────────────────────────────── */
-    #result-panel {
-      position: absolute;
-      inset: 0;
-      background: #0D1117;
-      z-index: 50;
-      display: flex;
-      flex-direction: column;
-      transform: translateY(100%);
-      transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
-      pointer-events: none;
-    }
-    #result-panel.visible {
-      transform: translateY(0);
-      pointer-events: auto;
-    }
-    #result-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 20px 24px 14px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
-      flex-shrink: 0;
-    }
-    #result-title {
-      font-size: 12px;
-      font-weight: 600;
-      color: rgba(255, 255, 255, 0.5);
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-    #result-close {
-      background: none;
-      border: none;
-      color: rgba(255, 255, 255, 0.35);
-      font-size: 20px;
-      cursor: pointer;
-      line-height: 1;
-      padding: 0 2px;
-      transition: color 0.15s;
-    }
-    #result-close:hover { color: rgba(255, 255, 255, 0.75); }
-    #result-body {
-      flex: 1;
-      overflow-y: auto;
-      padding: 24px 28px 100px;
-      font-size: 15px;
-      line-height: 1.75;
-      color: rgba(255, 255, 255, 0.85);
-      white-space: pre-wrap;
-      word-break: break-word;
-      scrollbar-width: thin;
-      scrollbar-color: rgba(255,255,255,0.1) transparent;
-    }
-    #result-body::-webkit-scrollbar { width: 4px; }
-    #result-body::-webkit-scrollbar-track { background: transparent; }
-    #result-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
-
     /* ── CSS2D labels ────────────────────────────── */
     .char-label {
       display: flex;
@@ -207,8 +149,8 @@
       box-shadow: 0 3px 16px rgba(0, 0, 0, 0.16);
     }
 
-    /* ── Right panel — comparison ───────────────── */
-    #right {
+    /* ── Shared styles for middle + right panels ── */
+    .output-panel {
       flex: 1;
       height: 100vh;
       background: #0D1117;
@@ -218,13 +160,13 @@
       overflow: hidden;
     }
 
-    #comp-header {
-      padding: 28px 28px 16px;
+    .panel-header {
+      padding: 28px 24px 16px;
       border-bottom: 1px solid rgba(255, 255, 255, 0.06);
       flex-shrink: 0;
     }
 
-    #comp-title {
+    .panel-title {
       font-size: 13px;
       font-weight: 600;
       color: rgba(255, 255, 255, 0.85);
@@ -232,25 +174,25 @@
       text-transform: uppercase;
     }
 
-    #comp-subtitle {
+    .panel-subtitle {
       font-size: 12px;
       color: rgba(255, 255, 255, 0.35);
       margin-top: 3px;
       letter-spacing: 0.02em;
     }
 
-    #comp-status {
+    .panel-status {
       display: flex;
       align-items: center;
       gap: 7px;
       font-size: 12px;
       color: rgba(255, 255, 255, 0.4);
-      padding: 14px 28px 0;
+      padding: 14px 24px 0;
       flex-shrink: 0;
       min-height: 36px;
     }
 
-    #comp-status.active { color: #5B9BD5; }
+    .panel-status.active { color: #5B9BD5; }
 
     .comp-dot {
       display: inline-block;
@@ -268,10 +210,10 @@
       50%       { opacity: 0.4; transform: scale(0.85); }
     }
 
-    #comp-body {
+    .panel-body {
       flex: 1;
       overflow-y: auto;
-      padding: 16px 28px 24px;
+      padding: 16px 24px 24px;
       font-size: 14px;
       line-height: 1.72;
       color: rgba(255, 255, 255, 0.72);
@@ -281,12 +223,12 @@
       scrollbar-color: rgba(255,255,255,0.1) transparent;
     }
 
-    #comp-body::-webkit-scrollbar { width: 4px; }
-    #comp-body::-webkit-scrollbar-track { background: transparent; }
-    #comp-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+    .panel-body::-webkit-scrollbar { width: 4px; }
+    .panel-body::-webkit-scrollbar-track { background: transparent; }
+    .panel-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
 
-    #comp-footer {
-      padding: 12px 28px 20px;
+    .panel-footer {
+      padding: 12px 24px 20px;
       border-top: 1px solid rgba(255, 255, 255, 0.06);
       flex-shrink: 0;
       display: flex;
@@ -294,13 +236,13 @@
       justify-content: space-between;
     }
 
-    #comp-time {
+    .panel-time {
       font-size: 11px;
       color: rgba(255, 255, 255, 0.25);
       letter-spacing: 0.04em;
     }
 
-    #comp-label {
+    .panel-label {
       font-size: 10px;
       color: rgba(255, 255, 255, 0.18);
       letter-spacing: 0.06em;
@@ -313,13 +255,6 @@
   <!-- Left: 3D office -->
   <div id="left">
     <div id="canvas-container"></div>
-    <div id="result-panel">
-      <div id="result-header">
-        <span id="result-title">Result</span>
-        <button id="result-close">&#x2715;</button>
-      </div>
-      <div id="result-body"></div>
-    </div>
     <div id="input-area">
       <div id="input-bar">
         <input id="input" type="text" placeholder="What can we help you with?" autocomplete="off" spellcheck="false" />
@@ -330,17 +265,31 @@
     </div>
   </div>
 
-  <!-- Right: single-agent comparison -->
-  <div id="right">
-    <div id="comp-header">
-      <div id="comp-title">Single Claude vs Team</div>
-      <div id="comp-subtitle">Right panel: single Opus call (top) · Team deliverable (below) · Chain log (bottom)</div>
+  <!-- Middle: single Claude output -->
+  <div id="claude-panel" class="output-panel">
+    <div class="panel-header">
+      <div class="panel-title">Single Claude</div>
+      <div class="panel-subtitle">Single Opus call</div>
     </div>
-    <div id="comp-status">Waiting for input...</div>
-    <div id="comp-body"></div>
-    <div id="comp-footer">
-      <span id="comp-time"></span>
-      <span id="comp-label">Claude Opus 4.5</span>
+    <div id="claude-status" class="panel-status">Waiting for input...</div>
+    <div id="claude-body" class="panel-body"></div>
+    <div class="panel-footer">
+      <span id="claude-time" class="panel-time"></span>
+      <span class="panel-label">Claude Opus 4.5</span>
+    </div>
+  </div>
+
+  <!-- Right: Delma team output -->
+  <div id="delma-panel" class="output-panel">
+    <div class="panel-header">
+      <div class="panel-title">Delma Team</div>
+      <div class="panel-subtitle">Team deliverable · Chain log</div>
+    </div>
+    <div id="delma-status" class="panel-status">Waiting for input...</div>
+    <div id="delma-body" class="panel-body"></div>
+    <div class="panel-footer">
+      <span id="delma-time" class="panel-time"></span>
+      <span class="panel-label">Multi-agent</span>
     </div>
   </div>
 

@@ -4,10 +4,10 @@
 
 import { SINGLE_CLAUDE } from './prompts.js'
 
-export async function runComparison(query, panelEl) {
-  const statusEl = panelEl.querySelector('#comp-status')
-  const bodyEl   = panelEl.querySelector('#comp-body')
-  const timeEl   = panelEl.querySelector('#comp-time')
+export async function runComparison(query) {
+  const statusEl = document.getElementById('claude-status')
+  const bodyEl   = document.getElementById('claude-body')
+  const timeEl   = document.getElementById('claude-time')
 
   statusEl.innerHTML = '<span class="comp-dot"></span> Thinking...'
   statusEl.classList.add('active')

@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRenderer.js'
 
-export const LEFT_FRAC = 0.62
+export const LEFT_FRAC = 0.40
 
 export function initScene() {
   const scene = new THREE.Scene()

@@ -17,33 +17,30 @@ const input       = document.getElementById('input')
 const sendBtn     = document.getElementById('send-btn')
 const suggestion  = document.getElementById('suggestion')
 const summary     = document.getElementById('summary')
-const rightPanel  = document.getElementById('right')
-const resultPanel = document.getElementById('result-panel')
-const resultBody  = document.getElementById('result-body')
-const resultClose = document.getElementById('result-close')
+const delmaStatus = document.getElementById('delma-status')
+const delmaBody   = document.getElementById('delma-body')
+const delmaTime   = document.getElementById('delma-time')
 
 let isRunning = false
 let checkpointResolve = null
 
-// ── Checkpoint handler — called by chain when Sarah needs user confirmation ──
+// ── Checkpoint handler ────────────────────────────────────────────────────
 function makeCheckpointHandler() {
   return (framing) => new Promise(resolve => {
     checkpointResolve = resolve
-    // Pause visually — re-enable input for user response
     input.disabled = false
     input.value = ''
     input.placeholder = 'Press Enter to confirm, or type a correction...'
     sendBtn.disabled = false
     suggestion.textContent = `Sarah's framing: "${framing}"`
     suggestion.style.opacity = '1'
-    suggestion.style.pointerEvents = 'none'  // just display, not clickable
+    suggestion.style.pointerEvents = 'none'
     input.focus()
   })
 }
 
 // ── Submit ────────────────────────────────────────────────────────────────
 async function handleSubmit() {
-  // If we're in checkpoint mode, resolve it
   if (checkpointResolve) {
     const userInput = input.value.trim()
     const resolve = checkpointResolve
@@ -53,7 +50,7 @@ async function handleSubmit() {
     sendBtn.disabled = true
     suggestion.style.opacity = '0'
     suggestion.textContent = ''
-    resolve(userInput || null)  // null = confirmed, string = adjustment
+    resolve(userInput || null)
     return
   }
 
@@ -64,16 +61,21 @@ async function handleSubmit() {
   suggestion.style.opacity = '0'
   suggestion.style.pointerEvents = 'none'
   summary.style.opacity = '0'
-  resultPanel.classList.remove('visible')
-  resultBody.textContent = ''
+
+  // Reset delma panel
+  delmaStatus.textContent = 'Working...'
+  delmaBody.textContent = ''
+  delmaTime.textContent = ''
 
   isRunning = true
   input.disabled = true
   input.placeholder = 'Working on it...'
   sendBtn.disabled = true
 
-  // Fire both in parallel — comparison and agent chain
-  const compPromise = runComparison(query, rightPanel)
+  const t0 = Date.now()
+
+  // Fire both in parallel
+  const compPromise = runComparison(query)
 
   try {
     const result = await runChain(query, characters, {
@@ -83,6 +85,10 @@ async function handleSubmit() {
     if (result.finalContent) renderDeliverable(result.finalContent)
     renderLog(result.steps, result.duration)
 
+    const elapsed = ((Date.now() - t0) / 1000).toFixed(1)
+    delmaStatus.innerHTML = '<span class="comp-done">&#10003;</span> Complete'
+    delmaTime.textContent = `${elapsed}s · ${result.steps.length} steps`
+
     await new Promise(r => setTimeout(r, 2000))
     summary.textContent =
       `${result.steps.length} steps · ${result.corrections} corrections · ${result.improvements} improvements · ${result.duration}s`
@@ -90,6 +96,7 @@ async function handleSubmit() {
 
   } catch (err) {
     console.error('Chain failed:', err)
+    delmaStatus.textContent = 'Error'
     const { delma } = characters
     delma.faceCamera()
     delma.tickerEl.innerHTML = 'Having trouble completing this task. Please try again.'
@@ -108,27 +115,13 @@ async function handleSubmit() {
   await compPromise
 }
 
-// ── Deliverable renderer ──────────────────────────────────────────────────
+// ── Delma panel renderers ─────────────────────────────────────────────────
 function renderDeliverable(content) {
-  // Show in the left-panel result overlay
-  resultBody.textContent = content
-  resultBody.scrollTop = 0
-  resultPanel.classList.add('visible')
-
-  // Also append to the right comparison panel
-  const bodyEl = document.getElementById('comp-body')
-  const divider = '\n\n' + '═'.repeat(36) + '\n  TEAM DELIVERABLE\n' + '═'.repeat(36) + '\n\n'
-  bodyEl.textContent += divider + content
-  bodyEl.scrollTop = bodyEl.scrollHeight
+  delmaBody.textContent = content
+  delmaBody.scrollTop = 0
 }
 
-resultClose.addEventListener('click', () => {
-  resultPanel.classList.remove('visible')
-})
-
-// ── Log renderer ──────────────────────────────────────────────────────────
 function renderLog(steps, totalSeconds) {
-  const bodyEl = document.getElementById('comp-body')
   const divider = '\n\n' + '─'.repeat(36) + '\n  Chain Log\n' + '─'.repeat(36) + '\n\n'
   let log = divider
   for (const s of steps) {
@@ -136,8 +129,8 @@ function renderLog(steps, totalSeconds) {
     log += `${s.summary}\n\n`
   }
   log += `Total: ${totalSeconds}s across ${steps.length} steps`
-  bodyEl.textContent += log
-  bodyEl.scrollTop = bodyEl.scrollHeight
+  delmaBody.textContent += log
+  delmaBody.scrollTop = delmaBody.scrollHeight
 }
 
 sendBtn.addEventListener('click', handleSubmit)
