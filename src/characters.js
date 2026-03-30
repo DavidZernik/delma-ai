@@ -100,36 +100,50 @@ function buildCharacter(scene, def, screenMesh) {
   group.add(torso)
 
   const upperArmGeo = new THREE.CylinderGeometry(0.055, 0.048, 0.32, 8)
+  const forearmGeo  = new THREE.CylinderGeometry(0.044, 0.038, 0.28, 8)
+  const handGeo     = new THREE.SphereGeometry(0.038, 6, 5)
+
+  // Left arm hierarchy: shoulderPivot → upperArm + elbowPivot → forearm + hand
+  const lShoulderPivot = new THREE.Group()
+  lShoulderPivot.position.set(-0.26, 1.32, 0)
+  lShoulderPivot.rotation.z = 0.45
+  lShoulderPivot.rotation.x = 0.25
+  group.add(lShoulderPivot)
   const lUpperArm = new THREE.Mesh(upperArmGeo, torsoMat)
-  lUpperArm.position.set(-0.235, 1.15, 0)
-  lUpperArm.rotation.z = 0.13
+  lUpperArm.position.set(0, -0.16, 0)
   lUpperArm.castShadow = true
-  group.add(lUpperArm)
-  const rUpperArm = new THREE.Mesh(upperArmGeo, torsoMat)
-  rUpperArm.position.set(0.235, 1.15, 0)
-  rUpperArm.rotation.z = -0.13
-  rUpperArm.castShadow = true
-  group.add(rUpperArm)
-
-  const forearmGeo = new THREE.CylinderGeometry(0.044, 0.038, 0.28, 8)
+  lShoulderPivot.add(lUpperArm)
+  const lElbowPivot = new THREE.Group()
+  lElbowPivot.position.set(0, -0.32, 0)
+  lElbowPivot.rotation.x = 0.85
+  lShoulderPivot.add(lElbowPivot)
   const lForearm = new THREE.Mesh(forearmGeo, skinMat)
-  lForearm.position.set(-0.265, 0.90, 0.04)
-  lForearm.rotation.z = 0.22
-  lForearm.rotation.x = 0.15
-  group.add(lForearm)
-  const rForearm = new THREE.Mesh(forearmGeo, skinMat)
-  rForearm.position.set(0.265, 0.90, 0.04)
-  rForearm.rotation.z = -0.22
-  rForearm.rotation.x = 0.15
-  group.add(rForearm)
-
-  const handGeo = new THREE.SphereGeometry(0.038, 6, 5)
+  lForearm.position.set(0, -0.14, 0)
+  lElbowPivot.add(lForearm)
   const lHand = new THREE.Mesh(handGeo, skinMat)
-  lHand.position.set(-0.29, 0.75, 0.08)
-  group.add(lHand)
+  lHand.position.set(0, -0.28, 0)
+  lElbowPivot.add(lHand)
+
+  // Right arm hierarchy
+  const rShoulderPivot = new THREE.Group()
+  rShoulderPivot.position.set(0.26, 1.32, 0)
+  rShoulderPivot.rotation.z = -0.45
+  rShoulderPivot.rotation.x = 0.25
+  group.add(rShoulderPivot)
+  const rUpperArm = new THREE.Mesh(upperArmGeo, torsoMat)
+  rUpperArm.position.set(0, -0.16, 0)
+  rUpperArm.castShadow = true
+  rShoulderPivot.add(rUpperArm)
+  const rElbowPivot = new THREE.Group()
+  rElbowPivot.position.set(0, -0.32, 0)
+  rElbowPivot.rotation.x = 0.85
+  rShoulderPivot.add(rElbowPivot)
+  const rForearm = new THREE.Mesh(forearmGeo, skinMat)
+  rForearm.position.set(0, -0.14, 0)
+  rElbowPivot.add(rForearm)
   const rHand = new THREE.Mesh(handGeo, skinMat)
-  rHand.position.set(0.29, 0.75, 0.08)
-  group.add(rHand)
+  rHand.position.set(0, -0.28, 0)
+  rElbowPivot.add(rHand)
 
   const legGeo = new THREE.CylinderGeometry(0.078, 0.072, 0.66, 10)
   const lLeg = new THREE.Mesh(legGeo, pantsMat)
@@ -207,7 +221,7 @@ function buildCharacter(scene, def, screenMesh) {
 
   // ── Animation state ───────────────────────────────
   const state = {
-    def, group, headPivot, torso, lForearm, rForearm, lLeg, rLeg, lShoe, rShoe,
+    def, group, headPivot, torso, lElbowPivot, rElbowPivot, lLeg, rLeg, lShoe, rShoe,
     tickerEl, tickerObj, spotLight, spotTarget, coneMesh, screenMesh, labelEl,
 
     _breathOffset: Math.random() * Math.PI * 2,
@@ -262,15 +276,11 @@ function buildCharacter(scene, def, screenMesh) {
       // ── Typing animation when working ───────────
       if (this._isWorking) {
         const phase = elapsed * 7 + this._breathOffset
-        this.lForearm.rotation.x = 0.55 + 0.1 * Math.sin(phase)
-        this.rForearm.rotation.x = 0.55 + 0.1 * Math.sin(phase + Math.PI * 0.7)
-        this.lForearm.rotation.z = 0.22
-        this.rForearm.rotation.z = -0.22
+        this.lElbowPivot.rotation.x = 0.85 + 0.1 * Math.sin(phase)
+        this.rElbowPivot.rotation.x = 0.85 + 0.1 * Math.sin(phase + Math.PI * 0.7)
       } else if (!this._isWalking) {
-        this.lForearm.rotation.x = 0.15
-        this.rForearm.rotation.x = 0.15
-        this.lForearm.rotation.z = 0.22
-        this.rForearm.rotation.z = -0.22
+        this.lElbowPivot.rotation.x = 0.85
+        this.rElbowPivot.rotation.x = 0.85
       }
 
       // ── Ceiling spotlight ─────────────────────────
