@@ -1,10 +1,12 @@
 # Delma
 
-**A multi-agent AI system modeled on how high-performing human organizations actually work.**
+**A multi-agent AI system built on organizational theory, not prompt engineering.**
 
 ## Thesis
 
 AI agents produce better outputs when they operate like a high-functioning small team — not because of specialization, but because of organizational design.
+
+Ethan Mollick put it well: ["agentic AI would work much better if people took lessons from organizational theory, which has actually spent a lot of time understanding how to deal with complex hierarchies, information limits, and spans of control."](https://x.com/emollick/status/2020303173362012667) Most agentic systems ignore this entirely. Delma is an attempt to take it seriously.
 
 The hypothesis: role discipline, ownership culture, opinion-first hierarchy, and independent QA authority are the variables that determine output quality. Not the number of agents. Not parallelism. The structure of how the team works.
 
@@ -30,6 +32,37 @@ The question is: does organizational design — borrowed from how small high-per
 
 That's the experiment.
 
+## Organizational Design Choices
+
+Mollick identifies three under-studied problems in agentic AI. Delma addresses all three directly:
+
+**Spans of control.** A human manager tops out at fewer than 10 direct reports. Delma has four. The coordinator never writes — she only coordinates. The team is small enough that every handoff is intentional and every role is accountable.
+
+**Boundary objects.** When agents pass raw text back and forth, meaning degrades. Delma uses structured handoffs: Delma briefs Sarah with a scoping summary, Sarah passes a structured architecture to Marcus, Marcus delivers a versioned document to James, James returns a structured quality assessment. Each boundary object is readable by the next agent in the chain without requiring the full prior context.
+
+**Coupling.** Most agentic systems are either too tightly coupled (every step needs approval, bottlenecked on orchestrator) or too loosely coupled (agents run in parallel with no shared context). Delma uses moderate coupling by design: sequential phases where judgment is needed (scoping, architecture, final check), parallel execution where production scales (section writing, per-section validation). The coupling loosens and tightens based on what the task actually requires.
+
+## Fixed Structure, Adaptive Execution
+
+The org chart doesn't change per request. James always validates. Delma always owns the outcome. Those are guardrails — the structure that makes the system trustworthy.
+
+What adapts is the sequence Delma assembles based on what the task actually needs. Delma reads the request and composes a pipeline from the team. Three sequences exist today:
+
+**Direct** — Simple production where the structure is obvious. Delma scopes it, Marcus writes the sections, James validates. Sarah doesn't enter. No coordination overhead when none is needed.
+> Delma → Marcus → James → Delma delivers
+
+**Strategic** — Tasks that need a judgment call before production starts. Sarah reads the full request, forms an opinion, and briefs Marcus on what to argue. Marcus supports her thesis; he doesn't form his own.
+> Delma → Sarah leads → Marcus + James in parallel → Delma delivers
+
+**Full** — Complex production where structure is genuinely ambiguous. Sarah designs the architecture before Marcus writes a word. Delma checks that Sarah's structure maps to what the user asked. Then Marcus writes, Sarah improves, and James validates — all per section, in parallel.
+> Delma → Sarah architects → (Delma validates) → Marcus + Sarah + James in parallel → Delma validates → James final → Delma delivers
+
+Two overlays apply to any sequence:
+- Web search runs after Delma's scoping when the task needs current data
+- If James rejects, Marcus revises and James re-checks — once, then it ships with concerns noted
+
+This is how real organizations work. The hierarchy is stable. Which team members touch a given project, and in what order, is a decision made in context — not a schedule set in advance.
+
 ## The Team
 
 - **Delma** — Coordinator. Scopes the request, sets the execution plan, routes to the right lead, owns the outcome.
@@ -39,14 +72,15 @@ That's the experiment.
 
 ## How It Works
 
-Every request runs the same coordination pattern:
+Delma reads the request and decides which sequence the team runs:
 
-1. Delma decomposes the request and routes it
-2. Sarah or Marcus leads based on whether the task needs judgment or production
-3. The team runs in parallel — Marcus writes sections, Sarah improves, James validates per section
-4. Marcus assembles a coherent document
-5. James runs a final release check
-6. Delma delivers
+1. Delma decomposes the request, sets the word budget, picks the sequence, and assigns models per agent
+2. If the task needs current data, web search runs before anyone else starts
+3. Sarah or Marcus leads depending on the sequence — or Sarah skips entirely on direct tasks
+4. The team runs in parallel where it can — Marcus writes sections, Sarah improves (where involved), James validates per section
+5. Marcus assembles the sections into one coherent document
+6. James runs a final release check; if he rejects, Marcus revises and James re-checks once
+7. Delma delivers
 
 The 3D office makes the coordination visible. You can watch who is working, who is waiting, and what is being handed off.
 
