@@ -23,12 +23,20 @@
 
 import * as THREE from 'three'
 import { callClaudeWithRetry, callSearch, SONNET, HAIKU, DEEPSEEK_V3 } from './api.js'
-import { showLine, workingTicker, iconFor, sleep } from './tickers.js'
+import { showLine, workingTicker, iconFor, sleep, setTicker } from './tickers.js'
 import { createHandoffSystem } from './handoff.js'
 import { runSingleNode } from './subagents.js'
 import * as P from './prompts.js'
 
 const CAMERA_POS = new THREE.Vector3(0.5, 3.5, -0.5)
+
+function setStage(text) {
+  const el = document.getElementById('stage-bar')
+  if (!el) return
+  if (!text) { el.classList.remove('active'); return }
+  el.textContent = text
+  el.classList.add('active')
+}
 
 // Cost mode: 'budget' routes agents to cheaper models by default.
 // Change to 'quality' to prefer Haiku/Sonnet.
@@ -68,6 +76,7 @@ export async function runChain(query, chars, opts = {}) {
   marcus.faceDesk(); sarah.faceDesk(); james.faceDesk()
 
   // ── Step 1: Delma — decompose ──────────────────────────────────────────────
+  setStage('Planning')
   delma.faceCamera()
   delma.setLookTarget(CAMERA_POS)
 
@@ -95,6 +104,7 @@ export async function runChain(query, chars, opts = {}) {
   let searchContext = ''
   if (s1.needs_search && s1.search_queries?.length) {
     console.log('[chain] step 1.5 — web search:', s1.search_queries)
+    setStage('Researching')
     delma.startWorking()
     await showLine(delma.tickerEl, 'searching the web...', 1200, delma.def.distanceOpacity)
 
@@ -134,6 +144,7 @@ export async function runChain(query, chars, opts = {}) {
     delma.faceCamera(); delma.setLookTarget(CAMERA_POS)
     sarah.faceDesk()
 
+    setStage('Strategic planning')
     console.log('[chain] step 2 — Sarah strategic lead')
     stepStart = Date.now()
     sarahLead = await withWorking(sarah,
@@ -175,6 +186,7 @@ export async function runChain(query, chars, opts = {}) {
     delma.faceCamera(); delma.setLookTarget(CAMERA_POS)
     sarah.faceDesk()
 
+    setStage('Architecture')
     console.log('[chain] step 2 — Sarah architecture')
     stepStart = Date.now()
     const s2 = await withWorking(sarah,
@@ -189,6 +201,7 @@ export async function runChain(query, chars, opts = {}) {
     await handoff.send(sarah, delma)
     approvedArch = s2
     if (routing.needs_arch_review !== false) {
+      setStage('Review')
       console.log('[chain] step 3 — Delma validate architecture')
       stepStart = Date.now()
       const s3 = await withWorking(delma,
@@ -225,6 +238,7 @@ export async function runChain(query, chars, opts = {}) {
   console.log('[chain] budget — word_budget:', wordBudget, '| sections:', sectionCount, '| per_section:', perSectionBudget)
 
   // ── Step 4: Parallel pipeline ──────────────────────────────────────────
+  setStage('Writing & validation')
   delma.faceCharacter(marcus)
   delma.setLookTarget(marcus)
   marcus.faceCharacter(delma)
@@ -276,6 +290,7 @@ export async function runChain(query, chars, opts = {}) {
           section_word_limit: perSectionBudget
         }
 
+    setTicker(marcus.tickerEl, `writing "${subject}"...`, marcus.def.distanceOpacity)
     const marcusResult = await runSingleNode(_scene, marcus, sectionIdx, {
       label: subject,
       systemPrompt: marcusPrompt,
@@ -286,6 +301,7 @@ export async function runChain(query, chars, opts = {}) {
 
     let afterSarah = marcusResult
     if (leadAgent === 'marcus' && !skipSarah) {
+      setTicker(sarah.tickerEl, `refining "${subject}"...`, sarah.def.distanceOpacity)
       const sarahResult = await runSingleNode(_scene, sarah, sectionIdx, {
         label: subject,
         systemPrompt: P.SARAH_SECTION_IMPROVE,
@@ -298,6 +314,7 @@ export async function runChain(query, chars, opts = {}) {
       afterSarah = sarahResult || marcusResult
     }
 
+    setTicker(james.tickerEl, `checking "${subject}"...`, james.def.distanceOpacity)
     const jamesResult = await runSingleNode(_scene, james, sectionIdx, {
       label: subject,
       systemPrompt: P.JAMES_SECTION_CHECK,
@@ -337,6 +354,7 @@ export async function runChain(query, chars, opts = {}) {
   }
 
   // ── Marcus assembly: stitch sections into one coherent document ────────────
+  setStage('Assembly')
   marcus.startWorking()
   console.log('[chain] step 4b — Marcus assembly pass')
   const assemblyResult = await withWorking(marcus,
@@ -375,6 +393,7 @@ export async function runChain(query, chars, opts = {}) {
   // ── Step 11: Delma — final format + validate (skipped for simple/sarah-led tasks) ────
   let s11 = null
   if (leadAgent === 'marcus' && !skipSarah) {
+    setStage('Final review')
     console.log('[chain] step 11 — Delma assemble + validate')
     stepStart = Date.now()
     s11 = await withWorking(delma,
@@ -405,6 +424,7 @@ export async function runChain(query, chars, opts = {}) {
   }
 
   // ── Step 12: James — final release ────────────────────────────────────────
+  setStage('Quality check')
   console.log('[chain] step 12 — James final release')
   stepStart = Date.now()
   const s12 = await withWorking(james,
@@ -428,6 +448,7 @@ export async function runChain(query, chars, opts = {}) {
   // ── Step 12b/12c: revision loop — fires once if James rejected ─────────────
   let finalJamesResult = s12
   if (s12.approved === false && s12.issues?.length) {
+    setStage('Revising')
     console.log('[chain] step 12b — Marcus revising based on James rejection')
     await handoff.send(james, marcus)
     marcus.startWorking()
@@ -469,6 +490,7 @@ export async function runChain(query, chars, opts = {}) {
   }
 
   // ── Step 13: Delma — deliver (display-only, no API call) ──────────────────
+  setStage('Delivering')
   console.log('[chain] step 13 — Delma deliver (display-only)')
   await handoff.send(james, delma)
   await delma.walkTo(delma.def.homeX, delma.def.homeZ)
@@ -503,6 +525,7 @@ export async function runChain(query, chars, opts = {}) {
     await sleep(80)
   }
   delma.tickerEl.classList.remove('delivery')
+  setStage(null)
   steps.push(logStep(13, 'Delma', 'User', deliveryLines[0] || 'delivered', stepStart))
 
   const duration = Math.round((Date.now() - t0) / 1000)

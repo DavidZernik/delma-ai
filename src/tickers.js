@@ -18,6 +18,20 @@ export function iconFor(status) {
 const FADE = 200  // ms for fade in/out
 
 /**
+ * Set ticker content persistently — fire-and-forget, no auto-fadeout.
+ * Safe to call from parallel async paths.
+ */
+export function setTicker(el, html, baseOpacity = 1.0) {
+  if (el._css2dObj) el._css2dObj.visible = true
+  el.style.transition = 'none'
+  el.style.opacity = '0'
+  el.innerHTML = html
+  void el.offsetHeight
+  el.style.transition = `opacity ${FADE}ms ease`
+  el.style.opacity = String(baseOpacity)
+}
+
+/**
  * Show a single line in the ticker.
  * Returns a promise that resolves when the fade-out completes.
  */

@@ -29,6 +29,31 @@
       height: 100%;
     }
 
+    #stage-bar {
+      position: absolute;
+      top: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(10, 12, 18, 0.72);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      color: rgba(255, 255, 255, 0.72);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 5px 16px;
+      border-radius: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      pointer-events: none;
+      user-select: none;
+      z-index: 10;
+      opacity: 0;
+      transition: opacity 500ms ease;
+      white-space: nowrap;
+    }
+    #stage-bar.active { opacity: 1; }
+
     /* ── CSS2D labels ────────────────────────────── */
     .char-label {
       display: flex;
@@ -337,7 +362,9 @@
 
   <!-- Left: 3D office -->
   <div id="left">
-    <div id="canvas-container"></div>
+    <div id="canvas-container">
+      <div id="stage-bar"></div>
+    </div>
   </div>
 
   <div id="right-side">
