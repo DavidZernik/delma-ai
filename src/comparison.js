@@ -1,13 +1,24 @@
 /**
- * comparison.js — Single-agent Claude call, streamed in real time.
+ * comparison.js — Direct model call, streamed in real time.
+ * Reads the selected model from #model-select and routes accordingly.
  */
 
 import { SINGLE_CLAUDE } from './prompts.js'
 
+const MODEL_LABELS = {
+  'claude-sonnet-4-20250514': 'Claude Sonnet',
+  'gpt-4o': 'GPT-4o'
+}
+
 export async function runComparison(query) {
-  const statusEl = document.getElementById('claude-status')
-  const bodyEl   = document.getElementById('claude-body')
-  const timeEl   = document.getElementById('claude-time')
+  const statusEl     = document.getElementById('claude-status')
+  const bodyEl       = document.getElementById('claude-body')
+  const timeEl       = document.getElementById('claude-time')
+  const labelEl      = document.getElementById('direct-model-label')
+  const modelSelect  = document.getElementById('model-select')
+  const model        = modelSelect?.value || 'claude-sonnet-4-20250514'
+
+  if (labelEl) labelEl.textContent = MODEL_LABELS[model] || model
 
   statusEl.innerHTML = '<span class="comp-dot"></span> Thinking...'
   statusEl.classList.add('active')
@@ -21,7 +32,7 @@ export async function runComparison(query) {
     response = await fetch('/api/chat-stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ system: SINGLE_CLAUDE, user: query })
+      body: JSON.stringify({ system: SINGLE_CLAUDE, user: query, model })
     })
   } catch (e) {
     statusEl.innerHTML = 'Error'
@@ -50,9 +61,8 @@ export async function runComparison(query) {
 
       buf += decoder.decode(value, { stream: true })
 
-      // SSE is newline-delimited — process complete lines
       const lines = buf.split('\n')
-      buf = lines.pop()   // keep the incomplete trailing chunk
+      buf = lines.pop()
 
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue

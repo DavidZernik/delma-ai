@@ -155,6 +155,7 @@ function buildCharacter(scene, def, screenMesh) {
   spotLight.position.set(def.homeX, 4.5, def.homeZ)
   spotLight.angle    = 0.4
   spotLight.penumbra = 0.3
+  spotLight.decay    = 0
   spotLight.castShadow = false
   scene.add(spotLight)
 

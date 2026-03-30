@@ -115,6 +115,7 @@ async function handleSubmit() {
   isRunning = false
   input.disabled = false
   input.placeholder = 'Ask a follow-up...'
+
   input.value = ''
   sendBtn.disabled = false
   input.focus()

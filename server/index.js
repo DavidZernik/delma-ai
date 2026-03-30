@@ -48,15 +48,80 @@ app.post('/api/chat', async (req, res) => {
 
 // ── Streaming endpoint for the comparison panel ──────────────────────────
 app.post('/api/chat-stream', async (req, res) => {
-  const { system, user } = req.body
-
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return res.status(500).json({ error: 'ANTHROPIC_API_KEY not set in .env' })
-  }
+  const { system, user, model = 'claude-sonnet-4-20250514' } = req.body
+  const isOpenAI = model.startsWith('gpt')
 
   res.setHeader('Content-Type', 'text/event-stream')
   res.setHeader('Cache-Control', 'no-cache')
   res.setHeader('Connection', 'keep-alive')
+
+  if (isOpenAI) {
+    if (!process.env.OPENAI_API_KEY) {
+      res.write(`data: ${JSON.stringify({ error: 'OPENAI_API_KEY not set in .env' })}\n\n`)
+      return res.end()
+    }
+
+    let upstream
+    try {
+      upstream = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 3000,
+          stream: true,
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: user }
+          ]
+        })
+      })
+    } catch (e) {
+      res.write(`data: ${JSON.stringify({ error: e.message })}\n\n`)
+      return res.end()
+    }
+
+    if (!upstream.ok) {
+      const text = await upstream.text()
+      res.write(`data: ${JSON.stringify({ error: text })}\n\n`)
+      return res.end()
+    }
+
+    // Translate OpenAI SSE → Anthropic SSE format so the client stays unchanged
+    const reader = upstream.body.getReader()
+    const dec = new TextDecoder()
+    let buf = ''
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += dec.decode(value, { stream: true })
+        const lines = buf.split('\n')
+        buf = lines.pop()
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const raw = line.slice(6).trim()
+          if (raw === '[DONE]') continue
+          let evt
+          try { evt = JSON.parse(raw) } catch { continue }
+          const text = evt.choices?.[0]?.delta?.content
+          if (text) {
+            res.write(`data: ${JSON.stringify({ type: 'content_block_delta', delta: { type: 'text_delta', text } })}\n\n`)
+          }
+        }
+      }
+    } catch (_) {}
+    return res.end()
+  }
+
+  // ── Anthropic streaming ───────────────────────────────────────────────────
+  if (!process.env.ANTHROPIC_API_KEY) {
+    res.write(`data: ${JSON.stringify({ error: 'ANTHROPIC_API_KEY not set in .env' })}\n\n`)
+    return res.end()
+  }
 
   let upstream
   try {
@@ -68,7 +133,7 @@ app.post('/api/chat-stream', async (req, res) => {
         'anthropic-version': '2023-06-01'
       },
       body: JSON.stringify({
-        model: 'claude-opus-4-5',
+        model,
         max_tokens: 3000,
         stream: true,
         system,
@@ -86,7 +151,7 @@ app.post('/api/chat-stream', async (req, res) => {
     return res.end()
   }
 
-  // Pipe SSE stream straight through to the client
+  // Pipe Anthropic SSE straight through
   const reader = upstream.body.getReader()
   const dec = new TextDecoder()
   try {
