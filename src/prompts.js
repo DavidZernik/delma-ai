@@ -35,7 +35,9 @@ DELIVERABLE CEILING: The deliverable field must include the word_budget ceiling.
 
 NEEDS_ARCH_REVIEW: Only relevant when lead_agent=marcus. Set false when Sarah's sections are predictable. Set true only for novel task types or unusually ambiguous structure.
 
-MODEL_JAMES decision: haiku = simple fidelity checks. sonnet = judgment-heavy: comparisons, high-stakes factual claims, strategy validation.
+MODEL_MARCUS decision: default deepseek. Use haiku when the task requires moderate writing quality. sonnet is almost never needed for production work.
+MODEL_SARAH decision: default deepseek. Use haiku when Sarah leads a judgment task or does complex architecture. sonnet only for the highest-stakes strategic calls.
+MODEL_JAMES decision: default haiku. sonnet for judgment-heavy: comparisons, high-stakes factual claims, strategy validation. deepseek for simple fidelity checks.
 
 Respond with ONLY a JSON object:
 {
@@ -55,7 +57,9 @@ Respond with ONLY a JSON object:
   "sarah_mandate": "if lead_agent=marcus and skip_sarah=false: what Sarah should design. Empty string otherwise.",
   "marcus_mandate": "what Marcus should produce — specific content or details to provide",
   "james_criteria": ["specific checks James must run — include literal compliance: count, format, length, word_budget"],
-  "model_james": "haiku|sonnet",
+  "model_marcus": "deepseek|haiku|sonnet — model Marcus uses for production. Default deepseek.",
+  "model_sarah": "deepseek|haiku|sonnet — model Sarah uses. Default deepseek. haiku for judgment/lead tasks.",
+  "model_james": "deepseek|haiku|sonnet — model James uses for validation. Default haiku. sonnet for judgment-heavy checks.",
   "briefing_to_sarah": "one sentence for Sarah — her strategic mandate (lead_agent=sarah) or architecture mandate (lead_agent=marcus, skip_sarah=false). Empty string if marcus-led and skip_sarah=true.",
   "needs_search": "bool — true if the task requires current real-world data: product comparisons, pricing, recent events, platform features, market data. false for creative writing, generic advice, historical facts, or anything that doesn't need external verification.",
   "search_queries": ["up to 3 specific search queries — only when needs_search=true. Be precise: 'email marketing platform pricing 2025' not 'email marketing'. Empty array if needs_search=false."],

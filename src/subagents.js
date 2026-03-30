@@ -153,7 +153,7 @@ export async function runSingleNode(scene, parentChar, offsetIdx, def) {
       def.systemPrompt,
       def.userMessage,
       () => { node.setLabel(`${def.label} (retrying...)`) },
-      HAIKU,
+      def.model || HAIKU,
       def.maxTokens
     )
     console.log(`  [node:${parentChar.def.name}:${offsetIdx}] done`)

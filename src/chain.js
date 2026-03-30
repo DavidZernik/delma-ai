@@ -22,7 +22,7 @@
  */
 
 import * as THREE from 'three'
-import { callClaudeWithRetry, callSearch, SONNET, HAIKU } from './api.js'
+import { callClaudeWithRetry, callSearch, SONNET, HAIKU, DEEPSEEK_V3 } from './api.js'
 import { showLine, workingTicker, iconFor, sleep } from './tickers.js'
 import { createHandoffSystem } from './handoff.js'
 import { runSingleNode } from './subagents.js'
@@ -30,8 +30,18 @@ import * as P from './prompts.js'
 
 const CAMERA_POS = new THREE.Vector3(0.5, 3.5, -0.5)
 
-// Default model per agent. James is overridden at runtime via jamesModel (haiku or sonnet).
-const MODEL = { Delma: HAIKU, Marcus: HAIKU, Sarah: HAIKU, James: HAIKU }
+// Cost mode: 'budget' routes agents to cheaper models by default.
+// Change to 'quality' to prefer Haiku/Sonnet.
+const COST_MODE = 'budget'
+const ROUTING_POLICY = {
+  budget:  'ROUTING POLICY: Default all agents to deepseek unless the task genuinely requires human-level judgment. Prefer cheaper models.',
+  quality: 'ROUTING POLICY: Prefer haiku for production tasks, sonnet for judgment-heavy tasks. Use deepseek for simple drafting.'
+}
+
+const MODEL_MAP = { deepseek: DEEPSEEK_V3, haiku: HAIKU, sonnet: SONNET }
+
+// Default model per agent (fallback if Delma doesn't specify).
+const MODEL = { Delma: HAIKU, Marcus: DEEPSEEK_V3, Sarah: DEEPSEEK_V3, James: HAIKU }
 
 // Token budgets per step role
 
@@ -63,18 +73,21 @@ export async function runChain(query, chars, opts = {}) {
 
   console.log('[chain] step 1 — Delma decompose')
   let stepStart = Date.now()
+  const delmaPrompt = ROUTING_POLICY[COST_MODE] + '\n\n' + P.DELMA_DECOMPOSE
   const s1 = await withWorking(delma,
     ['scoping the request...', 'mapping the task...', 'rating complexity...'],
-    P.DELMA_DECOMPOSE, query, HAIKU
+    delmaPrompt, query, HAIKU
   )
   console.log('[chain] step 1 done — complexity:', s1.complexity, '|', s1.log_summary)
   await displayWorking(delma, s1.working_steps, s1.log_summary)
   steps.push(logStep(1, 'User', 'Delma', s1.log_summary, stepStart))
 
-  const routing    = s1.routing || {}
-  const leadAgent  = s1.lead_agent === 'sarah' ? 'sarah' : 'marcus'
-  const skipSarah  = leadAgent === 'marcus' && s1.skip_sarah === true
-  const jamesModel = SONNET
+  const routing     = s1.routing || {}
+  const leadAgent   = s1.lead_agent === 'sarah' ? 'sarah' : 'marcus'
+  const skipSarah   = leadAgent === 'marcus' && s1.skip_sarah === true
+  const marcusModel = MODEL_MAP[s1.model_marcus] ?? DEEPSEEK_V3
+  const sarahModel  = MODEL_MAP[s1.model_sarah]  ?? DEEPSEEK_V3
+  const jamesModel  = MODEL_MAP[s1.model_james]  ?? HAIKU
   const wordBudget = s1.task_spec?.word_budget || 800
   console.log('[chain] plan — lead_agent:', leadAgent, '| skip_sarah:', skipSarah, '| model_james:', s1.model_james, '| word_budget:', wordBudget)
 
@@ -125,7 +138,7 @@ export async function runChain(query, chars, opts = {}) {
     stepStart = Date.now()
     sarahLead = await withWorking(sarah,
       ['reading the situation...', 'forming a position...', 'structuring the recommendation...'],
-      P.SARAH_LEAD, { task_spec: s1.task_spec, original_query: query, word_budget: wordBudget }, SONNET
+      P.SARAH_LEAD, { task_spec: s1.task_spec, original_query: query, word_budget: wordBudget }, sarahModel
     )
     console.log('[chain] step 2 done — recommendation:', sarahLead.recommendation, '|', sarahLead.log_summary)
     await displayWorking(sarah, sarahLead.working_steps, sarahLead.log_summary)
@@ -166,7 +179,7 @@ export async function runChain(query, chars, opts = {}) {
     stepStart = Date.now()
     const s2 = await withWorking(sarah,
       ['designing structure...', 'defining sections...', 'specifying output format...'],
-      P.SARAH_ARCHITECTURE, { ...s1.task_spec, word_budget: wordBudget }
+      P.SARAH_ARCHITECTURE, { ...s1.task_spec, word_budget: wordBudget }, sarahModel
     )
     console.log('[chain] step 2 done —', s2.log_summary)
     await displayWorking(sarah, s2.working_steps, s2.log_summary)
@@ -266,7 +279,8 @@ export async function runChain(query, chars, opts = {}) {
     const marcusResult = await runSingleNode(_scene, marcus, sectionIdx, {
       label: subject,
       systemPrompt: marcusPrompt,
-      userMessage: marcusMessage
+      userMessage: marcusMessage,
+      model: marcusModel
     })
     if (!marcusResult) return null
 
@@ -278,7 +292,8 @@ export async function runChain(query, chars, opts = {}) {
         userMessage: {
           task_spec: { objective: s1.task_spec.objective, key_constraints: s1.task_spec.key_constraints },
           section: marcusResult
-        }
+        },
+        model: sarahModel
       })
       afterSarah = sarahResult || marcusResult
     }
@@ -290,7 +305,8 @@ export async function runChain(query, chars, opts = {}) {
         task_spec: { objective: s1.task_spec.objective, key_constraints: s1.task_spec.key_constraints },
         james_criteria: s1.james_criteria,
         section: afterSarah
-      }
+      },
+      model: jamesModel
     })
     return jamesResult || afterSarah
   }
@@ -323,7 +339,6 @@ export async function runChain(query, chars, opts = {}) {
   // ── Marcus assembly: stitch sections into one coherent document ────────────
   marcus.startWorking()
   console.log('[chain] step 4b — Marcus assembly pass')
-  const assemblyModel = HAIKU
   const assemblyResult = await withWorking(marcus,
     ['reading across sections...', 'checking coherence...', 'assembling...'],
     P.MARCUS_ASSEMBLE,
@@ -332,7 +347,7 @@ export async function runChain(query, chars, opts = {}) {
       shared_context: cappedArch.shared_context || '',
       sections: validSections.map(s => ({ section_title: s.section_title, content: s.content }))
     },
-    assemblyModel, 12000
+    marcusModel, 12000
   )
   marcus.stopWorking()
 
@@ -421,7 +436,7 @@ export async function runChain(query, chars, opts = {}) {
       ['addressing James\'s feedback...', 'revising...'],
       P.MARCUS_REVISE,
       { document: finalDocument, issues: s12.issues },
-      HAIKU
+      marcusModel
     )
     marcus.stopWorking()
     console.log('[chain] step 12b done —', s12b?.log_summary)
