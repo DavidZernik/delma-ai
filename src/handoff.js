@@ -74,6 +74,24 @@ export function createHandoffSystem(scene) {
             mesh.visible = false
             mat.opacity = 1
             light.intensity = 0
+
+            // Dashed trail — builds the communication map over the chain run
+            const trailGeo = new THREE.BufferGeometry().setFromPoints([start.clone(), end.clone()])
+            const trailMat = new THREE.LineDashedMaterial({
+              color: 0xD4A853, transparent: true, opacity: 0, dashSize: 0.15, gapSize: 0.1
+            })
+            const trail = new THREE.Line(trailGeo, trailMat)
+            trail.computeLineDistances()
+            scene.add(trail)
+            ;(async () => {
+              for (let i = 0; i <= 10; i++) { trailMat.opacity = (i / 10) * 0.3; await new Promise(r => setTimeout(r, 30)) }
+              await new Promise(r => setTimeout(r, 4500))
+              for (let i = 10; i >= 0; i--) { trailMat.opacity = (i / 10) * 0.3; await new Promise(r => setTimeout(r, 40)) }
+              scene.remove(trail)
+              trailGeo.dispose()
+              trailMat.dispose()
+            })()
+
             resolve()
           }
         }

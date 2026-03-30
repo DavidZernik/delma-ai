@@ -1,8 +1,6 @@
 import * as THREE from 'three'
 import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js'
 
-const _identityQ = new THREE.Quaternion()
-
 // ── Character definitions ─────────────────────────────────────────────────
 // deskRotY:   rotation when seated at desk (faces -Z = into room)
 // cameraRotY: rotation when facing side camera at X=-4
@@ -18,7 +16,6 @@ const DEFS = {
     distanceOpacity: 1.0
   },
   marcus: {
-    // Right side of the back row — profile to camera
     name: 'Marcus', role: 'Producer',
     colorHex: '#2D5A3D', colorInt: 0x2D5A3D,
     skinInt: 0xC68642,   pantsInt: 0x1C2820,
@@ -29,7 +26,6 @@ const DEFS = {
     distanceOpacity: 0.90
   },
   sarah: {
-    // Across from James + Marcus — profile to camera
     name: 'Sarah', role: 'Architect',
     colorHex: '#6B2D3D', colorInt: 0x6B2D3D,
     skinInt: 0xBF8060,   pantsInt: 0x201018,
@@ -40,7 +36,6 @@ const DEFS = {
     distanceOpacity: 0.85
   },
   james: {
-    // Left side of the back row — profile to camera
     name: 'James', role: 'Validator',
     colorHex: '#4A4A4A', colorInt: 0x4A4A4A,
     skinInt: 0xDBA07A,   pantsInt: 0x1A1A22,
@@ -52,15 +47,20 @@ const DEFS = {
   }
 }
 
-export function createCharacters(scene) {
+// ── Module-level worker count for ambient dimming ─────────────────────────
+let _activeWorkers = 0
+let _sceneCtrl = null
+
+export function createCharacters(scene, sceneCtrl, screens) {
+  _sceneCtrl = sceneCtrl || null
   const out = {}
   for (const [key, def] of Object.entries(DEFS)) {
-    out[key] = buildCharacter(scene, def)
+    out[key] = buildCharacter(scene, def, screens?.[key] ?? null)
   }
   return out
 }
 
-function buildCharacter(scene, def) {
+function buildCharacter(scene, def, screenMesh) {
   const group = new THREE.Group()
   group.position.set(def.homeX, 0, def.homeZ)
   group.rotation.y = def.homeRotY
@@ -69,12 +69,13 @@ function buildCharacter(scene, def) {
   const torsoMat = new THREE.MeshLambertMaterial({ color: def.colorInt })
   const pantsMat = new THREE.MeshLambertMaterial({ color: def.pantsInt })
 
-  // Floor ring — glows when working
-  const ringMat = new THREE.MeshLambertMaterial({
-    color: def.colorInt, emissive: def.colorInt, emissiveIntensity: 0.8,
-    transparent: true, opacity: 0
-  })
-  const ring = new THREE.Mesh(new THREE.RingGeometry(0.28, 0.38, 32), ringMat)
+  // Floor ring — static subtle AO hint, always on
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.28, 0.38, 32),
+    new THREE.MeshLambertMaterial({
+      color: def.colorInt, transparent: true, opacity: 0.12
+    })
+  )
   ring.rotation.x = -Math.PI / 2
   ring.position.y = 0.01
   group.add(ring)
@@ -84,25 +85,20 @@ function buildCharacter(scene, def) {
   headPivot.position.y = 1.58
   group.add(headPivot)
 
-  // Head sphere
   const head = new THREE.Mesh(new THREE.SphereGeometry(0.145, 16, 12), skinMat)
   head.castShadow = true
   headPivot.add(head)
 
-
-  // Neck
   const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.065, 0.12, 10), skinMat)
   neck.position.y = 1.38
   neck.castShadow = true
   group.add(neck)
 
-  // Torso
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.54, 0.24), torsoMat)
   torso.position.y = 1.09
   torso.castShadow = true
   group.add(torso)
 
-  // Upper arms
   const upperArmGeo = new THREE.CylinderGeometry(0.055, 0.048, 0.32, 8)
   const lUpperArm = new THREE.Mesh(upperArmGeo, torsoMat)
   lUpperArm.position.set(-0.235, 1.15, 0)
@@ -115,7 +111,6 @@ function buildCharacter(scene, def) {
   rUpperArm.castShadow = true
   group.add(rUpperArm)
 
-  // Forearms
   const forearmGeo = new THREE.CylinderGeometry(0.044, 0.038, 0.28, 8)
   const lForearm = new THREE.Mesh(forearmGeo, skinMat)
   lForearm.position.set(-0.265, 0.90, 0.04)
@@ -128,7 +123,6 @@ function buildCharacter(scene, def) {
   rForearm.rotation.x = 0.15
   group.add(rForearm)
 
-  // Hands
   const handGeo = new THREE.SphereGeometry(0.038, 6, 5)
   const lHand = new THREE.Mesh(handGeo, skinMat)
   lHand.position.set(-0.29, 0.75, 0.08)
@@ -137,7 +131,6 @@ function buildCharacter(scene, def) {
   rHand.position.set(0.29, 0.75, 0.08)
   group.add(rHand)
 
-  // Legs
   const legGeo = new THREE.CylinderGeometry(0.078, 0.072, 0.66, 10)
   const lLeg = new THREE.Mesh(legGeo, pantsMat)
   lLeg.position.set(-0.10, 0.50, 0)
@@ -148,7 +141,6 @@ function buildCharacter(scene, def) {
   rLeg.castShadow = true
   group.add(rLeg)
 
-  // Shoes
   const shoeMat = new THREE.MeshLambertMaterial({ color: 0x1A1510 })
   const shoeGeo = new THREE.BoxGeometry(0.1, 0.06, 0.2)
   const lShoe = new THREE.Mesh(shoeGeo, shoeMat)
@@ -158,30 +150,18 @@ function buildCharacter(scene, def) {
   rShoe.position.set(0.10, 0.08, 0.03)
   group.add(rShoe)
 
-  // ── Role-color glow light (pulses when working) ───
-  const charLight = new THREE.PointLight(def.colorInt, 0, 3.5)
-  charLight.position.set(0, 2.1, 0)
-  group.add(charLight)
+  // ── Ceiling spotlight — role color, off when idle, lerps on when working ──
+  const spotLight = new THREE.SpotLight(def.colorInt, 0)
+  spotLight.position.set(def.homeX, 4.5, def.homeZ)
+  spotLight.angle    = 0.4
+  spotLight.penumbra = 0.3
+  spotLight.castShadow = false
+  scene.add(spotLight)
 
-  // ── Thinking dots (3 orbiting dots above head) ────
-  const dotMat = new THREE.MeshLambertMaterial({
-    color: def.colorInt,
-    emissive: def.colorInt,
-    emissiveIntensity: 0.6,
-    transparent: true,
-    opacity: 0
-  })
-  const dotGeo = new THREE.SphereGeometry(0.022, 6, 4)
-  const dotGroup = new THREE.Group()
-  dotGroup.position.y = 1.86
-  group.add(dotGroup)
-
-  const dots = [
-    new THREE.Mesh(dotGeo, dotMat.clone()),
-    new THREE.Mesh(dotGeo, dotMat.clone()),
-    new THREE.Mesh(dotGeo, dotMat.clone())
-  ]
-  for (const d of dots) dotGroup.add(d)
+  const spotTarget = new THREE.Object3D()
+  spotTarget.position.set(def.homeX, 1.2, def.homeZ)
+  scene.add(spotTarget)
+  spotLight.target = spotTarget
 
   // ── CSS2D name label ──────────────────────────────
   const labelEl = document.createElement('div')
@@ -200,6 +180,8 @@ function buildCharacter(scene, def) {
   tickerEl.style.opacity = '0'
   const tickerObj = new CSS2DObject(tickerEl)
   tickerObj.position.set(0, 2.32, 0)
+  tickerObj.visible = false
+  tickerEl._css2dObj = tickerObj
   group.add(tickerObj)
 
   scene.add(group)
@@ -207,7 +189,7 @@ function buildCharacter(scene, def) {
   // ── Animation state ───────────────────────────────
   const state = {
     def, group, headPivot, torso, lForearm, rForearm, lLeg, rLeg, lShoe, rShoe,
-    tickerEl, tickerObj, charLight, dots, ring, ringMat, labelEl,
+    tickerEl, tickerObj, spotLight, spotTarget, screenMesh, labelEl,
 
     _breathOffset: Math.random() * Math.PI * 2,
     _isWalking: false,
@@ -217,9 +199,8 @@ function buildCharacter(scene, def) {
     _headLookFn: null,
     _seatOffset: 0,
     _targetSeatOffset: 0,
-    _lightIntensity: 0,
-    _dotsAlpha: 0,
-    _ringAlpha: 0,
+    _spotIntensity: 0,
+    _torsoPitch: 0,
 
     update(elapsed) {
       // ── Seat offset lerp ─────────────────────────
@@ -245,7 +226,6 @@ function buildCharacter(scene, def) {
         if (t >= 1) {
           this.group.position.x = this._walkTargetPos.x
           this.group.position.z = this._walkTargetPos.z
-          // y managed by seatOffset
           this.lLeg.rotation.x = this.rLeg.rotation.x = 0
           this.lShoe.rotation.x = this.rShoe.rotation.x = 0
           this._isWalking = false
@@ -273,32 +253,26 @@ function buildCharacter(scene, def) {
         this.rForearm.rotation.z = -0.22
       }
 
-      // ── Glow light ───────────────────────────────
-      const targetIntensity = this._isWorking ? 0.8 : 0
-      this._lightIntensity += (targetIntensity - this._lightIntensity) * 0.05
-      const pulse = this._isWorking ? 0.15 * Math.sin(elapsed * 3.5 + this._breathOffset) : 0
-      this.charLight.intensity = Math.max(0, this._lightIntensity + pulse)
+      // ── Ceiling spotlight ─────────────────────────
+      const targetIntensity = this._isWorking ? 2.0 : 0
+      this._spotIntensity += (targetIntensity - this._spotIntensity) * 0.06
+      this.spotLight.intensity = this._spotIntensity
+      // Track character X/Z so spotlight follows Delma when she walks
+      this.spotLight.position.x  = this.group.position.x
+      this.spotLight.position.z  = this.group.position.z
+      this.spotTarget.position.x = this.group.position.x
+      this.spotTarget.position.z = this.group.position.z
 
-      // ── Floor ring ───────────────────────────────
-      const ringTarget = this._isWorking ? 0.55 : 0
-      this._ringAlpha += (ringTarget - this._ringAlpha) * 0.06
-      this.ringMat.opacity = this._ringAlpha
-      if (this._isWorking) {
-        const ringPulse = 0.15 * Math.sin(elapsed * 2.8 + this._breathOffset)
-        this.ringMat.emissiveIntensity = 0.8 + ringPulse
-      }
+      // ── Forward lean when working ─────────────────
+      const pitchTarget = this._isWorking ? 0.08 : 0
+      this._torsoPitch += (pitchTarget - this._torsoPitch) * 0.06
+      this.torso.rotation.x = this._torsoPitch
 
-      // ── Thinking dots ────────────────────────────
-      const dotTarget = this._isWorking ? 1 : 0
-      this._dotsAlpha += (dotTarget - this._dotsAlpha) * 0.08
-      const showDots = this._dotsAlpha > 0.02
-      for (let i = 0; i < 3; i++) {
-        this.dots[i].visible = showDots
-        if (showDots) {
-          this.dots[i].material.opacity = this._dotsAlpha
-          const angle = elapsed * 2.2 + (i * Math.PI * 2 / 3)
-          this.dots[i].position.set(Math.cos(angle) * 0.20, 0, Math.sin(angle) * 0.20)
-        }
+      // ── Screen glow ───────────────────────────────
+      if (this.screenMesh) {
+        const intensityTarget = this._isWorking ? 1.5 : 1.0
+        this.screenMesh.material.emissiveIntensity +=
+          (intensityTarget - this.screenMesh.material.emissiveIntensity) * 0.06
       }
 
       // ── Head tracking ────────────────────────────
@@ -328,7 +302,6 @@ function buildCharacter(scene, def) {
         const dist = Math.sqrt(dx * dx + dz * dz)
         if (dist < 0.05) { resolve(); return }
 
-        // Auto-stand before walking
         this._targetSeatOffset = 0
 
         this._walkStartPos  = this.group.position.clone()
@@ -375,10 +348,16 @@ function buildCharacter(scene, def) {
     startWorking() {
       this._isWorking = true
       this.labelEl.classList.add('char-label-active')
+      if (this.screenMesh) this.screenMesh.material.emissive.setHex(this.def.colorInt)
+      _activeWorkers++
+      if (_activeWorkers === 1 && _sceneCtrl) _sceneCtrl.setWorkMode(true)
     },
     stopWorking() {
       this._isWorking = false
       this.labelEl.classList.remove('char-label-active')
+      if (this.screenMesh) this.screenMesh.material.emissive.setHex(0x0A1835)
+      _activeWorkers = Math.max(0, _activeWorkers - 1)
+      if (_activeWorkers === 0 && _sceneCtrl) _sceneCtrl.setWorkMode(false)
     }
   }
 

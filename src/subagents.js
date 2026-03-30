@@ -83,6 +83,7 @@ function createNode(scene, parentChar, dx, dz) {
   tickerEl.style.padding = '4px 8px'
   const tickerObj = new CSS2DObject(tickerEl)
   tickerObj.position.set(0, 1.68, 0)
+  tickerObj.visible = false
   group.add(tickerObj)
 
   return {
@@ -101,6 +102,7 @@ function createNode(scene, parentChar, dx, dz) {
     },
 
     setLabel(html) {
+      tickerObj.visible = true
       tickerEl.innerHTML = html
       tickerEl.style.opacity = '0.92'
     },
@@ -109,6 +111,7 @@ function createNode(scene, parentChar, dx, dz) {
       // Brief emissive flash to signal completion
       sphereMat.emissiveIntensity = 1.0
       tickerEl.style.opacity = '0'
+      tickerObj.visible = false
       await sleep(280)
       sphereMat.emissiveIntensity = 0.45
     },

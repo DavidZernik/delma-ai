@@ -99,6 +99,42 @@ app.post('/api/chat-stream', async (req, res) => {
   res.end()
 })
 
+// ── Web search endpoint ───────────────────────────────────────────────────────
+app.post('/api/search', async (req, res) => {
+  const { query, count = 5 } = req.body
+
+  if (!process.env.BRAVE_API_KEY) {
+    return res.status(500).json({ error: 'BRAVE_API_KEY not set in .env' })
+  }
+
+  let response
+  try {
+    response = await fetch(
+      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${count}&result_filter=query`,
+      {
+        headers: {
+          'Accept': 'application/json',
+          'Accept-Encoding': 'gzip',
+          'X-Subscription-Token': process.env.BRAVE_API_KEY
+        }
+      }
+    )
+  } catch (e) {
+    return res.status(502).json({ error: 'Search request failed: ' + e.message })
+  }
+
+  if (!response.ok) {
+    const text = await response.text()
+    return res.status(response.status).json({ error: text })
+  }
+
+  const data = await response.json()
+  // LLM Context endpoint returns pre-chunked relevance-scored context — pass through directly
+  const context = data.query?.context
+    || (data.web?.results || []).slice(0, count).map(r => `${r.title}: ${r.description || ''}`).join('\n')
+  res.json({ context })
+})
+
 // Serve Vite build in production
 if (process.env.NODE_ENV === 'production') {
   const dist = join(__dirname, '../dist')

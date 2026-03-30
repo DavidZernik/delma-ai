@@ -57,6 +57,8 @@ Respond with ONLY a JSON object:
   "james_criteria": ["specific checks James must run — include literal compliance: count, format, length, word_budget"],
   "model_james": "haiku|sonnet",
   "briefing_to_sarah": "one sentence for Sarah — her strategic mandate (lead_agent=sarah) or architecture mandate (lead_agent=marcus, skip_sarah=false). Empty string if marcus-led and skip_sarah=true.",
+  "needs_search": "bool — true if the task requires current real-world data: product comparisons, pricing, recent events, platform features, market data. false for creative writing, generic advice, historical facts, or anything that doesn't need external verification.",
+  "search_queries": ["up to 3 specific search queries — only when needs_search=true. Be precise: 'email marketing platform pricing 2025' not 'email marketing'. Empty array if needs_search=false."],
   "routing": {
     "needs_arch_review": "bool — marcus-led only; default false"
   },

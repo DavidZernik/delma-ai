@@ -32,7 +32,8 @@ export function initScene() {
   document.getElementById('canvas-container').appendChild(css2dRenderer.domElement)
 
   // ── Lighting ─────────────────────────────────────
-  scene.add(new THREE.AmbientLight(0xFFF5E8, 0.70))
+  const ambientLight = new THREE.AmbientLight(0xFFF5E8, 0.70)
+  scene.add(ambientLight)
 
   // Ceiling simulation — warm overhead
   const mainLight = new THREE.DirectionalLight(0xFFFAF0, 0.50)
@@ -55,10 +56,23 @@ export function initScene() {
   scene.add(fillLight.target)
 
   // ── Room ─────────────────────────────────────────
-  buildRoom(scene)
+  const screens = buildRoom(scene)
+
+  // ── Ambient dimming controller ────────────────────────────────────────
+  let _ambTarget = 0.70, _dirTarget = 0.50
+  const lightsController = {
+    setWorkMode(active) {
+      _ambTarget = active ? 0.25 : 0.70
+      _dirTarget = active ? 0.20 : 0.50
+    },
+    tick() {
+      ambientLight.intensity += (_ambTarget - ambientLight.intensity) * 0.05
+      mainLight.intensity    += (_dirTarget - mainLight.intensity)    * 0.05
+    }
+  }
 
   const clock = new THREE.Clock()
-  return { scene, camera, renderer, css2dRenderer, clock }
+  return { scene, camera, renderer, css2dRenderer, clock, lightsController, screens }
 }
 
 // ── Room ──────────────────────────────────────────────────────────────────
@@ -117,10 +131,12 @@ function buildRoom(scene) {
   addPendant(scene,  0,    ROOM_H, -16)    // Back fill
 
   // ── Furniture ────────────────────────────────────
-  addDesk(scene,  0,    -3.5,  2.4, true,  false)  // Sarah — reception
-  addDesk(scene, -0.6,  -9,    1.4, false, false)  // James — normal (faces -Z)
-  addDesk(scene,  1.0,  -9,    1.4, false, false)  // Marcus — normal (faces -Z)
-  addDesk(scene,  0.2,  -12,   1.4, false, true)   // Priya — reversed (faces +Z)
+  const screens = {
+    delma:  addDesk(scene,  0,    -3.5,  2.4, true,  false),
+    james:  addDesk(scene, -0.6,  -9,    1.4, false, false),
+    marcus: addDesk(scene,  1.0,  -9,    1.4, false, false),
+    sarah:  addDesk(scene,  0.2,  -12,   1.4, false, true)
+  }
 
   // Chairs
   addChair(scene, -0.6, -9,   false)  // James
@@ -148,6 +164,7 @@ function buildRoom(scene) {
 
   // ── Area rug ─────────────────────────────────────
   addRug(scene, 0.2, -10.5, 6.5, 9.5)
+  return screens
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -265,6 +282,7 @@ function addDesk(scene, x, z, width, isReception, reversed) {
 
   const DH = 0.82
   const zSign = reversed ? 1 : -1   // flip Z offsets for reversed desks
+  let screenMesh = null
 
   const top = new THREE.Mesh(new THREE.BoxGeometry(width, 0.05, 0.78), topMat)
   top.position.set(x, DH + 0.025, z)
@@ -298,6 +316,7 @@ function addDesk(scene, x, z, width, isReception, reversed) {
     screen.position.set(x, DH + 0.025 + monH / 2 + 0.07, monZ + (reversed ? 0.019 : -0.019))
     screen.rotation.y = reversed ? 0 : Math.PI
     scene.add(screen)
+    screenMesh = screen
 
     const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.06, 0.12, 8), legMat)
     stand.position.set(x, DH + 0.025 + 0.06, monZ); scene.add(stand)
@@ -322,6 +341,7 @@ function addDesk(scene, x, z, width, isReception, reversed) {
     const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.042, 0.14, 10), decorMat)
     pot.position.set(x + 0.6, DH + 0.09, z); scene.add(pot)
   }
+  return screenMesh
 }
 
 function addChair(scene, x, z, reversed) {

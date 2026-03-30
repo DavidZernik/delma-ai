@@ -23,6 +23,7 @@ const FADE = 200  // ms for fade in/out
  */
 export function showLine(el, html, holdMs = 1200, baseOpacity = 1.0) {
   return new Promise(resolve => {
+    if (el._css2dObj) el._css2dObj.visible = true
     el.style.transition = 'none'
     el.style.opacity = '0'
     el.innerHTML = html
@@ -33,7 +34,10 @@ export function showLine(el, html, holdMs = 1200, baseOpacity = 1.0) {
 
     setTimeout(() => {
       el.style.opacity = '0'
-      setTimeout(resolve, FADE)
+      setTimeout(() => {
+        if (el._css2dObj) el._css2dObj.visible = false
+        resolve()
+      }, FADE)
     }, FADE + holdMs)
   })
 }
@@ -52,6 +56,7 @@ export async function showLines(el, lines, baseOpacity = 1.0) {
  * Cycle through working messages until signal.done === true.
  */
 export async function workingTicker(el, messages, baseOpacity, signal) {
+  if (el._css2dObj) el._css2dObj.visible = true
   let i = 0
 
   while (!signal.done) {
@@ -78,4 +83,5 @@ export async function workingTicker(el, messages, baseOpacity, signal) {
   }
 
   el.style.opacity = '0'
+  if (el._css2dObj) el._css2dObj.visible = false
 }

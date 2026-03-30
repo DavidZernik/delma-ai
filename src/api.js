@@ -57,6 +57,26 @@ export async function callClaudeRaw(systemPrompt, userMessage) {
   })
 }
 
+export async function callSearch(query, count = 5) {
+  let response
+  try {
+    response = await fetch('/api/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, count })
+    })
+  } catch (e) {
+    throw new Error('Search network error: ' + e.message)
+  }
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => response.statusText)
+    throw new Error(`Search ${response.status}: ${text}`)
+  }
+
+  return response.json() // { context: string } — pre-chunked LLM context from Brave
+}
+
 export async function callClaudeWithRetry(systemPrompt, userMessage, onRetry, model = SONNET, maxTokens) {
   try {
     return await callClaude(systemPrompt, userMessage, model, maxTokens)

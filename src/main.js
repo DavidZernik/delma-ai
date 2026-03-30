@@ -5,8 +5,8 @@ import { runComparison } from './comparison.js'
 import { callClaudeRaw } from './api.js'
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────
-const { scene, camera, renderer, css2dRenderer, clock } = initScene()
-const characters = createCharacters(scene)
+const { scene, camera, renderer, css2dRenderer, clock, lightsController, screens } = initScene()
+const characters = createCharacters(scene, lightsController, screens)
 initChain(scene)
 
 // Size the left panel to match the canvas
@@ -188,6 +188,7 @@ function animate() {
   requestAnimationFrame(animate)
   const elapsed = clock.getElapsedTime()
   for (const char of Object.values(characters)) char.update(elapsed)
+  lightsController.tick()
   renderer.render(scene, camera)
   css2dRenderer.render(scene, camera)
 }

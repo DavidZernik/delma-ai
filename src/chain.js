@@ -22,7 +22,7 @@
  */
 
 import * as THREE from 'three'
-import { callClaudeWithRetry, SONNET, HAIKU } from './api.js'
+import { callClaudeWithRetry, callSearch, SONNET, HAIKU } from './api.js'
 import { showLine, workingTicker, iconFor, sleep } from './tickers.js'
 import { createHandoffSystem } from './handoff.js'
 import { runSingleNode } from './subagents.js'
@@ -77,6 +77,30 @@ export async function runChain(query, chars, opts = {}) {
   const jamesModel = SONNET
   const wordBudget = s1.task_spec?.word_budget || 800
   console.log('[chain] plan — lead_agent:', leadAgent, '| skip_sarah:', skipSarah, '| model_james:', s1.model_james, '| word_budget:', wordBudget)
+
+  // ── Step 1.5: Web search (if Delma flagged it) ────────────────────────────
+  let searchContext = ''
+  if (s1.needs_search && s1.search_queries?.length) {
+    console.log('[chain] step 1.5 — web search:', s1.search_queries)
+    await showLine(delma.tickerEl, 'searching the web...', 1200, delma.def.distanceOpacity)
+
+    const chunks = []
+    for (const query of s1.search_queries.slice(0, 3)) {
+      try {
+        const { context } = await callSearch(query, 5)
+        if (context) chunks.push(context)
+        console.log(`  [search] "${query}" → ${context?.length ?? 0} chars`)
+      } catch (e) {
+        console.warn(`  [search] "${query}" failed:`, e.message)
+      }
+    }
+
+    if (chunks.length) {
+      searchContext = chunks.join('\n\n')
+      await showLine(delma.tickerEl, `web: ${chunks.length} queries complete`, 1200, delma.def.distanceOpacity)
+      console.log('[chain] step 1.5 done — search_context length:', searchContext.length)
+    }
+  }
 
   // ── Step 2: Sarah or architecture phase ───────────────────────────────────
   let approvedArch
@@ -174,7 +198,13 @@ export async function runChain(query, chars, opts = {}) {
     }
   }
 
-  const cappedArch = { ...approvedArch, subjects: (approvedArch.subjects || []).slice(0, 3) }
+  const cappedArch = {
+    ...approvedArch,
+    subjects: (approvedArch.subjects || []).slice(0, 3),
+    shared_context: searchContext
+      ? `${approvedArch.shared_context || ''}\n\nWEB RESEARCH:\n${searchContext}`.trim()
+      : approvedArch.shared_context || ''
+  }
   const sectionCount = cappedArch.subjects.length || 1
   const perSectionBudget = Math.floor(wordBudget / sectionCount)
   console.log('[chain] budget — word_budget:', wordBudget, '| sections:', sectionCount, '| per_section:', perSectionBudget)
