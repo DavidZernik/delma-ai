@@ -8,17 +8,22 @@
  *   Display track — working_steps, log_summary → tickers
  *   Content track — document → flows through every step, delivered at end
  *
- * Lead agent routing (set by Delma at step 1):
- *   lead_agent=sarah  → Sarah reads request, forms opinion, briefs Marcus per section
- *                       Use for: advice, strategy, judgment, "what should I do?" tasks
- *   lead_agent=marcus → Marcus produces sections; Sarah optionally structures or improves
- *                       Use for: writing, guides, plans, production tasks
+ * Delma composes a pipeline sequence per request. Three sequences:
  *
- * Marcus-led sub-routing:
- *   skip_sarah=true  → Marcus writes directly (structure obvious); skips steps 2, 3, 11
- *   skip_sarah=false → Sarah does architecture (step 2) + section improvement
+ *   ROUTE_DIRECT     → Delma → Marcus → James → Delma delivers
+ *                      Sections are obvious. No strategic overhead needed.
  *
- * James rejection → step 12b (Marcus revise) + 12c (James re-check), one retry
+ *   ROUTE_STRATEGIC  → Delma → Sarah leads → Marcus + James parallel → Delma delivers
+ *                      Sarah forms the opinion. Marcus supports her thesis.
+ *
+ *   ROUTE_FULL       → Delma → Sarah architects → (Delma validates) →
+ *                      Marcus + Sarah + James parallel → Delma validates →
+ *                      James final → Delma delivers
+ *                      Structure is ambiguous. Full chain runs.
+ *
+ * Two overlays apply to any sequence:
+ *   Web search       → runs after Delma scopes, before anyone else starts
+ *   James rejection  → step 12b (Marcus revise) + 12c (James re-check), one retry
  */
 
 import * as THREE from 'three'
@@ -27,6 +32,18 @@ import { showLine, workingTicker, iconFor, sleep, setTicker } from './tickers.js
 import { createHandoffSystem } from './handoff.js'
 import { runSingleNode } from './subagents.js'
 import * as P from './prompts.js'
+
+// ── Route constants ───────────────────────────────────────────────────────────
+// Delma composes one of three pipeline sequences per request.
+const ROUTE_DIRECT     = 'direct'      // Delma → Marcus → James
+const ROUTE_STRATEGIC  = 'strategic'   // Delma → Sarah leads → Marcus + James
+const ROUTE_FULL       = 'full'        // Delma → Sarah architects → Marcus + Sarah + James → Delma validates
+
+function resolveRoute(s1) {
+  if (s1.lead_agent === 'sarah') return ROUTE_STRATEGIC
+  if (s1.skip_sarah === true)    return ROUTE_DIRECT
+  return ROUTE_FULL
+}
 
 const CAMERA_POS = new THREE.Vector3(0.5, 3.5, -0.5)
 
@@ -92,13 +109,12 @@ export async function runChain(query, chars, opts = {}) {
   steps.push(logStep(1, 'User', 'Delma', s1.log_summary, stepStart))
 
   const routing     = s1.routing || {}
-  const leadAgent   = s1.lead_agent === 'sarah' ? 'sarah' : 'marcus'
-  const skipSarah   = leadAgent === 'marcus' && s1.skip_sarah === true
+  const route       = resolveRoute(s1)
   const marcusModel = MODEL_MAP[s1.model_marcus] ?? DEEPSEEK_V3
   const sarahModel  = MODEL_MAP[s1.model_sarah]  ?? DEEPSEEK_V3
   const jamesModel  = MODEL_MAP[s1.model_james]  ?? HAIKU
   const wordBudget = s1.task_spec?.word_budget || 800
-  console.log('[chain] plan — lead_agent:', leadAgent, '| skip_sarah:', skipSarah, '| model_james:', s1.model_james, '| word_budget:', wordBudget)
+  console.log('[chain] plan — route:', route, '| model_james:', s1.model_james, '| word_budget:', wordBudget)
 
   // ── Step 1.5: Web search (if Delma flagged it) ────────────────────────────
   let searchContext = ''
@@ -129,9 +145,9 @@ export async function runChain(query, chars, opts = {}) {
 
   // ── Step 2: Sarah or architecture phase ───────────────────────────────────
   let approvedArch
-  let sarahLead = null  // populated when lead_agent=sarah
+  let sarahLead = null  // populated on ROUTE_STRATEGIC
 
-  if (leadAgent === 'sarah') {
+  if (route === ROUTE_STRATEGIC) {
     // Sarah-led: she reads the full request, forms the strategic opinion, briefs Marcus
     delma.faceCharacter(sarah)
     delma.setLookTarget(sarah)
@@ -166,8 +182,8 @@ export async function runChain(query, chars, opts = {}) {
       data_fields: []
     }
 
-  } else if (skipSarah) {
-    console.log('[chain] skip_sarah=true — using Delma\'s subjects directly')
+  } else if (route === ROUTE_DIRECT) {
+    console.log('[chain] route:direct — using Delma\'s subjects directly')
     approvedArch = {
       subjects: s1.subjects || [],
       data_fields: [],
@@ -246,18 +262,18 @@ export async function runChain(query, chars, opts = {}) {
 
   console.log(`  [ticker:Delma] → Team: ${cappedArch.subjects.join(', ')}`)
   await showLine(delma.tickerEl, `→ Team: ${cappedArch.subjects.join(', ')}`, 1000, delma.def.distanceOpacity)
-  if (leadAgent !== 'sarah') await handoff.send(delma, marcus)
+  if (route !== ROUTE_STRATEGIC) await handoff.send(delma, marcus)
   delma.faceCamera(); delma.setLookTarget(CAMERA_POS)
   marcus.faceDesk(); sarah.faceDesk(); james.faceDesk()
 
-  if (leadAgent === 'sarah') {
-    console.log('[chain] step 4 — parallel section pipelines (Sarah leads: Marcus support → James per section)')
+  if (route === ROUTE_STRATEGIC) {
+    console.log('[chain] step 4 — route:strategic (Sarah leads: Marcus support → James per section)')
     marcus.startWorking(); james.startWorking()
-  } else if (skipSarah) {
-    console.log('[chain] step 4 — parallel section pipelines (Marcus → James per section)')
+  } else if (route === ROUTE_DIRECT) {
+    console.log('[chain] step 4 — route:direct (Marcus → James per section)')
     marcus.startWorking(); james.startWorking()
   } else {
-    console.log('[chain] step 4 — parallel section pipelines (Marcus → Sarah → James per section)')
+    console.log('[chain] step 4 — route:full (Marcus → Sarah → James per section)')
     marcus.startWorking(); sarah.startWorking(); james.startWorking()
   }
 
@@ -267,8 +283,8 @@ export async function runChain(query, chars, opts = {}) {
     // Find Sarah's brief for this section (sarah-led only)
     const sectionBrief = cappedArch.section_briefs?.find(b => b.section === subject)
 
-    const marcusPrompt = leadAgent === 'sarah' ? P.MARCUS_SUPPORT : P.MARCUS_SUBAGENT
-    const marcusMessage = leadAgent === 'sarah'
+    const marcusPrompt = route === ROUTE_STRATEGIC ? P.MARCUS_SUPPORT : P.MARCUS_SUBAGENT
+    const marcusMessage = route === ROUTE_STRATEGIC
       ? {
           sarah_recommendation: cappedArch.recommendation,
           shared_context: cappedArch.shared_context || '',
@@ -300,7 +316,7 @@ export async function runChain(query, chars, opts = {}) {
     if (!marcusResult) return null
 
     let afterSarah = marcusResult
-    if (leadAgent === 'marcus' && !skipSarah) {
+    if (route === ROUTE_FULL) {
       setTicker(sarah.tickerEl, `refining "${subject}"...`, sarah.def.distanceOpacity)
       const sarahResult = await runSingleNode(_scene, sarah, sectionIdx, {
         label: subject,
@@ -332,10 +348,10 @@ export async function runChain(query, chars, opts = {}) {
     cappedArch.subjects.map((subject, idx) => runSectionPipeline(idx, subject))
   )
 
-  if (leadAgent === 'sarah' || skipSarah) {
-    marcus.stopWorking(); james.stopWorking()
-  } else {
+  if (route === ROUTE_FULL) {
     marcus.stopWorking(); sarah.stopWorking(); james.stopWorking()
+  } else {
+    marcus.stopWorking(); james.stopWorking()
   }
 
   const validSections = sectionResults.filter(Boolean)
@@ -382,9 +398,9 @@ export async function runChain(query, chars, opts = {}) {
   console.log('[chain] step 4b done —', assemblyResult?.log_summary)
   await showLine(marcus.tickerEl, assemblyResult?.log_summary || 'assembled', 1200, marcus.def.distanceOpacity)
 
-  const step4summary = leadAgent === 'sarah'
+  const step4summary = route === ROUTE_STRATEGIC
     ? `${validSections.length}/${cappedArch.subjects.length} sections — Sarah led, Marcus supported, James validated in parallel`
-    : skipSarah
+    : route === ROUTE_DIRECT
       ? `${validSections.length}/${cappedArch.subjects.length} sections — Marcus wrote, James validated in parallel`
       : `${validSections.length}/${cappedArch.subjects.length} sections — Marcus wrote, Sarah improved, James validated in parallel`
   steps.push(logStep(4, 'Delma', 'Team', step4summary, stepStart))
@@ -392,7 +408,7 @@ export async function runChain(query, chars, opts = {}) {
 
   // ── Step 11: Delma — final format + validate (skipped for simple/sarah-led tasks) ────
   let s11 = null
-  if (leadAgent === 'marcus' && !skipSarah) {
+  if (route === ROUTE_FULL) {
     setStage('Final review')
     console.log('[chain] step 11 — Delma assemble + validate')
     stepStart = Date.now()
@@ -420,7 +436,7 @@ export async function runChain(query, chars, opts = {}) {
     steps.push(logStep(11, 'Delma', 'Delma', s11.log_summary, stepStart))
     await handoff.send(delma, james)
   } else {
-    console.log('[chain] skipping step 11 — lead_agent:', leadAgent, '| skip_sarah:', skipSarah)
+    console.log('[chain] skipping step 11 — route:', route)
   }
 
   // ── Step 12: James — final release ────────────────────────────────────────
