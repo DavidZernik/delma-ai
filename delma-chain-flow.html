@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Delma — Chain Flow</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=DM+Sans:wght@400;500;700&display=swap');
+
+  :root {
+    --bg: #0B0E13;
+    --surface: #12161D;
+    --border: rgba(255,255,255,0.06);
+    --text: #C8CCD4;
+    --text-dim: rgba(255,255,255,0.35);
+    --delma: #3B7BBA;
+    --sarah: #A04A60;
+    --marcus: #4A8A5A;
+    --james: #7A7A7A;
+    --dynamic: #D4A030;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Header ── */
+  header {
+    padding: 48px 48px 32px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  header h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+
+  header h2 {
+    font-size: 32px;
+    font-weight: 700;
+    color: #E8ECF2;
+    letter-spacing: -0.02em;
+  }
+
+  header p {
+    margin-top: 10px;
+    font-size: 15px;
+    color: var(--text-dim);
+    max-width: 680px;
+    line-height: 1.6;
+  }
+
+  /* ── Legend ── */
+  .legend {
+    display: flex;
+    gap: 28px;
+    padding: 20px 48px;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+
+  .legend-section {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .legend-section-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-right: 4px;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13px;
+    color: var(--text);
+  }
+
+  .legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+  }
+
+  .legend-dot.delma { background: var(--delma); }
+  .legend-dot.sarah { background: var(--sarah); }
+  .legend-dot.marcus { background: var(--marcus); }
+  .legend-dot.james { background: var(--james); }
+  .legend-dot.dynamic { background: var(--dynamic); border: 1px dashed var(--dynamic); }
+  .legend-dot.fixed { background: rgba(255,255,255,0.15); }
+
+  /* ── Diagram container ── */
+  .diagram-wrap {
+    padding: 40px 24px 60px;
+    display: flex;
+    justify-content: center;
+    overflow-x: auto;
+  }
+
+  .mermaid {
+    max-width: 100%;
+  }
+
+  /* ── Mermaid overrides ── */
+  .mermaid .node rect,
+  .mermaid .node polygon {
+    rx: 6;
+    ry: 6;
+  }
+
+  .mermaid .edgeLabel {
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 10px !important;
+  }
+
+  .mermaid .nodeLabel {
+    font-family: 'DM Sans', sans-serif !important;
+  }
+
+  /* ── Footer ── */
+  footer {
+    padding: 24px 48px;
+    border-top: 1px solid var(--border);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.05em;
+    display: flex;
+    justify-content: space-between;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Delma · Architecture</h1>
+  <h2>Chain Flow — Fixed vs Dynamic</h2>
+  <p>Every node shows what's hardcoded in chain.js (FIXED) vs decided at runtime (DYNAMIC). Four branch points and one retry loop — Delma decides lead agent, web search, architecture review, and model assignments per agent.</p>
+</header>
+
+<div class="legend">
+  <div class="legend-section">
+    <span class="legend-section-title">Agents</span>
+    <div class="legend-item"><div class="legend-dot delma"></div>Delma</div>
+    <div class="legend-item"><div class="legend-dot sarah"></div>Sarah</div>
+    <div class="legend-item"><div class="legend-dot marcus"></div>Marcus</div>
+    <div class="legend-item"><div class="legend-dot james"></div>James</div>
+  </div>
+  <div class="legend-section">
+    <span class="legend-section-title">Logic</span>
+    <div class="legend-item"><div class="legend-dot dynamic"></div>Dynamic decision</div>
+    <div class="legend-item"><div class="legend-dot fixed"></div>Fixed step</div>
+  </div>
+</div>
+
+<div class="diagram-wrap">
+<pre class="mermaid">
+%%{init: {
+  'theme': 'dark',
+  'themeVariables': {
+    'primaryColor': '#1B3A5C',
+    'primaryTextColor': '#E0E4EA',
+    'primaryBorderColor': '#2A5080',
+    'lineColor': '#4A5568',
+    'secondaryColor': '#1A1F28',
+    'tertiaryColor': '#12161D',
+    'fontSize': '13px',
+    'fontFamily': 'DM Sans, sans-serif',
+    'nodeBorder': '#2A3545',
+    'mainBkg': '#1A2030',
+    'clusterBkg': '#0F1318',
+    'clusterBorder': '#1E2A38',
+    'edgeLabelBackground': '#12161D'
+  }
+}}%%
+
+flowchart TD
+    USER(["🔵 User Query"]) --> S1
+
+    S1["<b>Step 1 · DELMA</b><br/>━━━━━━━━━━━━━━━<br/><i>FIXED:</i> Delma always runs first<br/><i>DYNAMIC:</i> lead_agent, skip_sarah,<br/>model_marcus, model_sarah, model_james,<br/>needs_search, word_budget"]
+
+    S1 -->|"needs_search = true"| S15
+    S1 -->|"needs_search = false"| ROUTE
+
+    S15["<b>Step 1.5 · DELMA</b><br/>━━━━━━━━━━━━━━━<br/><i>FIXED:</i> Delma runs web search<br/>(up to 3 queries in sequence)<br/><i>DYNAMIC:</i> search_queries,<br/>result appended to shared_context"]
+    S15 --> ROUTE
+
+    ROUTE{" "}
+
+    ROUTE -->|"lead = sarah"| SARAH_LEAD
+    ROUTE -->|"lead = marcus<br/>skip_sarah = false"| SARAH_ARCH
+    ROUTE -->|"lead = marcus<br/>skip_sarah = true"| SKIP
+
+    SARAH_LEAD["<b>Step 2 · SARAH leads</b><br/>━━━━━━━━━━━━━━━<br/><i>FIXED:</i> forms opinion, briefs Marcus<br/><i>DYNAMIC:</i> recommendation,<br/>section_briefs, shared_context"]
+    SARAH_LEAD --> PAR
+
+    SARAH_ARCH["<b>Step 2 · SARAH architects</b><br/>━━━━━━━━━━━━━━━<br/><i>FIXED:</i> designs structure only<br/><i>DYNAMIC:</i> subjects, data_fields,<br/>output_format"]
+    SARAH_ARCH --> REVIEW
+
+    REVIEW{"<b>Step 3?</b><br/>needs_arch_review<br/>━━━━━━━━━━━━━━━<br/><i>DYNAMIC: default false</i>"}
+    REVIEW -->|"true"| S3
+    REVIEW -->|"false"| PAR
+
+    S3["<b>Step 3 · DELMA validates</b><br/>━━━━━━━━━━━━━━━<br/><i>FIXED:</i> budget math, alignment<br/><i>DYNAMIC:</i> can correct architecture"]
+    S3 --> PAR
+
+    SKIP["Uses Delma's subjects directly"] --> PAR
+
+    PAR["<b>⚡ Step 4 · PARALLEL PIPELINE</b><br/>━━━━━━━━━━━━━━━<br/><i>FIXED:</i> all sections simultaneous<br/><i>DYNAMIC:</i> 1–3 sections"]
+
+    PAR --> P1["Section 1"]
+    PAR --> P2["Section 2"]
+    PAR --> P3["Section 3?"]
+
+    subgraph PIPE ["Per-Section Pipeline · repeated per section"]
+        direction TB
+        MW["<b>MARCUS writes</b><br/><i>FIXED:</i> always writes first"]
+        MW -->|"sarah-led OR<br/>skip_sarah"| JC
+        MW -->|"marcus-led<br/>skip_sarah=false"| SI
+
+        SI["<b>SARAH improves</b><br/><i>FIXED:</i> improves, no rewrite"]
+        SI --> JC
+
+        JC["<b>JAMES checks</b><br/><i>FIXED:</i> accuracy + constraints<br/><i>DYNAMIC:</i> corrections"]
+    end
+
+    P1 --> PIPE
+    P2 --> PIPE
+    P3 --> PIPE
+
+    PIPE --> ASM
+
+    ASM["<b>Step 4b · MARCUS assembles</b><br/>━━━━━━━━━━━━━━━<br/><i>FIXED:</i> always runs<br/><i>DYNAMIC:</i> coherence fixes"]
+
+    ASM --> S11Q
+
+    S11Q{"<b>Step 11?</b><br/>━━━━━━━━━━━━━━━<br/><i>FIXED: skipped for</i><br/><i>sarah-led + skip_sarah</i>"}
+    S11Q -->|"marcus-led<br/>with Sarah arch"| S11
+    S11Q -->|"sarah-led or<br/>skip_sarah"| S12
+
+    S11["<b>Step 11 · DELMA validates</b><br/>━━━━━━━━━━━━━━━<br/><i>FIXED:</i> output vs intent<br/><i>DYNAMIC:</i> gaps flagged"]
+    S11 --> S12
+
+    S12["<b>Step 12 · JAMES final</b><br/>━━━━━━━━━━━━━━━<br/><i>FIXED:</i> always runs<br/><i>DYNAMIC:</i> approve or reject"]
+
+    S12 -->|"✓ approved"| DEL
+    S12 -->|"✗ rejected"| S12B
+
+    S12B["<b>Step 12b · MARCUS revises</b><br/>━━━━━━━━━━━━━━━<br/><i>FIXED:</i> one retry only<br/><i>DYNAMIC:</i> fixes James's issues"]
+    S12B --> S12C
+
+    S12C["<b>Step 12c · JAMES re-checks</b><br/>━━━━━━━━━━━━━━━<br/><i>FIXED:</i> result is final<br/>(no more retries)"]
+    S12C --> DEL
+
+    DEL["<b>Step 13 · DELMA delivers</b><br/>━━━━━━━━━━━━━━━<br/><i>FIXED:</i> no API call, display only<br/><i>DYNAMIC:</i> delivery_lines"]
+    DEL --> OUT(["🟢 User Gets Deliverable"])
+
+    %% ── Styles ──
+    classDef delma fill:#1B3A5C,stroke:#2A5080,color:#D0D8E4
+    classDef sarah fill:#5A2238,stroke:#7A3050,color:#E0C4CC
+    classDef marcus fill:#1E4A2E,stroke:#2E6A40,color:#C0D8C8
+    classDef james fill:#333338,stroke:#505058,color:#C4C4C8
+    classDef decision fill:#2A2210,stroke:#D4A030,color:#E8D090
+    classDef user fill:#1A2030,stroke:#3A5070,color:#90A8C8
+    classDef parallel fill:#1A1A28,stroke:#4A4A68,color:#A0A0C0
+
+    class S1,S3,S11,DEL delma
+    class SARAH_LEAD,SARAH_ARCH,SI sarah
+    class MW,ASM,S12B,SKIP marcus
+    class JC,S12,S12C james
+    class REVIEW,S11Q,ROUTE decision
+    class USER,OUT user
+    class PAR parallel
+</pre>
+</div>
+
+<footer>
+  <span>Delma · Multi-Agent Coordination Engine</span>
+  <span>4 branch points · 1 retry loop · 4 agents</span>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    securityLevel: 'loose',
+    flowchart: {
+      useMaxWidth: true,
+      htmlLabels: true,
+      curve: 'basis',
+      nodeSpacing: 30,
+      rankSpacing: 50,
+      padding: 16
+    }
+  });
+</script>
+</body>
+</html>
