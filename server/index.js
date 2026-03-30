@@ -41,7 +41,7 @@ app.post('/api/chat', async (req, res) => {
     }
     if (!response.ok) {
       const text = await response.text()
-      return res.status(response.status).json({ error: text })
+      return res.status(response.status).json({ error: `DeepSeek ${response.status}: ${text || '(empty body)'}` })
     }
     const data = await response.json()
     const text = data.choices?.[0]?.message?.content || ''
