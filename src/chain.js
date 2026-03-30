@@ -82,6 +82,7 @@ export async function runChain(query, chars, opts = {}) {
   let searchContext = ''
   if (s1.needs_search && s1.search_queries?.length) {
     console.log('[chain] step 1.5 — web search:', s1.search_queries)
+    delma.startWorking()
     await showLine(delma.tickerEl, 'searching the web...', 1200, delma.def.distanceOpacity)
 
     const chunks = []
@@ -100,6 +101,7 @@ export async function runChain(query, chars, opts = {}) {
       await showLine(delma.tickerEl, `web: ${chunks.length} queries complete`, 1200, delma.def.distanceOpacity)
       console.log('[chain] step 1.5 done — search_context length:', searchContext.length)
     }
+    delma.stopWorking()
   }
 
   // ── Step 2: Sarah or architecture phase ───────────────────────────────────
