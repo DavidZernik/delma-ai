@@ -151,7 +151,9 @@ function buildCharacter(scene, def, screenMesh) {
   group.add(rShoe)
 
   // ── Ceiling spotlight — role color, off when idle, lerps on when working ──
-  const spotLight = new THREE.SpotLight(def.colorInt, 0)
+  // Brighten the role color so the spotlight actually reads — dark navy/green are near-black
+  const spotColor = new THREE.Color(def.colorInt).lerp(new THREE.Color(0xffffff), 0.65)
+  const spotLight = new THREE.SpotLight(spotColor, 0)
   spotLight.position.set(def.homeX, 4.5, def.homeZ)
   spotLight.angle    = 0.4
   spotLight.penumbra = 0.3
@@ -163,6 +165,22 @@ function buildCharacter(scene, def, screenMesh) {
   spotTarget.position.set(def.homeX, 1.2, def.homeZ)
   scene.add(spotTarget)
   spotLight.target = spotTarget
+
+  // ── Visible light cone — truncated cylinder, wide at bottom ──────────────
+  const coneMat = new THREE.MeshBasicMaterial({
+    color: spotColor,
+    transparent: true,
+    opacity: 0,
+    side: THREE.BackSide,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false
+  })
+  const coneMesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.12, 1.2, 4.5, 24, 1, true),
+    coneMat
+  )
+  coneMesh.position.y = 2.25   // centered between floor (0) and ceiling (4.5)
+  group.add(coneMesh)
 
   // ── CSS2D name label ──────────────────────────────
   const labelEl = document.createElement('div')
@@ -190,7 +208,7 @@ function buildCharacter(scene, def, screenMesh) {
   // ── Animation state ───────────────────────────────
   const state = {
     def, group, headPivot, torso, lForearm, rForearm, lLeg, rLeg, lShoe, rShoe,
-    tickerEl, tickerObj, spotLight, spotTarget, screenMesh, labelEl,
+    tickerEl, tickerObj, spotLight, spotTarget, coneMesh, screenMesh, labelEl,
 
     _breathOffset: Math.random() * Math.PI * 2,
     _isWalking: false,
@@ -201,6 +219,7 @@ function buildCharacter(scene, def, screenMesh) {
     _seatOffset: 0,
     _targetSeatOffset: 0,
     _spotIntensity: 0,
+    _coneOpacity: 0,
     _torsoPitch: 0,
 
     update(elapsed) {
@@ -255,7 +274,7 @@ function buildCharacter(scene, def, screenMesh) {
       }
 
       // ── Ceiling spotlight ─────────────────────────
-      const targetIntensity = this._isWorking ? 2.0 : 0
+      const targetIntensity = this._isWorking ? 8.0 : 0
       this._spotIntensity += (targetIntensity - this._spotIntensity) * 0.06
       this.spotLight.intensity = this._spotIntensity
       // Track character X/Z so spotlight follows Delma when she walks
@@ -263,6 +282,11 @@ function buildCharacter(scene, def, screenMesh) {
       this.spotLight.position.z  = this.group.position.z
       this.spotTarget.position.x = this.group.position.x
       this.spotTarget.position.z = this.group.position.z
+
+      // ── Visible cone of light ─────────────────────
+      const coneTarget = this._isWorking ? 0.13 : 0
+      this._coneOpacity += (coneTarget - this._coneOpacity) * 0.06
+      this.coneMesh.material.opacity = this._coneOpacity
 
       // ── Forward lean when working ─────────────────
       const pitchTarget = this._isWorking ? 0.08 : 0

@@ -62,8 +62,8 @@ export function initScene() {
   let _ambTarget = 0.70, _dirTarget = 0.50
   const lightsController = {
     setWorkMode(active) {
-      _ambTarget = active ? 0.25 : 0.70
-      _dirTarget = active ? 0.20 : 0.50
+      _ambTarget = active ? 0.12 : 0.70
+      _dirTarget = active ? 0.15 : 0.50
     },
     tick() {
       ambientLight.intensity += (_ambTarget - ambientLight.intensity) * 0.05
