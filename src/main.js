@@ -26,6 +26,27 @@ const analysisBody   = document.getElementById('analysis-body')
 
 let isRunning = false
 let checkpointResolve = null
+let currentDelmaResponseEl = null
+
+function appendTurn(query) {
+  const turnEl = document.createElement('div')
+  turnEl.className = 'turn'
+
+  const userMsgEl = document.createElement('div')
+  userMsgEl.className = 'user-msg'
+  userMsgEl.textContent = query
+
+  const responseEl = document.createElement('div')
+  responseEl.className = 'response-text'
+
+  turnEl.appendChild(userMsgEl)
+  turnEl.appendChild(responseEl)
+  delmaBody.appendChild(turnEl)
+  delmaBody.scrollTop = delmaBody.scrollHeight
+
+  currentDelmaResponseEl = responseEl
+  return responseEl
+}
 
 // ── Checkpoint handler ────────────────────────────────────────────────────
 function makeCheckpointHandler() {
@@ -65,9 +86,9 @@ async function handleSubmit() {
   suggestion.style.pointerEvents = 'none'
   summary.style.opacity = '0'
 
-  // Reset delma panel
+  // Append new turn, reset status
+  appendTurn(query)
   delmaStatus.textContent = 'Working...'
-  delmaBody.textContent = ''
   delmaTime.textContent = ''
 
   // Reset analysis panel
@@ -77,6 +98,7 @@ async function handleSubmit() {
   isRunning = true
   input.disabled = true
   input.placeholder = 'Working on it...'
+  input.style.height = 'auto'
   sendBtn.disabled = true
 
   const t0 = Date.now()
@@ -115,8 +137,8 @@ async function handleSubmit() {
   isRunning = false
   input.disabled = false
   input.placeholder = 'Ask a follow-up...'
-
   input.value = ''
+  input.style.height = 'auto'
   sendBtn.disabled = false
   input.focus()
 
@@ -126,11 +148,12 @@ async function handleSubmit() {
 
 // ── Delma panel renderers ─────────────────────────────────────────────────
 function renderDeliverable(content) {
-  delmaBody.textContent = content
-  delmaBody.scrollTop = 0
+  if (currentDelmaResponseEl) currentDelmaResponseEl.textContent = content
+  delmaBody.scrollTop = delmaBody.scrollHeight
 }
 
 function renderLog(steps, totalSeconds) {
+  if (!currentDelmaResponseEl) return
   const divider = '\n\n' + '─'.repeat(36) + '\n  Chain Log\n' + '─'.repeat(36) + '\n\n'
   let log = divider
   for (const s of steps) {
@@ -138,13 +161,15 @@ function renderLog(steps, totalSeconds) {
     log += `${s.summary}\n\n`
   }
   log += `Total: ${totalSeconds}s across ${steps.length} steps`
-  delmaBody.textContent += log
+  currentDelmaResponseEl.textContent += log
   delmaBody.scrollTop = delmaBody.scrollHeight
 }
 
 async function runAnalysis(query) {
-  const claudeText = document.getElementById('claude-body').textContent.trim()
-  const delmaText  = delmaBody.textContent.trim()
+  const claudeBody = document.getElementById('claude-body')
+  const lastClaudeResponse = claudeBody.querySelector('.turn:last-child .response-text')
+  const claudeText = lastClaudeResponse?.textContent.trim() || ''
+  const delmaText  = currentDelmaResponseEl?.textContent.trim() || ''
   if (!claudeText || !delmaText) return
 
   // Use only the deliverable portion of Delma (before the chain log divider)
@@ -167,7 +192,13 @@ async function runAnalysis(query) {
 }
 
 sendBtn.addEventListener('click', handleSubmit)
-input.addEventListener('keydown', e => { if (e.key === 'Enter') handleSubmit() })
+input.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit() }
+})
+input.addEventListener('input', () => {
+  input.style.height = 'auto'
+  input.style.height = Math.min(input.scrollHeight, 120) + 'px'
+})
 
 // ── Auto-suggestion ───────────────────────────────────────────────────────
 let suggestionTimer = setTimeout(() => {

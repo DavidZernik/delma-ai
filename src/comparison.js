@@ -20,9 +20,21 @@ export async function runComparison(query) {
 
   if (labelEl) labelEl.textContent = MODEL_LABELS[model] || model
 
+  // Append a new conversation turn
+  const turnEl = document.createElement('div')
+  turnEl.className = 'turn'
+  const userMsgEl = document.createElement('div')
+  userMsgEl.className = 'user-msg'
+  userMsgEl.textContent = query
+  const responseEl = document.createElement('div')
+  responseEl.className = 'response-text'
+  turnEl.appendChild(userMsgEl)
+  turnEl.appendChild(responseEl)
+  bodyEl.appendChild(turnEl)
+  bodyEl.scrollTop = bodyEl.scrollHeight
+
   statusEl.innerHTML = '<span class="comp-dot"></span> Thinking...'
   statusEl.classList.add('active')
-  bodyEl.textContent = ''
   timeEl.textContent = ''
 
   const t0 = Date.now()
@@ -37,14 +49,14 @@ export async function runComparison(query) {
   } catch (e) {
     statusEl.innerHTML = 'Error'
     statusEl.classList.remove('active')
-    bodyEl.textContent = 'Network error: ' + e.message
+    responseEl.textContent = 'Network error: ' + e.message
     return
   }
 
   if (!response.ok) {
     statusEl.innerHTML = 'Error'
     statusEl.classList.remove('active')
-    bodyEl.textContent = 'API error ' + response.status
+    responseEl.textContent = 'API error ' + response.status
     return
   }
 
@@ -77,7 +89,7 @@ export async function runComparison(query) {
             statusEl.innerHTML = '<span class="comp-writing">&#9632;</span> Writing...'
             started = true
           }
-          bodyEl.textContent += evt.delta.text
+          responseEl.textContent += evt.delta.text
           bodyEl.scrollTop = bodyEl.scrollHeight
         }
       }
