@@ -93,7 +93,7 @@ export async function runChain(query, chars, opts = {}) {
   marcus.faceDesk(); sarah.faceDesk(); james.faceDesk()
 
   // ── Step 1: Delma — decompose ──────────────────────────────────────────────
-  setStage('Planning')
+  setStage('Delma is scoping the request')
   delma.faceCamera()
   delma.setLookTarget(CAMERA_POS)
 
@@ -120,7 +120,7 @@ export async function runChain(query, chars, opts = {}) {
   let searchContext = ''
   if (s1.needs_search && s1.search_queries?.length) {
     console.log('[chain] step 1.5 — web search:', s1.search_queries)
-    setStage('Researching')
+    setStage('Delma is searching the web')
     delma.startWorking()
     await showLine(delma.tickerEl, 'searching the web...', 1200, delma.def.distanceOpacity)
 
@@ -160,7 +160,7 @@ export async function runChain(query, chars, opts = {}) {
     delma.faceCamera(); delma.setLookTarget(CAMERA_POS)
     sarah.faceDesk()
 
-    setStage('Strategic planning')
+    setStage('Sarah is forming a recommendation')
     console.log('[chain] step 2 — Sarah strategic lead')
     stepStart = Date.now()
     sarahLead = await withWorking(sarah,
@@ -202,7 +202,7 @@ export async function runChain(query, chars, opts = {}) {
     delma.faceCamera(); delma.setLookTarget(CAMERA_POS)
     sarah.faceDesk()
 
-    setStage('Architecture')
+    setStage('Sarah is designing the structure')
     console.log('[chain] step 2 — Sarah architecture')
     stepStart = Date.now()
     const s2 = await withWorking(sarah,
@@ -217,7 +217,7 @@ export async function runChain(query, chars, opts = {}) {
     await handoff.send(sarah, delma)
     approvedArch = s2
     if (routing.needs_arch_review !== false) {
-      setStage('Review')
+      setStage('Delma is reviewing the structure')
       console.log('[chain] step 3 — Delma validate architecture')
       stepStart = Date.now()
       const s3 = await withWorking(delma,
@@ -254,7 +254,7 @@ export async function runChain(query, chars, opts = {}) {
   console.log('[chain] budget — word_budget:', wordBudget, '| sections:', sectionCount, '| per_section:', perSectionBudget)
 
   // ── Step 4: Parallel pipeline ──────────────────────────────────────────
-  setStage('Writing & validation')
+  setStage('Marcus is writing · James is checking')
   delma.faceCharacter(marcus)
   delma.setLookTarget(marcus)
   marcus.faceCharacter(delma)
@@ -370,7 +370,7 @@ export async function runChain(query, chars, opts = {}) {
   }
 
   // ── Marcus assembly: stitch sections into one coherent document ────────────
-  setStage('Assembly')
+  setStage('Marcus is assembling the document')
   marcus.startWorking()
   console.log('[chain] step 4b — Marcus assembly pass')
   const assemblyResult = await withWorking(marcus,
@@ -409,7 +409,7 @@ export async function runChain(query, chars, opts = {}) {
   // ── Step 11: Delma — final format + validate (skipped for simple/sarah-led tasks) ────
   let s11 = null
   if (route === ROUTE_FULL) {
-    setStage('Final review')
+    setStage('Delma is reviewing the document')
     console.log('[chain] step 11 — Delma assemble + validate')
     stepStart = Date.now()
     s11 = await withWorking(delma,
@@ -440,7 +440,7 @@ export async function runChain(query, chars, opts = {}) {
   }
 
   // ── Step 12: James — final release ────────────────────────────────────────
-  setStage('Quality check')
+  setStage('James is doing a final check')
   console.log('[chain] step 12 — James final release')
   stepStart = Date.now()
   const s12 = await withWorking(james,
@@ -464,7 +464,7 @@ export async function runChain(query, chars, opts = {}) {
   // ── Step 12b/12c: revision loop — fires once if James rejected ─────────────
   let finalJamesResult = s12
   if (s12.approved === false && s12.issues?.length) {
-    setStage('Revising')
+    setStage('Marcus is revising')
     console.log('[chain] step 12b — Marcus revising based on James rejection')
     await handoff.send(james, marcus)
     marcus.startWorking()
@@ -506,7 +506,7 @@ export async function runChain(query, chars, opts = {}) {
   }
 
   // ── Step 13: Delma — deliver (display-only, no API call) ──────────────────
-  setStage('Delivering')
+  setStage('Delma is delivering')
   console.log('[chain] step 13 — Delma deliver (display-only)')
   await handoff.send(james, delma)
   await delma.walkTo(delma.def.homeX, delma.def.homeZ)
