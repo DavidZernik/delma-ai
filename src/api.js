@@ -10,7 +10,7 @@ export const DEEPSEEK_V3 = 'deepseek-chat'
 // Timeout per model tier
 const TIMEOUT_MS = { [HAIKU]: 55000, [SONNET]: 120000, [DEEPSEEK_V3]: 60000 }
 // Max tokens per model tier
-const MAX_TOKENS = { [HAIKU]: 6000, [SONNET]: 8000, [DEEPSEEK_V3]: 4000 }
+const MAX_TOKENS = { [HAIKU]: 6000, [SONNET]: 8000, [DEEPSEEK_V3]: 8000 }
 
 async function _post(body) {
   let response
@@ -40,7 +40,7 @@ export async function callClaude(systemPrompt, userMessage, model = SONNET, maxT
     system: systemPrompt,
     user: typeof userMessage === 'string' ? userMessage : JSON.stringify(userMessage, null, 2),
     model,
-    max_tokens: maxTokens || MAX_TOKENS[model] || 1500
+    max_tokens: Math.min(maxTokens || MAX_TOKENS[model] || 1500, MAX_TOKENS[model] || 8192)
   }).then(extractJSON)
 
   const timeout = new Promise((_, reject) =>
