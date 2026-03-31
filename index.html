@@ -304,6 +304,7 @@
     #claude-panel.theme-claude .user-msg {
       background: #e9e3d8;
       color: #1a1a1a;
+      border-radius: 18px 18px 4px 18px;
     }
     #claude-panel.theme-claude .response-text {
       color: #1a1a1a;
@@ -334,6 +335,7 @@
     #claude-panel.theme-gpt .user-msg {
       background: #f4f4f4;
       color: #0d0d0d;
+      border-radius: 18px 18px 4px 18px;
     }
     #claude-panel.theme-gpt .response-text {
       color: #0d0d0d;
@@ -343,33 +345,60 @@
     #claude-panel.theme-gpt .comp-writing { color: #10a37f; }
     #claude-panel.theme-gpt .comp-done { color: #10a37f; }
 
+    /* ── Delma panel warm theme ─────────────────── */
+    #delma-panel {
+      background: #f7f4ef;
+    }
+    #delma-panel .panel-header {
+      background: #f7f4ef;
+      border-bottom-color: #e3ddd4;
+    }
+    #delma-panel .panel-body {
+      scrollbar-color: #e3ddd4 transparent;
+    }
+    #delma-panel .panel-footer {
+      border-top-color: #e3ddd4;
+      background: #f7f4ef;
+    }
+    #delma-panel .panel-status { background: #f7f4ef; }
+    #delma-panel .turn { border-bottom-color: #e3ddd4; }
+    #delma-panel .panel-title { color: #1a1a1a; }
+    #delma-panel .panel-subtitle { color: #9b8b73; }
+    #delma-panel .panel-time { color: #9b8b73; }
+    #delma-panel .panel-label { color: #c4b99a; }
+    #delma-panel .panel-status.active { color: #c96442; }
+    #delma-panel .comp-dot { background: #c96442; }
+    #delma-panel .comp-writing { color: #c96442; }
+    #delma-panel .comp-done { color: #2d7d32; }
+    #delma-panel .response-text { color: #1a1a1a; }
+
     /* ── Input area — inside Delma AI panel ─────── */
     #input-area {
       flex-shrink: 0;
-      padding: 12px 16px 16px;
-      border-top: 1px solid #f0f0f0;
+      padding: 10px 16px 16px;
+      background: #f7f4ef;
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 6px;
     }
 
     #suggestion {
       font-size: 12px;
-      color: #9ca3af;
+      color: #9b8b73;
       opacity: 0;
       transition: opacity 0.8s;
       cursor: pointer;
       pointer-events: none;
-      padding: 0 4px;
+      padding: 0 6px;
     }
-    #suggestion:hover { color: #6b7280; }
+    #suggestion:hover { color: #6b5a48; }
 
     #summary {
       font-size: 11px;
-      color: #9ca3af;
+      color: #9b8b73;
       opacity: 0;
       transition: opacity 0.8s;
-      padding: 0 4px;
+      padding: 0 6px;
       letter-spacing: 0.03em;
     }
 
@@ -377,10 +406,16 @@
       display: flex;
       align-items: flex-end;
       width: 100%;
-      background: #f9fafb;
-      border: 1px solid #e5e7eb;
-      border-radius: 12px;
-      padding: 5px 5px 5px 16px;
+      background: #ffffff;
+      border: 1px solid #d8d1c6;
+      border-radius: 16px;
+      padding: 8px 8px 8px 18px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    #input-bar:focus-within {
+      border-color: #b8a99a;
+      box-shadow: 0 1px 8px rgba(0,0,0,0.10);
     }
 
     #input {
@@ -388,8 +423,8 @@
       border: none;
       outline: none;
       font-size: 14px;
-      line-height: 1.5;
-      color: #111827;
+      line-height: 1.55;
+      color: #1a1a1a;
       background: transparent;
       font-family: inherit;
       min-width: 0;
@@ -397,11 +432,11 @@
       overflow-y: hidden;
       min-height: 24px;
       max-height: 120px;
-      padding: 4px 0;
+      padding: 3px 0;
     }
 
-    #input::placeholder { color: #9ca3af; }
-    #input:disabled     { color: #d1d5db; }
+    #input::placeholder { color: #b8a99a; }
+    #input:disabled     { color: #c4b99a; }
 
     /* ── Conversation turns ─────────────────────── */
     .turn {
@@ -415,12 +450,12 @@
 
     .user-msg {
       align-self: flex-end;
-      background: #1B3A5C;
-      color: #ffffff;
+      background: #e9e3d8;
+      color: #1a1a1a;
       font-size: 13px;
-      line-height: 1.5;
-      padding: 8px 14px;
-      border-radius: 16px 16px 4px 16px;
+      line-height: 1.55;
+      padding: 9px 16px;
+      border-radius: 18px 18px 4px 18px;
       max-width: 85%;
       word-break: break-word;
       white-space: pre-wrap;
@@ -436,20 +471,21 @@
 
     #send-btn {
       flex-shrink: 0;
-      width: 36px; height: 36px;
-      border-radius: 8px;
-      background: #1B3A5C;
+      width: 34px; height: 34px;
+      border-radius: 50%;
+      background: #1a1a1a;
       border: none;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
       color: white;
-      font-size: 18px;
-      transition: background 0.2s, transform 0.1s;
+      font-size: 16px;
+      transition: background 0.15s, transform 0.1s;
+      margin-left: 6px;
     }
-    #send-btn:hover:not(:disabled) { background: #274F7A; transform: scale(1.04); }
-    #send-btn:disabled { background: #d1d5db; cursor: not-allowed; }
+    #send-btn:hover:not(:disabled) { background: #333333; transform: scale(1.06); }
+    #send-btn:disabled { background: #d8d1c6; cursor: not-allowed; }
   </style>
 </head>
 <body>

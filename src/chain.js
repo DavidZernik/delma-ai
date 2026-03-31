@@ -97,6 +97,10 @@ export async function runChain(query, chars, opts = {}) {
   let finalDocument = ''
   const steps = []
 
+  // Disk always knows who holds it — handoffTo(next) derives from automatically
+  let diskHolder = delma
+  const handoffTo = async (to) => { await handoff.send(diskHolder, to); diskHolder = to }
+
   console.log('[chain] starting:', query)
 
   // All characters face their desks at start
@@ -166,7 +170,7 @@ export async function runChain(query, chars, opts = {}) {
 
     console.log('  [ticker:Delma] briefing Sarah (lead):', s1.briefing_to_sarah)
     await showLine(delma.tickerEl, s1.briefing_to_sarah, 1000, delma.def.distanceOpacity)
-    await handoff.send(delma, sarah)
+    await handoffTo(sarah)
     delma.faceCamera(); delma.setLookTarget(CAMERA_POS)
     sarah.faceDesk()
 
@@ -181,7 +185,7 @@ export async function runChain(query, chars, opts = {}) {
     await displayWorking(sarah, sarahLead.working_steps, sarahLead.log_summary)
     steps.push(logStep(2, 'Delma', 'Sarah', sarahLead.log_summary, stepStart))
 
-    await handoff.send(sarah, marcus)
+    await handoffTo(marcus)
 
     // Build approvedArch from Sarah's lead output
     approvedArch = {
@@ -208,7 +212,7 @@ export async function runChain(query, chars, opts = {}) {
 
     console.log('  [ticker:Delma] briefing_to_sarah:', s1.briefing_to_sarah)
     await showLine(delma.tickerEl, s1.briefing_to_sarah, 1000, delma.def.distanceOpacity)
-    await handoff.send(delma, sarah)
+    await handoffTo(sarah)
     delma.faceCamera(); delma.setLookTarget(CAMERA_POS)
     sarah.faceDesk()
 
@@ -224,7 +228,7 @@ export async function runChain(query, chars, opts = {}) {
     steps.push(logStep(2, 'Delma', 'Sarah', s2.log_summary, stepStart))
 
     // ── Step 3: Delma — validate architecture ──────────────────────────────
-    await handoff.send(sarah, delma)
+    await handoffTo(delma)
     approvedArch = s2
     if (routing.needs_arch_review !== false) {
       setStage({ text: 'Delma is reviewing the structure', color: AGENT_COLORS.delma })
@@ -271,7 +275,7 @@ export async function runChain(query, chars, opts = {}) {
 
   console.log(`  [ticker:Delma] → Team: ${cappedArch.subjects.join(', ')}`)
   await showLine(delma.tickerEl, `→ Team: ${cappedArch.subjects.join(', ')}`, 1000, delma.def.distanceOpacity)
-  if (route !== ROUTE_STRATEGIC) await handoff.send(delma, marcus)
+  if (route !== ROUTE_STRATEGIC) await handoffTo(marcus)
   delma.faceCamera(); delma.setLookTarget(CAMERA_POS)
   marcus.faceDesk(); sarah.faceDesk(); james.faceDesk()
 
@@ -416,7 +420,7 @@ export async function runChain(query, chars, opts = {}) {
       ? `${validSections.length}/${cappedArch.subjects.length} sections — Marcus wrote, James validated in parallel`
       : `${validSections.length}/${cappedArch.subjects.length} sections — Marcus wrote, Sarah improved, James validated in parallel`
   steps.push(logStep(4, 'Delma', 'Team', step4summary, stepStart))
-  await handoff.send(marcus, delma)
+  await handoffTo(delma)
 
   // ── Step 11: Delma — final format + validate (skipped for simple/sarah-led tasks) ────
   let s11 = null
@@ -446,9 +450,10 @@ export async function runChain(query, chars, opts = {}) {
     console.log(`  [ticker:Delma] ${s11.log_summary}`)
     await showLine(delma.tickerEl, s11.log_summary, 1200, delma.def.distanceOpacity)
     steps.push(logStep(11, 'Delma', 'Delma', s11.log_summary, stepStart))
-    await handoff.send(delma, james)
+    await handoffTo(james)
   } else {
     console.log('[chain] skipping step 11 — route:', route)
+    await handoffTo(james)
   }
 
   // ── Step 12: James — final release ────────────────────────────────────────
@@ -478,7 +483,7 @@ export async function runChain(query, chars, opts = {}) {
   if (s12.approved === false && s12.issues?.length) {
     setStage({ text: 'Marcus is revising', color: AGENT_COLORS.marcus })
     console.log('[chain] step 12b — Marcus revising based on James rejection')
-    await handoff.send(james, marcus)
+    await handoffTo(marcus)
     marcus.startWorking()
     stepStart = Date.now()
     const s12b = await withWorking(marcus,
@@ -502,7 +507,7 @@ export async function runChain(query, chars, opts = {}) {
       finalDocument = s12b.document
 
       console.log('[chain] step 12c — James re-checking revised document')
-      await handoff.send(marcus, james)
+      await handoffTo(james)
       stepStart = Date.now()
       const s12c = await withWorking(james,
         ['re-checking revised document...'],
@@ -520,7 +525,7 @@ export async function runChain(query, chars, opts = {}) {
   // ── Step 13: Delma — deliver (display-only, no API call) ──────────────────
   setStage({ text: 'Delma is delivering', color: AGENT_COLORS.delma })
   console.log('[chain] step 13 — Delma deliver (display-only)')
-  await handoff.send(james, delma)
+  await handoffTo(delma)
   await delma.walkTo(delma.def.homeX, delma.def.homeZ)
   delma.faceCamera()
   delma.setLookTarget(CAMERA_POS)
