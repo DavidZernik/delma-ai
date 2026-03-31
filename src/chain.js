@@ -47,11 +47,21 @@ function resolveRoute(s1) {
 
 const CAMERA_POS = new THREE.Vector3(0.5, 3.5, -0.5)
 
-function setStage(text) {
+const AGENT_COLORS = {
+  delma: '#1B3A5C',
+  marcus: '#2D5A3D',
+  sarah: '#6B2D3D',
+  james: '#4A4A4A'
+}
+
+function setStage(entries) {
   const el = document.getElementById('stage-bar')
   if (!el) return
-  if (!text) { el.classList.remove('active'); return }
-  el.textContent = text
+  if (!entries) { el.classList.remove('active'); el.innerHTML = ''; return }
+  const items = Array.isArray(entries) ? entries : [entries]
+  el.innerHTML = items.map(({ text, color }) =>
+    `<div class="stage-item" style="background:${color}">${text}</div>`
+  ).join('')
   el.classList.add('active')
 }
 
@@ -93,7 +103,7 @@ export async function runChain(query, chars, opts = {}) {
   marcus.faceDesk(); sarah.faceDesk(); james.faceDesk()
 
   // ── Step 1: Delma — decompose ──────────────────────────────────────────────
-  setStage('Delma is scoping the request')
+  setStage({ text: 'Delma is scoping the request', color: AGENT_COLORS.delma })
   delma.faceCamera()
   delma.setLookTarget(CAMERA_POS)
 
@@ -120,7 +130,7 @@ export async function runChain(query, chars, opts = {}) {
   let searchContext = ''
   if (s1.needs_search && s1.search_queries?.length) {
     console.log('[chain] step 1.5 — web search:', s1.search_queries)
-    setStage('Delma is searching the web')
+    setStage({ text: 'Delma is searching the web', color: AGENT_COLORS.delma })
     delma.startWorking()
     await showLine(delma.tickerEl, 'searching the web...', 1200, delma.def.distanceOpacity)
 
@@ -160,7 +170,7 @@ export async function runChain(query, chars, opts = {}) {
     delma.faceCamera(); delma.setLookTarget(CAMERA_POS)
     sarah.faceDesk()
 
-    setStage('Sarah is forming a recommendation')
+    setStage({ text: 'Sarah is forming a recommendation', color: AGENT_COLORS.sarah })
     console.log('[chain] step 2 — Sarah strategic lead')
     stepStart = Date.now()
     sarahLead = await withWorking(sarah,
@@ -202,7 +212,7 @@ export async function runChain(query, chars, opts = {}) {
     delma.faceCamera(); delma.setLookTarget(CAMERA_POS)
     sarah.faceDesk()
 
-    setStage('Sarah is designing the structure')
+    setStage({ text: 'Sarah is designing the structure', color: AGENT_COLORS.sarah })
     console.log('[chain] step 2 — Sarah architecture')
     stepStart = Date.now()
     const s2 = await withWorking(sarah,
@@ -217,7 +227,7 @@ export async function runChain(query, chars, opts = {}) {
     await handoff.send(sarah, delma)
     approvedArch = s2
     if (routing.needs_arch_review !== false) {
-      setStage('Delma is reviewing the structure')
+      setStage({ text: 'Delma is reviewing the structure', color: AGENT_COLORS.delma })
       console.log('[chain] step 3 — Delma validate architecture')
       stepStart = Date.now()
       const s3 = await withWorking(delma,
@@ -254,7 +264,6 @@ export async function runChain(query, chars, opts = {}) {
   console.log('[chain] budget — word_budget:', wordBudget, '| sections:', sectionCount, '| per_section:', perSectionBudget)
 
   // ── Step 4: Parallel pipeline ──────────────────────────────────────────
-  setStage('Marcus is writing · James is checking')
   delma.faceCharacter(marcus)
   delma.setLookTarget(marcus)
   marcus.faceCharacter(delma)
@@ -268,12 +277,15 @@ export async function runChain(query, chars, opts = {}) {
 
   if (route === ROUTE_STRATEGIC) {
     console.log('[chain] step 4 — route:strategic (Sarah leads: Marcus support → James per section)')
+    setStage([{ text: 'Marcus is writing', color: AGENT_COLORS.marcus }, { text: 'James is checking', color: AGENT_COLORS.james }])
     marcus.startWorking(); james.startWorking()
   } else if (route === ROUTE_DIRECT) {
     console.log('[chain] step 4 — route:direct (Marcus → James per section)')
+    setStage([{ text: 'Marcus is writing', color: AGENT_COLORS.marcus }, { text: 'James is checking', color: AGENT_COLORS.james }])
     marcus.startWorking(); james.startWorking()
   } else {
     console.log('[chain] step 4 — route:full (Marcus → Sarah → James per section)')
+    setStage([{ text: 'Marcus is writing', color: AGENT_COLORS.marcus }, { text: 'Sarah is refining', color: AGENT_COLORS.sarah }, { text: 'James is checking', color: AGENT_COLORS.james }])
     marcus.startWorking(); sarah.startWorking(); james.startWorking()
   }
 
@@ -370,7 +382,7 @@ export async function runChain(query, chars, opts = {}) {
   }
 
   // ── Marcus assembly: stitch sections into one coherent document ────────────
-  setStage('Marcus is assembling the document')
+  setStage({ text: 'Marcus is assembling the document', color: AGENT_COLORS.marcus })
   marcus.startWorking()
   console.log('[chain] step 4b — Marcus assembly pass')
   const assemblyResult = await withWorking(marcus,
@@ -409,7 +421,7 @@ export async function runChain(query, chars, opts = {}) {
   // ── Step 11: Delma — final format + validate (skipped for simple/sarah-led tasks) ────
   let s11 = null
   if (route === ROUTE_FULL) {
-    setStage('Delma is reviewing the document')
+    setStage({ text: 'Delma is reviewing the document', color: AGENT_COLORS.delma })
     console.log('[chain] step 11 — Delma assemble + validate')
     stepStart = Date.now()
     s11 = await withWorking(delma,
@@ -440,7 +452,7 @@ export async function runChain(query, chars, opts = {}) {
   }
 
   // ── Step 12: James — final release ────────────────────────────────────────
-  setStage('James is doing a final check')
+  setStage({ text: 'James is doing a final check', color: AGENT_COLORS.james })
   console.log('[chain] step 12 — James final release')
   stepStart = Date.now()
   const s12 = await withWorking(james,
@@ -464,7 +476,7 @@ export async function runChain(query, chars, opts = {}) {
   // ── Step 12b/12c: revision loop — fires once if James rejected ─────────────
   let finalJamesResult = s12
   if (s12.approved === false && s12.issues?.length) {
-    setStage('Marcus is revising')
+    setStage({ text: 'Marcus is revising', color: AGENT_COLORS.marcus })
     console.log('[chain] step 12b — Marcus revising based on James rejection')
     await handoff.send(james, marcus)
     marcus.startWorking()
@@ -506,7 +518,7 @@ export async function runChain(query, chars, opts = {}) {
   }
 
   // ── Step 13: Delma — deliver (display-only, no API call) ──────────────────
-  setStage('Delma is delivering')
+  setStage({ text: 'Delma is delivering', color: AGENT_COLORS.delma })
   console.log('[chain] step 13 — Delma deliver (display-only)')
   await handoff.send(james, delma)
   await delma.walkTo(delma.def.homeX, delma.def.homeZ)

@@ -197,8 +197,7 @@ function buildCharacter(scene, def, screenMesh) {
   // ── CSS2D name label ──────────────────────────────
   const labelEl = document.createElement('div')
   labelEl.className = 'char-label'
-  labelEl.style.color = def.colorHex
-  labelEl.style.borderLeftColor = def.colorHex
+  labelEl.style.background = def.colorHex
   labelEl.innerHTML = `<span class="char-name">${def.name}</span><span class="char-role">${def.role}</span>`
   const labelObj = new CSS2DObject(labelEl)
   labelObj.position.set(0, 2.05, 0)
