@@ -372,11 +372,12 @@
     #delma-panel .comp-done { color: #2d7d32; }
     #delma-panel .response-text { color: #1a1a1a; }
 
-    /* ── Input area — inside Delma AI panel ─────── */
+    /* ── Input area — spans both columns ─────── */
     #input-area {
       flex-shrink: 0;
       padding: 10px 16px 16px;
       background: #f7f4ef;
+      border-top: 1px solid #e5e7eb;
       display: flex;
       flex-direction: column;
       gap: 6px;
@@ -514,14 +515,6 @@
           <span id="delma-time" class="panel-time"></span>
           <span class="panel-label">Multi-agent</span>
         </div>
-        <div id="input-area">
-          <div id="suggestion">Try: Compare email marketing platforms for a mid-size e-commerce brand</div>
-          <div id="summary"></div>
-          <div id="input-bar">
-            <textarea id="input" rows="1" placeholder="Ask anything..." autocomplete="off" spellcheck="false"></textarea>
-            <button id="send-btn">&#8594;</button>
-          </div>
-        </div>
       </div>
 
       <!-- Right panel: Direct model output -->
@@ -544,6 +537,16 @@
         </div>
       </div>
 
+    </div>
+
+    <!-- Input area: spans both columns -->
+    <div id="input-area">
+      <div id="suggestion">Try: Compare email marketing platforms for a mid-size e-commerce brand</div>
+      <div id="summary"></div>
+      <div id="input-bar">
+        <textarea id="input" rows="1" placeholder="Ask anything..." autocomplete="off" spellcheck="false"></textarea>
+        <button id="send-btn">&#8594;</button>
+      </div>
     </div>
 
     <!-- Analysis: spans both columns -->

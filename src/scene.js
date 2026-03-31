@@ -5,8 +5,8 @@ export const LEFT_FRAC = 0.40
 
 export function initScene() {
   const scene = new THREE.Scene()
-  scene.background = new THREE.Color(0xEAE2D8)
-  scene.fog = new THREE.Fog(0xEAE2D8, 17, 30)
+  scene.background = new THREE.Color(0xF5F4F2)
+  scene.fog = new THREE.Fog(0xF5F4F2, 17, 30)
 
   // ── Camera — elevated front-left, sees all 4 characters ──────────────────
   const w = Math.round(window.innerWidth * LEFT_FRAC)
@@ -104,7 +104,7 @@ function buildRoom(scene) {
   addWall(scene, new THREE.PlaneGeometry(ROOM_D, ROOM_H), -ROOM_W / 2, ROOM_H / 2, -ROOM_D / 2, Math.PI / 2)
 
   // Front wall (entrance) — warm off-white
-  const frontWallMat = new THREE.MeshLambertMaterial({ color: 0xEEE6DC })
+  const frontWallMat = new THREE.MeshLambertMaterial({ color: 0xF8F7F5 })
   const frontWall = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_W, ROOM_H), frontWallMat)
   frontWall.position.set(0, ROOM_H / 2, 0)
   frontWall.rotation.y = Math.PI
@@ -140,24 +140,28 @@ function buildRoom(scene) {
   addChair(scene,  1.0, -9,   false)  // Marcus
   addChair(scene,  0.2, -12,  true)   // Priya — reversed chair (on -Z side)
 
-  // ── Paintings on right wall ─────────────────────
-  addPainting(scene, 4.35, 2.2, -5.5, 'right', 'landscape')
-  addPainting(scene, 4.35, 2.2, -11,  'right', 'abstract')
+  // ── Paintings — Renaissance style ───────────────
+  // Left wall — landscape paintings (safe, no windows)
+  addPainting(scene, -4.35, 2.5, -4.5,  'left', 'colorfield')
+  addPainting(scene, -4.35, 2.5, -10.5, 'left', 'gestural')
+  addPainting(scene, -4.35, 2.5, -16.5, 'left', 'geometric')
+  // Right wall — portrait paintings fitted between windows (z=-5,-9,-13,-17)
+  addPainting(scene, 4.35, 2.5, -3.0,  'right', 'colorfield', true)
+  addPainting(scene, 4.35, 2.5, -7.0,  'right', 'gestural',   true)
+  addPainting(scene, 4.35, 2.5, -11.0, 'right', 'geometric',  true)
 
   // ── Whiteboard (left wall, mid-room) ─────────────
   addWhiteboard(scene, -4.3, 2.1, -14)
 
-  // ── Storage unit (back-left) ─────────────────────
-  addBookshelf(scene, -3.8, -17)
+  // bookshelf removed
 
   // ── Plants ───────────────────────────────────────
-  addPlant(scene,  3.8,  -1.5, 1.0)
-  addPlant(scene, -4.0,  -1.5, 1.0)
-  addPlant(scene, -4.0,  -14,  0.8)
-  addPlant(scene,  3.8,  -17,  0.9)
+  addPlant(scene,  3.8,  -1.5, 1.8)
+  addPlant(scene, -4.0,  -1.5, 1.8)
+  addPlant(scene, -4.0,  -14,  1.4)
+  addPlant(scene,  3.8,  -17,  1.4)
 
-  // ── Divider between desk banks ───────────────────
-  addDivider(scene, 0, -10.5)
+  // divider removed
 
   // ── Area rug ─────────────────────────────────────
   addRug(scene, 0.2, -10.5, 6.5, 9.5)
@@ -167,7 +171,7 @@ function buildRoom(scene) {
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 function addWall(scene, geo, x, y, z, ry) {
-  const mat = new THREE.MeshLambertMaterial({ color: 0xEEE6DC })
+  const mat = new THREE.MeshLambertMaterial({ color: 0xF8F7F5 })
   const mesh = new THREE.Mesh(geo, mat)
   mesh.position.set(x, y, z)
   mesh.rotation.y = ry
@@ -175,7 +179,7 @@ function addWall(scene, geo, x, y, z, ry) {
 }
 
 function addWindowWall(scene, wallX, roomH, roomD) {
-  const wallMat  = new THREE.MeshLambertMaterial({ color: 0xEEE6DC })
+  const wallMat  = new THREE.MeshLambertMaterial({ color: 0xF8F7F5 })
   const glassMat = new THREE.MeshLambertMaterial({
     color: 0xC4D8E8, transparent: true, opacity: 0.32,
     emissive: 0x88AACC, emissiveIntensity: 0.35
@@ -218,25 +222,11 @@ function addWindowWall(scene, wallX, roomH, roomD) {
 }
 
 function addWainscoting(scene, w, h, d) {
-  const mat = new THREE.MeshLambertMaterial({ color: 0xD8CEBC })
-  const panelH = 0.9
-  // Left wall wainscoting
-  const leftPanel = new THREE.Mesh(new THREE.BoxGeometry(0.025, panelH, d), mat)
-  leftPanel.position.set(-w / 2 + 0.012, panelH / 2, -d / 2)
-  scene.add(leftPanel)
-  // Back wall
-  const backPanel = new THREE.Mesh(new THREE.BoxGeometry(w, panelH, 0.025), mat)
-  backPanel.position.set(0, panelH / 2, -d)
-  scene.add(backPanel)
-  // Cap rail (top of wainscoting)
-  const capMat = new THREE.MeshLambertMaterial({ color: 0xC8BEAA })
-  const leftCap = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.04, d), capMat)
-  leftCap.position.set(-w / 2 + 0.02, panelH + 0.02, -d / 2)
-  scene.add(leftCap)
+  // removed — visible against white walls
 }
 
 function addCornice(scene, w, h, d) {
-  const mat = new THREE.MeshLambertMaterial({ color: 0xF0EAE0 })
+  const mat = new THREE.MeshLambertMaterial({ color: 0xF5F4F2 })
   const height = 0.1
   const geo = new THREE.BoxGeometry(w, height, 0.12)
   const front = new THREE.Mesh(geo, mat); front.position.set(0, h - height / 2, 0); scene.add(front)
@@ -388,33 +378,163 @@ function addDivider(scene, cx, cz) {
   }
 }
 
-function addPainting(scene, x, y, z, wall, style) {
-  const paintW = style === 'landscape' ? 1.4 : 1.1
-  const paintH = style === 'landscape' ? 0.9 : 1.2
-  const frameMat = new THREE.MeshLambertMaterial({ color: 0x2C2018 })
-  const fw = paintW + 0.10, fh = paintH + 0.10
+function addPainting(scene, x, y, z, wall, style, portrait = false) {
+  if (style === 'botanical') portrait = true
+  const paintW = portrait ? 1.1  : 2.2
+  const paintH = portrait ? 1.55 : 1.35
+  const fw = paintW + 0.07, fh = paintH + 0.07
 
-  // Frame (facing -X for right wall)
-  const frame = new THREE.Mesh(new THREE.BoxGeometry(0.06, fh, fw), frameMat)
+  const texFn = { colorfield: makeColorField, botanical: makeBotanical, geometric: makeGeometric, gestural: makeGestural }
+  const tex = (texFn[style] || makeColorField)(paintW, paintH)
+  const canvasMat = new THREE.MeshLambertMaterial({ map: tex })
+  const sign = wall === 'left' ? 1 : -1
+
+  // Frame behind, canvas in front
+  const frameMat = new THREE.MeshLambertMaterial({ color: 0x181818 })
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(0.04, fh, fw), frameMat)
   frame.position.set(x, y, z); scene.add(frame)
 
-  // Canvas texture
-  const tex = style === 'landscape' ? makeLandscapePainting(paintW, paintH)
-                                     : makeAbstractPainting(paintW, paintH)
-  const canvasMat = new THREE.MeshLambertMaterial({ map: tex })
-  const canvas = new THREE.Mesh(new THREE.PlaneGeometry(paintW, paintH), canvasMat)
-  canvas.rotation.y = -Math.PI / 2
-  canvas.position.set(x - 0.04, y, z); scene.add(canvas)
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(paintW, paintH), canvasMat)
+  mesh.rotation.y = wall === 'left' ? Math.PI / 2 : -Math.PI / 2
+  mesh.position.set(x + sign * 0.04, y, z); scene.add(mesh)
 
-  // Subtle picture light above
-  const lightMat = new THREE.MeshLambertMaterial({ color: 0xBBAA88 })
-  const picLight = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.04, paintW * 0.7, 8), lightMat)
-  picLight.rotation.z = Math.PI / 2
-  picLight.position.set(x - 0.02, y + paintH / 2 + 0.12, z); scene.add(picLight)
-  const picGlow = new THREE.PointLight(0xFFEECC, 0.6, 3)
-  picGlow.position.set(x - 0.3, y + paintH / 2 + 0.05, z); scene.add(picGlow)
+  const picGlow = new THREE.PointLight(0xFFF8F0, 0.35, 2.5)
+  picGlow.position.set(x + sign * 0.8, y + paintH / 2 + 0.1, z); scene.add(picGlow)
 }
 
+function _paintCanvas(w, h, res = 512) {
+  const px = res, py = Math.round(res * h / w)
+  const canvas = document.createElement('canvas')
+  canvas.width = px; canvas.height = py
+  return { canvas, ctx: canvas.getContext('2d'), px, py }
+}
+
+// Bold color block — two large fields separated by a thin gap, very readable at distance
+function makeColorField(w, h) {
+  const { canvas, ctx, px, py } = _paintCanvas(w, h)
+  const palettes = [
+    ['#C8503A', '#1E3A5A'],   // terracotta + navy
+    ['#3A5A3A', '#D4B870'],   // deep green + warm gold
+    ['#5A3050', '#E8D0B0'],   // plum + cream
+    ['#1A2840', '#B06040'],   // midnight + burnt sienna
+  ]
+  const [a, b] = palettes[Math.floor(Math.random() * palettes.length)]
+  // Top block
+  ctx.fillStyle = a; ctx.fillRect(0, 0, px, py * 0.48)
+  // Thin white gap
+  ctx.fillStyle = '#F5F4F2'; ctx.fillRect(0, py * 0.48, px, py * 0.04)
+  // Bottom block
+  ctx.fillStyle = b; ctx.fillRect(0, py * 0.52, px, py * 0.48)
+  // Soft inner glow on top block
+  const glow = ctx.createRadialGradient(px*0.5, py*0.24, 0, px*0.5, py*0.24, px*0.5)
+  glow.addColorStop(0, 'rgba(255,255,255,0.08)'); glow.addColorStop(1, 'rgba(0,0,0,0)')
+  ctx.fillStyle = glow; ctx.fillRect(0, 0, px, py)
+  return new THREE.CanvasTexture(canvas)
+}
+
+// Large botanical — bold single plant silhouette, filled dark on cream
+function makeBotanical(w, h) {
+  const { canvas, ctx, px, py } = _paintCanvas(w, h, 400)
+  ctx.fillStyle = '#F0EDE6'; ctx.fillRect(0, 0, px, py)
+
+  ctx.fillStyle = '#1C1A16'; ctx.strokeStyle = '#1C1A16'
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round'
+
+  // Thick central stem
+  ctx.lineWidth = px * 0.025
+  ctx.beginPath(); ctx.moveTo(px*0.5, py*0.98)
+  ctx.bezierCurveTo(px*0.48, py*0.7, px*0.53, py*0.45, px*0.5, py*0.08)
+  ctx.stroke()
+
+  // Large filled leaves
+  const leafDefs = [
+    { x: 0.5, y: 0.78, angle: -1.1, lw: 0.22, lh: 0.35 },
+    { x: 0.5, y: 0.78, angle:  1.1, lw: 0.22, lh: 0.35 },
+    { x: 0.5, y: 0.55, angle: -1.3, lw: 0.20, lh: 0.32 },
+    { x: 0.5, y: 0.55, angle:  1.3, lw: 0.20, lh: 0.32 },
+    { x: 0.5, y: 0.35, angle: -1.2, lw: 0.16, lh: 0.26 },
+    { x: 0.5, y: 0.35, angle:  1.2, lw: 0.16, lh: 0.26 },
+    { x: 0.5, y: 0.18, angle:  0,   lw: 0.14, lh: 0.22 },
+  ]
+  for (const { x, y, angle, lw, lh } of leafDefs) {
+    ctx.save(); ctx.translate(px*x, py*y); ctx.rotate(angle)
+    const W = px*lw, H = py*lh
+    ctx.beginPath()
+    ctx.moveTo(0, 0)
+    ctx.bezierCurveTo(W*0.6, -H*0.15, W*0.8, H*0.4, 0, H)
+    ctx.bezierCurveTo(-W*0.3, H*0.4, -W*0.2, -H*0.1, 0, 0)
+    ctx.fill()
+    // vein — white line on dark fill
+    ctx.strokeStyle = '#F0EDE6'; ctx.lineWidth = px*0.008
+    ctx.beginPath(); ctx.moveTo(0, H*0.05); ctx.lineTo(0, H*0.88); ctx.stroke()
+    ctx.strokeStyle = '#1C1A16'
+    ctx.restore()
+  }
+  return new THREE.CanvasTexture(canvas)
+}
+
+// Bold geometric — Bauhaus-influenced, strong shapes, limited palette
+function makeGeometric(w, h) {
+  const { canvas, ctx, px, py } = _paintCanvas(w, h)
+  ctx.fillStyle = '#F5F3EF'; ctx.fillRect(0, 0, px, py)
+
+  // Large circle — dominant element
+  ctx.fillStyle = '#2A3850'
+  ctx.beginPath(); ctx.arc(px*0.62, py*0.46, py*0.36, 0, Math.PI*2); ctx.fill()
+
+  // Overlapping rectangle — terracotta
+  ctx.fillStyle = '#C05838'
+  ctx.fillRect(px*0.04, py*0.15, px*0.45, py*0.55)
+
+  // Small accent square — warm gold
+  ctx.fillStyle = '#D4A840'
+  ctx.fillRect(px*0.62, py*0.72, px*0.28, py*0.22)
+
+  // Thin horizontal rule
+  ctx.fillStyle = '#1A1A1A'
+  ctx.fillRect(0, py*0.885, px, py*0.012)
+
+  // Vertical rule
+  ctx.fillRect(px*0.82, 0, px*0.010, py*0.885)
+
+  return new THREE.CanvasTexture(canvas)
+}
+
+// Abstract gestural — bold thick strokes, reads at distance
+function makeGestural(w, h) {
+  const { canvas, ctx, px, py } = _paintCanvas(w, h)
+  ctx.fillStyle = '#EEEAE4'; ctx.fillRect(0, 0, px, py)
+
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round'
+
+  // 3 large dominant strokes
+  const strokes = [
+    { color: '#B04828', pts: [[0.05,0.75],[0.3,0.35],[0.6,0.55],[0.88,0.18]], lw: py*0.10 },
+    { color: '#243858', pts: [[0.12,0.15],[0.4,0.5],[0.7,0.3],[0.95,0.7]],  lw: py*0.09 },
+    { color: '#4A7050', pts: [[0.0,0.5],[0.35,0.65],[0.55,0.4],[0.85,0.85]], lw: py*0.07 },
+  ]
+  for (const s of strokes) {
+    ctx.strokeStyle = s.color; ctx.lineWidth = s.lw; ctx.globalAlpha = 0.82
+    ctx.beginPath(); ctx.moveTo(s.pts[0][0]*px, s.pts[0][1]*py)
+    for (let i = 1; i < s.pts.length; i++) {
+      const p = s.pts[i-1], c = s.pts[i]
+      ctx.quadraticCurveTo(p[0]*px, p[1]*py, (p[0]+c[0])/2*px, (p[1]+c[1])/2*py)
+    }
+    ctx.stroke()
+  }
+  ctx.globalAlpha = 1
+
+  // Fine dark mark overlay — energy
+  ctx.strokeStyle = '#1A1410'; ctx.lineWidth = px*0.004; ctx.globalAlpha = 0.35
+  for (const [x1,y1,x2,y2] of [[0.1,0.2,0.5,0.1],[0.6,0.8,0.9,0.6],[0.3,0.9,0.7,0.75]]) {
+    ctx.beginPath(); ctx.moveTo(x1*px,y1*py); ctx.lineTo(x2*px,y2*py); ctx.stroke()
+  }
+  ctx.globalAlpha = 1
+
+  return new THREE.CanvasTexture(canvas)
+}
+
+// ── Legacy (unused but kept to avoid reference errors) ─────────────────────
 function makeLandscapePainting(w, h) {
   const px = 512, py = Math.round(512 * h / w)
   const canvas = document.createElement('canvas')
@@ -501,6 +621,233 @@ function makeAbstractPainting(w, h) {
 
   const tex = new THREE.CanvasTexture(canvas)
   return tex
+}
+
+// ── Abstract wall art textures ────────────────────────────────────────────
+
+function makeRenaissancePortrait(w, h) {
+  const px = 400, py = Math.round(400 * h / w)
+  const canvas = document.createElement('canvas')
+  canvas.width = px; canvas.height = py
+  const ctx = canvas.getContext('2d')
+
+  // Dark background — Rembrandt-style
+  ctx.fillStyle = '#1A1208'; ctx.fillRect(0, 0, px, py)
+  const bgGrad = ctx.createRadialGradient(px * 0.5, py * 0.38, 10, px * 0.5, py * 0.38, px * 0.55)
+  bgGrad.addColorStop(0, 'rgba(60,40,15,0.7)'); bgGrad.addColorStop(1, 'rgba(10,6,2,0)')
+  ctx.fillStyle = bgGrad; ctx.fillRect(0, 0, px, py)
+
+  // Shoulders / clothing — dark doublet
+  ctx.fillStyle = '#1E1810'
+  ctx.beginPath()
+  ctx.ellipse(px * 0.5, py * 0.88, px * 0.38, py * 0.3, 0, 0, Math.PI * 2)
+  ctx.fill()
+  // White collar
+  ctx.fillStyle = '#E8E0D0'
+  ctx.beginPath()
+  ctx.ellipse(px * 0.5, py * 0.62, px * 0.18, py * 0.07, 0, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.fillStyle = '#F0E8DC'
+  ctx.beginPath(); ctx.moveTo(px * 0.34, py * 0.62)
+  ctx.bezierCurveTo(px * 0.38, py * 0.56, px * 0.44, py * 0.54, px * 0.5, py * 0.56)
+  ctx.bezierCurveTo(px * 0.56, py * 0.54, px * 0.62, py * 0.56, px * 0.66, py * 0.62)
+  ctx.lineTo(px * 0.5, py * 0.68); ctx.closePath(); ctx.fill()
+
+  // Face — warm skin, side-lit
+  const faceGrad = ctx.createRadialGradient(px * 0.44, py * 0.38, 4, px * 0.5, py * 0.38, px * 0.2)
+  faceGrad.addColorStop(0, '#D4905A'); faceGrad.addColorStop(0.6, '#B87040'); faceGrad.addColorStop(1, '#603010')
+  ctx.fillStyle = faceGrad
+  ctx.beginPath()
+  ctx.ellipse(px * 0.5, py * 0.38, px * 0.18, py * 0.22, 0, 0, Math.PI * 2)
+  ctx.fill()
+
+  // Eyes
+  ctx.fillStyle = '#1A0E06'
+  ctx.beginPath(); ctx.ellipse(px * 0.43, py * 0.35, 5, 3.5, 0, 0, Math.PI * 2); ctx.fill()
+  ctx.beginPath(); ctx.ellipse(px * 0.57, py * 0.35, 5, 3.5, 0, 0, Math.PI * 2); ctx.fill()
+  ctx.fillStyle = 'rgba(255,220,180,0.5)'
+  ctx.beginPath(); ctx.arc(px * 0.44, py * 0.348, 2, 0, Math.PI * 2); ctx.fill()
+  ctx.beginPath(); ctx.arc(px * 0.58, py * 0.348, 2, 0, Math.PI * 2); ctx.fill()
+
+  // Nose shadow
+  ctx.fillStyle = 'rgba(80,35,10,0.4)'
+  ctx.beginPath(); ctx.ellipse(px * 0.51, py * 0.42, 4, 5, 0, 0, Math.PI * 2); ctx.fill()
+
+  // Hair — dark, loosely indicated
+  ctx.fillStyle = '#1C1008'
+  ctx.beginPath()
+  ctx.ellipse(px * 0.5, py * 0.2, px * 0.2, py * 0.12, 0, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.beginPath()
+  ctx.ellipse(px * 0.5, py * 0.16, px * 0.16, py * 0.1, 0, 0, Math.PI * 2)
+  ctx.fill()
+
+  // Varnish — warm golden glaze
+  const glaze = ctx.createLinearGradient(0, 0, px, py)
+  glaze.addColorStop(0, 'rgba(80,50,10,0.12)'); glaze.addColorStop(1, 'rgba(40,20,0,0.18)')
+  ctx.fillStyle = glaze; ctx.fillRect(0, 0, px, py)
+
+  return new THREE.CanvasTexture(canvas)
+}
+
+function makeMadonna(w, h) {
+  const px = 400, py = Math.round(400 * h / w)
+  const canvas = document.createElement('canvas')
+  canvas.width = px; canvas.height = py
+  const ctx = canvas.getContext('2d')
+
+  // Gold / ochre ground — egg tempera feel
+  const bg = ctx.createLinearGradient(0, 0, 0, py)
+  bg.addColorStop(0, '#C89840'); bg.addColorStop(0.5, '#D4A850'); bg.addColorStop(1, '#A87828')
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, px, py)
+
+  // Gold leaf texture — subtle hatching
+  ctx.strokeStyle = 'rgba(180,130,30,0.25)'; ctx.lineWidth = 0.8
+  for (let i = 0; i < py; i += 6) {
+    ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(px, i + 4); ctx.stroke()
+  }
+
+  // Arch / mandorla behind figure
+  const archGrad = ctx.createRadialGradient(px * 0.5, py * 0.45, 20, px * 0.5, py * 0.45, px * 0.42)
+  archGrad.addColorStop(0, 'rgba(255,240,160,0.55)'); archGrad.addColorStop(1, 'rgba(200,160,40,0)')
+  ctx.fillStyle = archGrad; ctx.fillRect(0, 0, px, py)
+
+  // Madonna's robe — deep ultramarine blue
+  ctx.fillStyle = '#1A2C6A'
+  ctx.beginPath()
+  ctx.moveTo(px * 0.18, py)
+  ctx.bezierCurveTo(px * 0.1, py * 0.7, px * 0.22, py * 0.45, px * 0.36, py * 0.38)
+  ctx.bezierCurveTo(px * 0.44, py * 0.35, px * 0.5, py * 0.36, px * 0.56, py * 0.38)
+  ctx.bezierCurveTo(px * 0.72, py * 0.44, px * 0.88, py * 0.68, px * 0.82, py)
+  ctx.closePath(); ctx.fill()
+  // Robe fold highlights
+  ctx.strokeStyle = '#2A4A9A'; ctx.lineWidth = 2
+  for (const [x1, y1, x2, y2] of [
+    [px*0.3, py*0.5, px*0.28, py*0.85], [px*0.5, py*0.42, px*0.48, py*0.9],
+    [px*0.65, py*0.52, px*0.67, py*0.8]
+  ]) {
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke()
+  }
+
+  // Red under-dress
+  ctx.fillStyle = '#8A2010'
+  ctx.beginPath()
+  ctx.ellipse(px * 0.5, py * 0.55, px * 0.12, py * 0.08, 0, 0, Math.PI * 2)
+  ctx.fill()
+
+  // Face
+  const faceGrad = ctx.createRadialGradient(px * 0.48, py * 0.26, 3, px * 0.5, py * 0.27, px * 0.16)
+  faceGrad.addColorStop(0, '#E8C090'); faceGrad.addColorStop(0.7, '#C89060'); faceGrad.addColorStop(1, '#805030')
+  ctx.fillStyle = faceGrad
+  ctx.beginPath(); ctx.ellipse(px * 0.5, py * 0.27, px * 0.13, py * 0.17, 0, 0, Math.PI * 2); ctx.fill()
+
+  // Gold halo
+  ctx.strokeStyle = '#E8C030'; ctx.lineWidth = 3
+  ctx.beginPath(); ctx.arc(px * 0.5, py * 0.24, px * 0.19, 0, Math.PI * 2); ctx.stroke()
+  ctx.strokeStyle = 'rgba(232,192,48,0.4)'; ctx.lineWidth = 7
+  ctx.beginPath(); ctx.arc(px * 0.5, py * 0.24, px * 0.19, 0, Math.PI * 2); ctx.stroke()
+
+  // Eyes, nose
+  ctx.fillStyle = '#2A1808'
+  ctx.beginPath(); ctx.ellipse(px * 0.44, py * 0.265, 4, 2.5, 0, 0, Math.PI * 2); ctx.fill()
+  ctx.beginPath(); ctx.ellipse(px * 0.56, py * 0.265, 4, 2.5, 0, 0, Math.PI * 2); ctx.fill()
+  ctx.fillStyle = 'rgba(70,28,8,0.35)'
+  ctx.beginPath(); ctx.arc(px * 0.5, py * 0.3, 3, 0, Math.PI * 2); ctx.fill()
+
+  // Veil / headdress
+  ctx.fillStyle = 'rgba(200,180,140,0.6)'
+  ctx.beginPath()
+  ctx.ellipse(px * 0.5, py * 0.18, px * 0.16, py * 0.1, 0, 0, Math.PI * 2)
+  ctx.fill()
+
+  // Child figure (small, lower center)
+  ctx.fillStyle = '#D49060'
+  ctx.beginPath(); ctx.ellipse(px * 0.5, py * 0.52, px * 0.07, py * 0.09, 0, 0, Math.PI * 2); ctx.fill()
+  ctx.fillStyle = '#E8B870'
+  ctx.beginPath(); ctx.arc(px * 0.5, py * 0.44, px * 0.055, 0, Math.PI * 2); ctx.fill()
+  ctx.strokeStyle = '#C89040'; ctx.lineWidth = 2
+  ctx.beginPath(); ctx.arc(px * 0.5, py * 0.42, px * 0.075, 0, Math.PI * 2); ctx.stroke()
+
+  // Crackle/varnish
+  const varnish = ctx.createLinearGradient(0, 0, px, py)
+  varnish.addColorStop(0, 'rgba(60,35,5,0.1)'); varnish.addColorStop(1, 'rgba(80,50,0,0.15)')
+  ctx.fillStyle = varnish; ctx.fillRect(0, 0, px, py)
+
+  return new THREE.CanvasTexture(canvas)
+}
+
+function makeRenaissanceScene(w, h) {
+  const px = 512, py = Math.round(512 * h / w)
+  const canvas = document.createElement('canvas')
+  canvas.width = px; canvas.height = py
+  const ctx = canvas.getContext('2d')
+
+  // Sky — hazy Italian blue
+  const sky = ctx.createLinearGradient(0, 0, 0, py * 0.55)
+  sky.addColorStop(0, '#6888B0'); sky.addColorStop(1, '#B8CCDC')
+  ctx.fillStyle = sky; ctx.fillRect(0, 0, px, py)
+
+  // Distant hills — sfumato haze
+  for (let i = 3; i >= 0; i--) {
+    const yBase = py * (0.38 + i * 0.06)
+    const col = `rgba(${60+i*25},${80+i*20},${50+i*15},${0.5 - i * 0.08})`
+    ctx.fillStyle = col
+    ctx.beginPath(); ctx.moveTo(0, py)
+    for (let x = 0; x <= px; x += 12) {
+      ctx.lineTo(x, yBase - Math.sin(x / 55 + i) * 18 - Math.sin(x / 22) * 8)
+    }
+    ctx.lineTo(px, py); ctx.fill()
+  }
+
+  // Architectural columns left side
+  ctx.fillStyle = '#C8B890'
+  for (const cx of [px * 0.04, px * 0.14]) {
+    ctx.fillRect(cx - 8, py * 0.15, 16, py * 0.85)
+    ctx.fillStyle = '#E0D0A8'
+    ctx.beginPath(); ctx.ellipse(cx, py * 0.15, 14, 8, 0, 0, Math.PI * 2); ctx.fill()
+    ctx.fillStyle = '#C8B890'
+  }
+  // Architrave
+  ctx.fillStyle = '#B8A878'
+  ctx.fillRect(0, py * 0.13, px * 0.22, py * 0.04)
+
+  // Ground — warm sienna earth
+  const ground = ctx.createLinearGradient(0, py * 0.72, 0, py)
+  ground.addColorStop(0, '#8A6030'); ground.addColorStop(1, '#5A3810')
+  ctx.fillStyle = ground; ctx.fillRect(0, py * 0.72, px, py * 0.28)
+
+  // Path / road
+  ctx.fillStyle = '#B89060'
+  ctx.beginPath()
+  ctx.moveTo(px * 0.35, py); ctx.lineTo(px * 0.65, py)
+  ctx.lineTo(px * 0.56, py * 0.72); ctx.lineTo(px * 0.44, py * 0.72)
+  ctx.closePath(); ctx.fill()
+
+  // Cypress trees right side
+  ctx.fillStyle = '#1E3818'
+  for (const [tx, th] of [[px * 0.78, py * 0.42], [px * 0.88, py * 0.36], [px * 0.94, py * 0.46]]) {
+    ctx.beginPath()
+    ctx.moveTo(tx, py * 0.72)
+    ctx.bezierCurveTo(tx - 10, py * 0.72 - th * 0.4, tx - 6, py * 0.72 - th * 0.7, tx, py * 0.72 - th)
+    ctx.bezierCurveTo(tx + 6, py * 0.72 - th * 0.7, tx + 10, py * 0.72 - th * 0.4, tx, py * 0.72)
+    ctx.fill()
+  }
+
+  // Foreground figures (dark silhouettes, draped)
+  ctx.fillStyle = '#2A1C10'
+  // Figure 1
+  ctx.beginPath(); ctx.ellipse(px * 0.3, py * 0.62, 9, 12, -0.15, 0, Math.PI * 2); ctx.fill()
+  ctx.beginPath(); ctx.arc(px * 0.31, py * 0.51, 8, 0, Math.PI * 2); ctx.fill()
+  // Figure 2
+  ctx.beginPath(); ctx.ellipse(px * 0.42, py * 0.65, 8, 11, 0.1, 0, Math.PI * 2); ctx.fill()
+  ctx.beginPath(); ctx.arc(px * 0.41, py * 0.54, 7, 0, Math.PI * 2); ctx.fill()
+
+  // Golden varnish glaze
+  const varnish = ctx.createLinearGradient(0, 0, px, py)
+  varnish.addColorStop(0, 'rgba(80,55,10,0.12)'); varnish.addColorStop(1, 'rgba(50,30,5,0.18)')
+  ctx.fillStyle = varnish; ctx.fillRect(0, 0, px, py)
+
+  return new THREE.CanvasTexture(canvas)
 }
 
 function addWhiteboard(scene, x, y, z) {
@@ -627,18 +974,21 @@ function makeFloorTexture() {
 // ── Back wall with large window opening ───────────────────────────────────
 
 function addBackWindow(scene, roomW, roomH, roomD) {
-  const wallMat  = new THREE.MeshLambertMaterial({ color: 0xC8BAAA })
-  const revealMat = new THREE.MeshLambertMaterial({ color: 0xDDD5C8 }) // lighter inside reveal
+  const wallMat  = new THREE.MeshLambertMaterial({ color: 0xF8F7F5 })
+  const revealMat = new THREE.MeshLambertMaterial({ color: 0xFAFAF8 })
   const z = -roomD
-  const depth = 0.30  // wall thickness / reveal depth
+  const depth = 0.30
 
+  // Window shifted to right side of back wall
   const winW = 2.4, winH = 1.55
+  const winCX = 2.2   // right of center
   const winBottom = 1.5, winTop = winBottom + winH
   const winCY = winBottom + winH / 2
 
   // ── Back wall face (4 panels around opening) ──
   const topH = roomH - winTop
-  const sideW = (roomW - winW) / 2
+  const leftW  = roomW / 2 + winCX - winW / 2   // wide left panel
+  const rightW = roomW / 2 - winCX - winW / 2   // narrow right panel
 
   const topPanel = new THREE.Mesh(new THREE.PlaneGeometry(roomW, topH), wallMat)
   topPanel.position.set(0, winTop + topH / 2, z)
@@ -648,43 +998,39 @@ function addBackWindow(scene, roomW, roomH, roomD) {
   botPanel.position.set(0, winBottom / 2, z)
   scene.add(botPanel)
 
-  const leftPanel = new THREE.Mesh(new THREE.PlaneGeometry(sideW, winH), wallMat)
-  leftPanel.position.set(-roomW / 2 + sideW / 2, winCY, z)
+  const leftPanel = new THREE.Mesh(new THREE.PlaneGeometry(leftW, winH), wallMat)
+  leftPanel.position.set(-roomW / 2 + leftW / 2, winCY, z)
   scene.add(leftPanel)
 
-  const rightPanel = new THREE.Mesh(new THREE.PlaneGeometry(sideW, winH), wallMat)
-  rightPanel.position.set(roomW / 2 - sideW / 2, winCY, z)
+  const rightPanel = new THREE.Mesh(new THREE.PlaneGeometry(rightW, winH), wallMat)
+  rightPanel.position.set(roomW / 2 - rightW / 2, winCY, z)
   scene.add(rightPanel)
 
   // ── Reveal — inner faces of wall thickness ────
-  // Top reveal (faces down)
   const topRev = new THREE.Mesh(new THREE.PlaneGeometry(winW, depth), revealMat)
   topRev.rotation.x = Math.PI / 2
-  topRev.position.set(0, winTop, z + depth / 2)
+  topRev.position.set(winCX, winTop, z + depth / 2)
   scene.add(topRev)
 
-  // Bottom reveal / sill (faces up, slightly wider for a real sill look)
-  const sillMat = new THREE.MeshLambertMaterial({ color: 0xEAE0D0 })
+  const sillMat = new THREE.MeshLambertMaterial({ color: 0xF2F0EC })
   const sill = new THREE.Mesh(new THREE.BoxGeometry(winW + 0.12, 0.04, depth + 0.08), sillMat)
-  sill.position.set(0, winBottom, z + depth / 2)
+  sill.position.set(winCX, winBottom, z + depth / 2)
   scene.add(sill)
 
-  // Left reveal (faces right)
   const leftRev = new THREE.Mesh(new THREE.PlaneGeometry(depth, winH), revealMat)
   leftRev.rotation.y = Math.PI / 2
-  leftRev.position.set(-winW / 2, winCY, z + depth / 2)
+  leftRev.position.set(winCX - winW / 2, winCY, z + depth / 2)
   scene.add(leftRev)
 
-  // Right reveal (faces left)
   const rightRev = new THREE.Mesh(new THREE.PlaneGeometry(depth, winH), revealMat)
   rightRev.rotation.y = -Math.PI / 2
-  rightRev.position.set(winW / 2, winCY, z + depth / 2)
+  rightRev.position.set(winCX + winW / 2, winCY, z + depth / 2)
   scene.add(rightRev)
 
-  // ── View plane — set back behind the wall ─────
+  // ── View plane ─────────────────────────────────
   const viewMat = new THREE.MeshBasicMaterial({ map: makeWindowView() })
   const viewPlane = new THREE.Mesh(new THREE.PlaneGeometry(winW, winH), viewMat)
-  viewPlane.position.set(0, winCY, z - 0.04)
+  viewPlane.position.set(winCX, winCY, z - 0.04)
   scene.add(viewPlane)
 
   // ── Glass pane ─────────────────────────────────
@@ -693,159 +1039,166 @@ function addBackWindow(scene, roomW, roomH, roomD) {
     emissive: 0x6699AA, emissiveIntensity: 0.12
   })
   const glass = new THREE.Mesh(new THREE.PlaneGeometry(winW, winH), glassMat)
-  glass.position.set(0, winCY, z + depth - 0.01)
+  glass.position.set(winCX, winCY, z + depth - 0.01)
   scene.add(glass)
 
-  // ── Frame bars (in front of glass) ────────────
+  // ── Frame bars ─────────────────────────────────
   const frameMat = new THREE.MeshLambertMaterial({ color: 0xDDD5C4 })
   const ft = 0.05, fd = 0.06
-  // outer frame
   ;[
-    [new THREE.BoxGeometry(winW + ft * 2, ft, fd), [0, winTop,    z + depth]],
-    [new THREE.BoxGeometry(winW + ft * 2, ft, fd), [0, winBottom, z + depth]],
-    [new THREE.BoxGeometry(ft, winH, fd),           [-winW / 2, winCY, z + depth]],
-    [new THREE.BoxGeometry(ft, winH, fd),           [ winW / 2, winCY, z + depth]],
-    // cross dividers
-    [new THREE.BoxGeometry(winW, ft * 0.6, fd),     [0, winCY, z + depth]],
-    [new THREE.BoxGeometry(ft * 0.6, winH, fd),     [0, winCY, z + depth]],
+    [new THREE.BoxGeometry(winW + ft * 2, ft, fd), [winCX, winTop,           z + depth]],
+    [new THREE.BoxGeometry(winW + ft * 2, ft, fd), [winCX, winBottom,        z + depth]],
+    [new THREE.BoxGeometry(ft, winH, fd),           [winCX - winW/2, winCY,  z + depth]],
+    [new THREE.BoxGeometry(ft, winH, fd),           [winCX + winW/2, winCY,  z + depth]],
+    [new THREE.BoxGeometry(winW, ft * 0.6, fd),     [winCX, winCY,           z + depth]],
+    [new THREE.BoxGeometry(ft * 0.6, winH, fd),     [winCX, winCY,           z + depth]],
   ].forEach(([geo, pos]) => {
     const bar = new THREE.Mesh(geo, frameMat)
     bar.position.set(...pos)
     scene.add(bar)
   })
 
-  // ── Subtle daylight spill ─────────────────────
+  // ── Abstract painting on left side of back wall ─
+  const artW = 1.8, artH = 1.3
+  const artFrame = new THREE.Mesh(new THREE.BoxGeometry(artW + 0.07, artH + 0.07, 0.04), new THREE.MeshLambertMaterial({ color: 0x181818 }))
+  artFrame.position.set(-2.2, 2.5, z + 0.02)
+  scene.add(artFrame)
+  const artTex = makeGestural(artW, artH)
+  const art = new THREE.Mesh(new THREE.PlaneGeometry(artW, artH), new THREE.MeshLambertMaterial({ map: artTex }))
+  art.position.set(-2.2, 2.5, z + 0.05)
+  scene.add(art)
+
+  // ── Daylight spill ─────────────────────────────
   const winLight = new THREE.PointLight(0xD8ECFF, 0.55, 10)
-  winLight.position.set(0, winCY, z + 1.5)
+  winLight.position.set(winCX, winCY, z + 1.5)
   scene.add(winLight)
 }
 
-// ── Window view — random canvas-drawn scene ────────────────────────────────
+// ── Window view — city skyline, time-of-day ────────────────────────────────
 
-function makeWindowView() {
-  const variants = [drawDawnCity, drawDayOvercast, drawGoldenHour, drawNightCity, drawForest]
-  return variants[Math.floor(Math.random() * variants.length)]()
-}
+// Consistent building silhouette — same skyline across all variants
+const _CITY = [
+  [0,   28, 105], [34,  24,  85], [64,  38, 125], [112, 22,  95],
+  [142, 34, 120], [182, 26,  90], [215, 48, 110], [270, 30,  85],
+  [308, 44, 135], [360, 30, 100], [400, 40, 115], [448, 24,  90],
+  [480, 30, 110]
+]
 
-function _viewCanvas() {
+function _cityCanvas() {
   const canvas = document.createElement('canvas')
   canvas.width = 512; canvas.height = 200
   return { canvas, ctx: canvas.getContext('2d'), W: 512, H: 200 }
 }
 
-function drawDawnCity() {
-  const { canvas, ctx, W, H } = _viewCanvas()
-  const sky = ctx.createLinearGradient(0, 0, 0, H * 0.7)
-  sky.addColorStop(0, '#C84820'); sky.addColorStop(0.5, '#E88040'); sky.addColorStop(1, '#F8B860')
-  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H)
-  const glow = ctx.createRadialGradient(W * 0.5, H * 0.7, 0, W * 0.5, H * 0.7, W * 0.5)
-  glow.addColorStop(0, 'rgba(255,210,100,0.6)'); glow.addColorStop(1, 'rgba(255,130,40,0)')
-  ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H)
-  ctx.fillStyle = '#3A1808'; ctx.fillRect(0, H * 0.7, W, H * 0.3)
-  const bldgs = [[0,55,28,105],[38,72,24,85],[68,44,38,125],[115,62,22,95],[144,40,34,120],[185,68,26,90],[218,48,48,110],[274,72,30,85],[312,38,44,135],[364,60,30,100],[403,46,40,115],[450,70,24,90],[482,52,30,110]]
-  ctx.fillStyle = '#150A04'
-  for (const [bx, by, bw, bh] of bldgs) {
+function _drawBuildings(ctx, H, bldgColor, winColor, winDensity) {
+  for (const [bx, bw, bh] of _CITY) {
+    ctx.fillStyle = bldgColor
     ctx.fillRect(bx, H - bh, bw, bh)
-    ctx.fillStyle = 'rgba(255,225,130,0.55)'
-    for (let wy = H - bh + 5; wy < H - 5; wy += 11) {
-      for (let wx = bx + 4; wx < bx + bw - 4; wx += 7) {
-        if (Math.random() > 0.45) ctx.fillRect(wx, wy, 3, 4)
+    if (winColor && winDensity > 0) {
+      for (let wy = H - bh + 5; wy < H - 5; wy += 10) {
+        for (let wx = bx + 3; wx < bx + bw - 3; wx += 7) {
+          if (Math.random() < winDensity) {
+            ctx.fillStyle = winColor
+            ctx.fillRect(wx, wy, 3, 4)
+          }
+        }
       }
     }
-    ctx.fillStyle = '#150A04'
   }
-  return new THREE.CanvasTexture(canvas)
 }
 
-function drawDayOvercast() {
-  const { canvas, ctx, W, H } = _viewCanvas()
-  const sky = ctx.createLinearGradient(0, 0, 0, H)
-  sky.addColorStop(0, '#788898'); sky.addColorStop(0.6, '#A8B8C8'); sky.addColorStop(1, '#C0CCD8')
-  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H)
-  ctx.fillStyle = 'rgba(235,242,248,0.35)'
-  for (let i = 0; i < 7; i++) {
-    const cx = 40 + i * 72, cy = 18 + Math.random() * 35, r = 22 + Math.random() * 18
-    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill()
-    ctx.beginPath(); ctx.arc(cx + r * 0.55, cy + 6, r * 0.65, 0, Math.PI * 2); ctx.fill()
-  }
-  const hGrad = ctx.createLinearGradient(0, H * 0.62, 0, H)
-  hGrad.addColorStop(0, '#6A7880'); hGrad.addColorStop(1, '#404E56')
-  ctx.fillStyle = hGrad; ctx.fillRect(0, H * 0.62, W, H * 0.38)
-  return new THREE.CanvasTexture(canvas)
+function makeWindowView() {
+  const h = new Date().getHours()
+  if (h >= 5  && h < 8)  return drawCityDawn()
+  if (h >= 8  && h < 17) return drawCityDay()
+  if (h >= 17 && h < 19) return drawCityGolden()
+  if (h >= 19 && h < 21) return drawCityDusk()
+  return drawCityNight()
 }
 
-function drawGoldenHour() {
-  const { canvas, ctx, W, H } = _viewCanvas()
-  const sky = ctx.createLinearGradient(0, 0, 0, H)
-  sky.addColorStop(0, '#A85018'); sky.addColorStop(0.5, '#D88038'); sky.addColorStop(1, '#F0B050')
+function drawCityDawn() {
+  const { canvas, ctx, W, H } = _cityCanvas()
+  const sky = ctx.createLinearGradient(0, 0, 0, H * 0.75)
+  sky.addColorStop(0, '#1A1428'); sky.addColorStop(0.4, '#C04828'); sky.addColorStop(1, '#F8A850')
   ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H)
-  ctx.fillStyle = 'rgba(255,238,150,0.88)'
-  ctx.beginPath(); ctx.arc(W * 0.72, H * 0.58, 20, 0, Math.PI * 2); ctx.fill()
-  const glow = ctx.createRadialGradient(W * 0.72, H * 0.58, 0, W * 0.72, H * 0.58, 75)
-  glow.addColorStop(0, 'rgba(255,228,90,0.5)'); glow.addColorStop(1, 'rgba(255,168,30,0)')
+  // Sun just cresting horizon
+  const glow = ctx.createRadialGradient(W * 0.5, H * 0.75, 0, W * 0.5, H * 0.75, W * 0.45)
+  glow.addColorStop(0, 'rgba(255,210,100,0.7)'); glow.addColorStop(1, 'rgba(255,110,20,0)')
   ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H)
-  ctx.fillStyle = '#2E1E08'
-  ctx.beginPath(); ctx.moveTo(0, H)
-  for (let x = 0; x <= W; x += 14) {
-    ctx.lineTo(x, H * 0.72 - Math.sin(x / 75) * 18 - Math.sin(x / 28) * 7)
-  }
-  ctx.lineTo(W, H); ctx.fill()
+  ctx.fillStyle = '#1A0C06'; ctx.fillRect(0, H * 0.75, W, H * 0.25)
+  _drawBuildings(ctx, H, '#120804', 'rgba(255,220,130,0.5)', 0.35)
   return new THREE.CanvasTexture(canvas)
 }
 
-function drawNightCity() {
-  const { canvas, ctx, W, H } = _viewCanvas()
+function drawCityDay() {
+  const { canvas, ctx, W, H } = _cityCanvas()
   const sky = ctx.createLinearGradient(0, 0, 0, H)
-  sky.addColorStop(0, '#04060E'); sky.addColorStop(1, '#0A1020')
+  sky.addColorStop(0, '#3A78C8'); sky.addColorStop(0.7, '#7AAEE0'); sky.addColorStop(1, '#B8D4EE')
   ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H)
-  for (let i = 0; i < 70; i++) {
-    ctx.fillStyle = `rgba(255,255,255,${0.25 + Math.random() * 0.65})`
-    ctx.fillRect(Math.random() * W, Math.random() * H * 0.48, 1, 1)
+  // Sun high up
+  ctx.fillStyle = 'rgba(255,250,220,0.95)'
+  ctx.beginPath(); ctx.arc(W * 0.78, H * 0.15, 14, 0, Math.PI * 2); ctx.fill()
+  const glow = ctx.createRadialGradient(W * 0.78, H * 0.15, 0, W * 0.78, H * 0.15, 55)
+  glow.addColorStop(0, 'rgba(255,248,200,0.35)'); glow.addColorStop(1, 'rgba(255,248,200,0)')
+  ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H)
+  ctx.fillStyle = '#2A2E38'; ctx.fillRect(0, H * 0.72, W, H * 0.28)
+  _drawBuildings(ctx, H, '#252830', null, 0)
+  return new THREE.CanvasTexture(canvas)
+}
+
+function drawCityGolden() {
+  const { canvas, ctx, W, H } = _cityCanvas()
+  const sky = ctx.createLinearGradient(0, 0, 0, H)
+  sky.addColorStop(0, '#7A3010'); sky.addColorStop(0.5, '#D87028'); sky.addColorStop(1, '#F8C060')
+  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H)
+  ctx.fillStyle = 'rgba(255,235,140,0.9)'
+  ctx.beginPath(); ctx.arc(W * 0.72, H * 0.65, 18, 0, Math.PI * 2); ctx.fill()
+  const glow = ctx.createRadialGradient(W * 0.72, H * 0.65, 0, W * 0.72, H * 0.65, 80)
+  glow.addColorStop(0, 'rgba(255,220,80,0.55)'); glow.addColorStop(1, 'rgba(255,150,20,0)')
+  ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H)
+  ctx.fillStyle = '#1E1008'; ctx.fillRect(0, H * 0.72, W, H * 0.28)
+  _drawBuildings(ctx, H, '#180C04', 'rgba(255,230,140,0.4)', 0.15)
+  return new THREE.CanvasTexture(canvas)
+}
+
+function drawCityDusk() {
+  const { canvas, ctx, W, H } = _cityCanvas()
+  const sky = ctx.createLinearGradient(0, 0, 0, H)
+  sky.addColorStop(0, '#0E0A20'); sky.addColorStop(0.5, '#5A2870'); sky.addColorStop(1, '#C05830')
+  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H)
+  const glow = ctx.createRadialGradient(W * 0.5, H * 0.8, 0, W * 0.5, H * 0.8, W * 0.4)
+  glow.addColorStop(0, 'rgba(220,100,40,0.5)'); glow.addColorStop(1, 'rgba(150,40,80,0)')
+  ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H)
+  ctx.fillStyle = '#0A0810'; ctx.fillRect(0, H * 0.72, W, H * 0.28)
+  _drawBuildings(ctx, H, '#080610', 'rgba(255,225,140,0.65)', 0.5)
+  return new THREE.CanvasTexture(canvas)
+}
+
+function drawCityNight() {
+  const { canvas, ctx, W, H } = _cityCanvas()
+  const sky = ctx.createLinearGradient(0, 0, 0, H)
+  sky.addColorStop(0, '#02040A'); sky.addColorStop(1, '#080E1C')
+  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H)
+  for (let i = 0; i < 65; i++) {
+    ctx.fillStyle = `rgba(255,255,255,${0.2 + Math.random() * 0.7})`
+    ctx.fillRect(Math.random() * W, Math.random() * H * 0.5, 1, 1)
   }
-  ctx.fillStyle = 'rgba(238,238,215,0.9)'
-  ctx.beginPath(); ctx.arc(W * 0.18, H * 0.18, 11, 0, Math.PI * 2); ctx.fill()
-  const bldgs = [[0,52,28,105],[34,70,24,85],[64,42,38,125],[112,60,22,95],[142,38,34,120],[182,65,26,90],[215,46,48,110],[270,70,30,85],[308,36,44,135],[360,58,30,100],[400,44,40,115],[448,68,24,90],[480,50,30,110]]
-  ctx.fillStyle = '#08080F'
-  for (const [bx, by, bw, bh] of bldgs) {
+  ctx.fillStyle = 'rgba(235,235,210,0.9)'
+  ctx.beginPath(); ctx.arc(W * 0.15, H * 0.18, 10, 0, Math.PI * 2); ctx.fill()
+  ctx.fillStyle = '#06060E'; ctx.fillRect(0, H * 0.72, W, H * 0.28)
+  for (const [bx, bw, bh] of _CITY) {
+    ctx.fillStyle = '#04040C'
     ctx.fillRect(bx, H - bh, bw, bh)
     for (let wy = H - bh + 5; wy < H - 5; wy += 9) {
       for (let wx = bx + 3; wx < bx + bw - 3; wx += 6) {
-        if (Math.random() > 0.52) {
-          ctx.fillStyle = Math.random() > 0.5 ? 'rgba(255,225,140,0.75)' : 'rgba(140,195,255,0.55)'
+        if (Math.random() < 0.65) {
+          ctx.fillStyle = Math.random() > 0.45
+            ? 'rgba(255,225,140,0.8)' : 'rgba(140,195,255,0.6)'
           ctx.fillRect(wx, wy, 3, 4)
         }
       }
     }
-    ctx.fillStyle = '#08080F'
   }
-  return new THREE.CanvasTexture(canvas)
-}
-
-function drawForest() {
-  const { canvas, ctx, W, H } = _viewCanvas()
-  const sky = ctx.createLinearGradient(0, 0, 0, H * 0.6)
-  sky.addColorStop(0, '#6898C8'); sky.addColorStop(1, '#A8CCE8')
-  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H)
-  ctx.fillStyle = '#4A6840'
-  ctx.beginPath(); ctx.moveTo(0, H)
-  for (let x = 0; x <= W; x += 7) {
-    ctx.lineTo(x, H * 0.54 - Math.abs(Math.sin(x / 22)) * 18 - Math.random() * 8)
-  }
-  ctx.lineTo(W, H); ctx.fill()
-  ctx.fillStyle = '#2C4820'
-  for (let x = 5; x < W; x += 16 + Math.random() * 10) {
-    const th = 38 + Math.random() * 45
-    ctx.beginPath()
-    ctx.moveTo(x, H * 0.65)
-    ctx.lineTo(x - 9, H * 0.65 - th * 0.5); ctx.lineTo(x - 4, H * 0.65 - th * 0.5)
-    ctx.lineTo(x - 7, H * 0.65 - th * 0.75); ctx.lineTo(x, H * 0.65 - th)
-    ctx.lineTo(x + 7, H * 0.65 - th * 0.75); ctx.lineTo(x + 4, H * 0.65 - th * 0.5)
-    ctx.lineTo(x + 9, H * 0.65 - th * 0.5)
-    ctx.fill()
-  }
-  const gnd = ctx.createLinearGradient(0, H * 0.65, 0, H)
-  gnd.addColorStop(0, '#365028'); gnd.addColorStop(1, '#1C2E14')
-  ctx.fillStyle = gnd; ctx.fillRect(0, H * 0.65, W, H * 0.35)
   return new THREE.CanvasTexture(canvas)
 }
 
