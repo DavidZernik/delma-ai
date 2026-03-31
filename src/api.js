@@ -10,7 +10,7 @@ export const DEEPSEEK_V3 = 'deepseek-chat'
 // Timeout per model tier
 const TIMEOUT_MS = { [HAIKU]: 55000, [SONNET]: 120000, [DEEPSEEK_V3]: 60000 }
 // Max tokens per model tier
-const MAX_TOKENS = { [HAIKU]: 6000, [SONNET]: 8000, [DEEPSEEK_V3]: 6000 }
+const MAX_TOKENS = { [HAIKU]: 6000, [SONNET]: 8000, [DEEPSEEK_V3]: 4000 }
 
 async function _post(body) {
   let response

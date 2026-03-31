@@ -207,10 +207,11 @@ function buildCharacter(scene, def, screenMesh) {
   // ── CSS2D status ticker ───────────────────────────
   const tickerEl = document.createElement('div')
   tickerEl.className = 'ticker'
-  tickerEl.style.borderLeftColor = def.colorHex
+  tickerEl.style.background = def.colorHex
+  tickerEl.style.color = '#ffffff'
   tickerEl.style.opacity = '0'
   const tickerObj = new CSS2DObject(tickerEl)
-  tickerObj.position.set(0, 2.32, 0)
+  tickerObj.position.set(0, 2.62, 0)
   tickerObj.visible = false
   tickerEl._css2dObj = tickerObj
   group.add(tickerObj)
@@ -395,6 +396,13 @@ function buildCharacter(scene, def, screenMesh) {
   }
 
   return state
+}
+
+function hexToRgba(hex, alpha) {
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
 function easeInOut(t) {
