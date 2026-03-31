@@ -1,7 +1,16 @@
 {
   "permissions": {
     "allow": [
-      "Bash(lsof -ti:3001)"
+      "Bash(lsof -ti:3001)",
+      "Bash(lsof -ti:3001 -ti:5174)",
+      "Bash(ls /Users/davidzernik/Desktop/visual-prompt/*.md)",
+      "Bash(wc -l /Users/davidzernik/Desktop/visual-prompt/src/*.js)",
+      "WebFetch(domain:x.com)",
+      "Bash(git commit:*)",
+      "Bash(adaptive execution\" — hierarchy is stable, sequence adapts:*)"
+    ],
+    "additionalDirectories": [
+      "/Users/davidzernik/Desktop"
     ]
   }
 }

@@ -10,6 +10,30 @@ const MODEL_LABELS = {
   'gpt-4o': 'GPT-4o'
 }
 
+const MODEL_THEMES = {
+  'claude-sonnet-4-20250514': { theme: 'theme-claude', title: 'Claude', subtitle: 'Sonnet 4.5' },
+  'gpt-4o':                   { theme: 'theme-gpt',    title: 'ChatGPT', subtitle: 'GPT-4o' }
+}
+
+function applyTheme(model) {
+  const panel     = document.getElementById('claude-panel')
+  const titleEl   = panel?.querySelector('.panel-title')
+  const subEl     = panel?.querySelector('.panel-subtitle')
+  const cfg       = MODEL_THEMES[model] || MODEL_THEMES['claude-sonnet-4-20250514']
+
+  panel?.classList.remove('theme-claude', 'theme-gpt')
+  panel?.classList.add(cfg.theme)
+  if (titleEl) titleEl.textContent = cfg.title
+  if (subEl)   subEl.textContent   = cfg.subtitle
+}
+
+// Apply theme on init and whenever model selector changes
+const _sel = document.getElementById('model-select')
+if (_sel) {
+  applyTheme(_sel.value)
+  _sel.addEventListener('change', () => applyTheme(_sel.value))
+}
+
 export async function runComparison(query) {
   const statusEl     = document.getElementById('claude-status')
   const bodyEl       = document.getElementById('claude-body')
@@ -18,6 +42,7 @@ export async function runComparison(query) {
   const modelSelect  = document.getElementById('model-select')
   const model        = modelSelect?.value || 'claude-sonnet-4-20250514'
 
+  applyTheme(model)
   if (labelEl) labelEl.textContent = MODEL_LABELS[model] || model
 
   // Append a new conversation turn
