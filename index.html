@@ -578,6 +578,14 @@
 
       .char-name { font-size: 9px; }
       .char-role { font-size: 8px; }
+
+      /* Memory overlay: collapsed by default on mobile, smaller when open */
+      #memory-overlay { max-height: 0; }
+      #memory-overlay.open { max-height: 70%; }
+      #memory-inner { max-height: 28vh; }
+      #memory-content { font-size: 10px; padding: 8px 12px; }
+      .memory-tab { font-size: 10px; padding: 8px 10px 6px; }
+      #memory-toggle-btn { font-size: 10px; padding: 4px 10px; }
     }
 
     /* ── Small phones ────────────────────────────── */
@@ -600,6 +608,9 @@
         font-size: 10px;
         max-width: 160px;
       }
+
+      #memory-inner { max-height: 22vh; }
+      #memory-toggle-btn { font-size: 9px; padding: 3px 8px; }
     }
 
   </style>

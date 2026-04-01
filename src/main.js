@@ -227,6 +227,12 @@ input.addEventListener('input', () => {
 })
 
 // ── Memory overlay ───────────────────────────────────────────────────────
+// On mobile, start collapsed
+if (window.innerWidth <= 768) {
+  memoryOverlay.classList.remove('open')
+  memoryToggleBtn.textContent = 'Memory'
+}
+
 memoryToggleBtn.addEventListener('click', () => {
   memoryOverlay.classList.toggle('open')
   memoryToggleBtn.textContent = memoryOverlay.classList.contains('open') ? 'Hide Memory' : 'Memory'
