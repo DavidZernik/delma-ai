@@ -17,8 +17,6 @@ import { initScene, LEFT_FRAC } from './scene.js'
 import { createCharacters } from './characters.js'
 import { initChain, watchTranscript, runExtraction } from './chain.js'
 import { createAgentSDK } from './agent-sdk.js'
-import { callClaudeRaw } from './api.js'
-import { SINGLE_CLAUDE } from './prompts.js'
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────
 const { scene, camera, renderer, css2dRenderer, clock, lightsController, screens } = initScene()
@@ -35,10 +33,6 @@ const sendBtn        = document.getElementById('send-btn')
 const suggestion     = document.getElementById('suggestion')
 const sdkStatus      = document.getElementById('sdk-status')
 const sdkBody        = document.getElementById('sdk-body')
-const compStatus     = document.getElementById('comp-status')
-const compBody       = document.getElementById('comp-body')
-const analysisStatus = document.getElementById('analysis-status')
-const analysisBody   = document.getElementById('analysis-body')
 const projectDirInput = document.getElementById('project-dir')
 const connectBtn     = document.getElementById('connect-btn')
 
@@ -189,37 +183,6 @@ async function handleSubmit() {
 
   // Send to Agent SDK
   agentSDK.send(query)
-
-  // Fire comparison in parallel (if enabled)
-  const compareOn = !document.body.classList.contains('compare-off')
-  if (compareOn) {
-    runComparison(query)
-  }
-}
-
-// ── Comparison panel (vanilla Claude, no memory) ─────────────────────────
-async function runComparison(query) {
-  compStatus.textContent = 'Thinking...'
-
-  const turnEl = document.createElement('div')
-  turnEl.className = 'turn'
-  const userEl = document.createElement('div')
-  userEl.className = 'user-msg'
-  userEl.textContent = query
-  const respEl = document.createElement('div')
-  respEl.className = 'response-text'
-  turnEl.appendChild(userEl)
-  turnEl.appendChild(respEl)
-  compBody.appendChild(turnEl)
-
-  try {
-    const result = await callClaudeRaw(SINGLE_CLAUDE, query)
-    respEl.textContent = result
-    compStatus.textContent = 'Complete'
-  } catch (err) {
-    respEl.textContent = 'Error: ' + err.message
-    compStatus.textContent = 'Error'
-  }
 }
 
 // ── Event listeners ──────────────────────────────────────────────────────
@@ -230,14 +193,6 @@ input.addEventListener('keydown', e => {
 input.addEventListener('input', () => {
   input.style.height = 'auto'
   input.style.height = Math.min(input.scrollHeight, 120) + 'px'
-})
-
-// ── Compare toggle ───────────────────────────────────────────────────────
-const compareToggle = document.getElementById('compare-toggle')
-compareToggle.addEventListener('click', () => {
-  document.body.classList.toggle('compare-off')
-  const on = !document.body.classList.contains('compare-off')
-  compareToggle.textContent = `Compare: ${on ? 'ON' : 'OFF'}`
 })
 
 // ── Auto-suggestion ──────────────────────────────────────────────────────

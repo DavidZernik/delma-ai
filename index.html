@@ -120,47 +120,6 @@
       overflow: hidden;
     }
 
-    #analysis-panel {
-      flex-shrink: 0;
-      background: #f9fafb;
-      border-top: 1px solid #e5e7eb;
-      border-left: 1px solid #e5e7eb;
-      padding: 16px 28px 20px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-
-    #analysis-header {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      flex-shrink: 0;
-    }
-
-    #analysis-title {
-      font-size: 10px;
-      font-weight: 600;
-      color: #9ca3af;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-
-    #analysis-status {
-      font-size: 11px;
-      color: #9ca3af;
-    }
-
-    #analysis-body {
-      font-size: 13px;
-      line-height: 1.65;
-      color: #374151;
-      max-height: 120px;
-      overflow-y: auto;
-      scrollbar-width: thin;
-      scrollbar-color: #e5e7eb transparent;
-    }
-
     .panel-header {
       padding: 16px 20px 14px;
       border-bottom: 1px solid #f0f0f0;
@@ -274,9 +233,6 @@
     .sdk-error { color: #ff6b6b; }
     .sdk-status { color: #6b6b8a; font-style: italic; }
     .sdk-raw { color: #b0b0b0; }
-
-    /* ── Comparison panel (light) ─────────────────── */
-    #comp-panel { background: #ffffff; }
 
     .turn {
       display: flex;
@@ -416,27 +372,6 @@
     #send-btn:hover:not(:disabled) { background: #4a6a9a; transform: scale(1.06); }
     #send-btn:disabled { background: #2a2a3e; cursor: not-allowed; }
 
-    /* ── Compare toggle ──────────────────────────── */
-    #compare-toggle {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      font-size: 11px;
-      font-family: inherit;
-      color: #6b6b8a;
-      background: rgba(26, 26, 46, 0.9);
-      border: 1px solid #3a3a5e;
-      border-radius: 8px;
-      padding: 5px 12px;
-      cursor: pointer;
-      z-index: 20;
-      transition: background 0.15s;
-    }
-    #compare-toggle:hover { background: #2a2a3e; }
-
-    body.compare-off #comp-panel,
-    body.compare-off #analysis-panel { display: none; }
-    body.compare-off #sdk-panel { flex: 1; }
   </style>
 </head>
 <body>
@@ -449,10 +384,9 @@
   </div>
 
   <div id="right-side">
-    <button id="compare-toggle">Compare: ON</button>
     <div id="panels-row">
 
-      <!-- Center panel: Agent SDK chat -->
+      <!-- Agent SDK chat -->
       <div id="sdk-panel" class="output-panel">
         <div class="panel-header">
           <div class="panel-header-text">
@@ -472,22 +406,6 @@
         </div>
       </div>
 
-      <!-- Right panel: Vanilla Claude (no memory) -->
-      <div id="comp-panel" class="output-panel">
-        <div class="panel-header">
-          <div class="panel-header-text">
-            <div class="panel-title">Claude</div>
-            <div class="panel-subtitle">No memory context</div>
-          </div>
-        </div>
-        <div id="comp-status" class="panel-status">Waiting...</div>
-        <div id="comp-body" class="panel-body"></div>
-        <div class="panel-footer">
-          <span class="panel-time"></span>
-          <span class="panel-label">Vanilla</span>
-        </div>
-      </div>
-
     </div>
 
     <!-- Input area -->
@@ -499,14 +417,6 @@
       </div>
     </div>
 
-    <!-- Analysis -->
-    <div id="analysis-panel">
-      <div id="analysis-header">
-        <span id="analysis-title">Analysis</span>
-        <span id="analysis-status"></span>
-      </div>
-      <div id="analysis-body"></div>
-    </div>
   </div>
 
   <script type="module" src="/src/main.js"></script>

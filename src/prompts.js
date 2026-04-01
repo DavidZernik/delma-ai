@@ -160,8 +160,3 @@ JSON only:
   ],
   "log_summary": "one sentence"
 }`
-
-
-// ── Comparison panel: vanilla Claude without memory context ──────────────────
-export const SINGLE_CLAUDE = `\
-You are a helpful coding assistant. Answer the user's question directly and specifically. You have no project context or institutional knowledge — work only from what the user tells you in this message.`
