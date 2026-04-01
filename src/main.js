@@ -1,3 +1,18 @@
+/**
+ * main.js — Application entry point.
+ *
+ * Wires together:
+ * - 3D office scene (left panel) — characters, animations, handoffs
+ * - Agent SDK panel (center) — websocket to claude CLI, streaming messages
+ * - Comparison panel (right) — vanilla Claude without memory context
+ * - Extraction pipeline — watcher scores transcript batches, triggers
+ *   the knowledge extraction chain when something worth capturing appears
+ *
+ * Flow: user types in input → message goes to Agent SDK → response streams
+ * back → transcript accumulates → watcher scores → if knowledge found →
+ * extraction chain fires → .delma/ files update → CLAUDE.md recomposes
+ */
+
 import { initScene, LEFT_FRAC } from './scene.js'
 import { createCharacters } from './characters.js'
 import { initChain, watchTranscript, runExtraction } from './chain.js'
@@ -93,6 +108,8 @@ function handleSDKStatus(status) {
   }
 }
 
+// Called by agent-sdk.js every BATCH_SIZE messages.
+// Two-phase: watcher scores first (cheap Haiku call), then full extraction if worthwhile.
 async function handleTranscriptBatch(batch) {
   if (isExtracting) return // don't overlap extraction chains
   if (!batch.trim()) return

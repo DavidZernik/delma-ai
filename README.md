@@ -1,43 +1,79 @@
 # Delma
 
-The structure of how a team is organized is itself a form of intelligence.
+A memory layer for the Claude Agent SDK, built on the thesis that organizational structure is itself a form of intelligence.
 
-Not the models. Not the compute. Not parallelism. The org chart — who owns the outcome, who forms the opinion, who can say no, in what order — encodes domain knowledge about how good work gets done.
+Delma watches your Claude Code sessions and extracts institutional knowledge — who owns what, how things connect, why decisions were made. A team of AI agents with distinct roles processes what they see, challenges what's worth remembering, and writes it into structured memory files. The next session starts smarter.
 
-The bet is that borrowing those patterns from high-functioning human teams and applying them to AI agents produces better output than running the same models flat. And that the specific variables that matter are: ownership, role discipline, opinion-first hierarchy, and independent QA authority.
+The bet: borrowing patterns from high-functioning human teams (ownership, role discipline, opinion-first hierarchy, independent QA) and applying them to knowledge extraction produces better institutional memory than a flat approach.
 
 [Ethan Mollick on why organizational theory should inform agentic AI](https://x.com/emollick/status/2020303173362012667)
 
-## The team
-
-**Delma** owns the outcome. She reads what the user actually needs — not just what they said — and decides how the work gets done. She composes a dynamic pipeline per request: who works, in what order, with what authority. The final product is hers.
-
-**Sarah** challenges the premise. Before any content gets written, she asks whether the structure actually serves the answer, and whether the right question is being asked at all. When she's the only one on the task, she delivers the complete output herself.
-
-**Marcus** is a craftsman. He writes one section at a time and takes the specifics personally. Generic is failure. A real number beats "typically." He doesn't describe what a good section would say — he writes it.
-
-**James** is the independent check. He compares what was asked against what was delivered. His authority level — reject or advise — is set by Delma per task based on the stakes.
-
 ## How it works
 
-Delma scopes every request and composes a pipeline — an ordered list of agents with roles and authority levels. No fixed routes. Her judgment, constrained by guiderails:
+You use Claude Code normally. Delma runs alongside it.
 
-- Every agent must justify their involvement
-- James only checks the final document, one pass
-- No agent works twice on the same content
-- Speed is quality — pipeline complexity matches request complexity
-- Minimum team: Delma + one agent. Maximum: all four.
+1. **You talk to Claude Code** in the Agent SDK panel — same experience as the CLI
+2. **Delma watches the session** — a lightweight watcher scores every few messages for extractable knowledge
+3. **When something matters**, the 3D office activates — Delma spots the knowledge, briefs the team, they extract it
+4. **Memory files update** in `.delma/` — structured knowledge organized by specialist domain
+5. **CLAUDE.md composes** automatically — the Agent SDK reads it on the next session start
+6. **Next session is smarter** — Claude already knows your org structure, architecture decisions, team preferences
 
-The chain executes whatever Delma decides. Each agent receives the previous agent's output and contributes their specialty forward.
+The comparison panel runs vanilla Claude (no memory) side-by-side, so you can see what memory provides.
+
+## The team
+
+**Delma** owns the outcome. She watches the session stream, decides what's worth extracting, and composes the team per task. She coordinates — she never executes.
+
+**Sarah** challenges what's worth remembering. Not everything in a session matters. She decides what's structural vs incidental, flags contradictions with existing knowledge, and frames how things should be remembered. A memory system that captures everything is as useless as one that captures nothing.
+
+**Marcus** writes the actual memory docs. Specific beats generic. He produces clean, structured markdown that's useful to a future session — not prose, not filler, just knowledge.
+
+**James** validates captures against the actual transcript. No hallucinated additions. No distorted context. He can reject inaccurate captures (Marcus revises once) or advise (notes attached, no revision).
+
+## The watcher
+
+Delma scores every transcript batch (every ~5 messages) for extractable knowledge:
+
+- **High score** — user explains WHY, discovery happens, person mentioned, decision made, error reveals architecture
+- **Low score** — routine file reads, generic coding, repetitive tool calls
+
+Only high-scoring batches trigger the full extraction pipeline. Most of the session, the 3D office is quiet.
+
+## Memory structure
+
+```
+.delma/
+  environment.md      — tech stack, dependencies, infrastructure (Sarah's domain)
+  logic.md            — business logic, patterns, decisions (Marcus's domain)
+  people.md           — team, roles, preferences, org context (James's domain)
+  session-log.md      — timestamped extraction summaries
+  CLAUDE.md           — composed from all files, copied to project root
+```
+
+Each specialist maintains their own domain. Delma composes them into a single CLAUDE.md that the Agent SDK reads natively.
 
 ## Authority
 
-Weight shifts by task type. The same person has different power depending on the request:
+Weight shifts by extraction type:
 
-- **shapes_the_document** — this agent's output is the backbone
-- **supports** — contributes but follows someone else's lead
-- **can_reject** — (James) can reject and force one revision
-- **advisory** — (James) flags issues without blocking delivery
+- **shapes_the_document** — this agent's judgment dominates the capture
+- **supports** — contributes but follows another's lead
+- **can_reject** — (James) captures are inaccurate, Marcus revises once
+- **advisory** — (James) flags issues without blocking
+
+Simple observation (a name) → Marcus alone. Architectural insight → Sarah then Marcus. High-stakes contradiction → Sarah, Marcus, James.
+
+## Running locally
+
+```bash
+npm install
+npm run dev
+```
+
+Open http://localhost:5173. Enter a project directory path, click Connect. Start a Claude Code session.
+
+Requires `claude` CLI installed and `ANTHROPIC_API_KEY` in `.env`.
 
 ## Future: self-improving orchestration
 

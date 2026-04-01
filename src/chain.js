@@ -51,8 +51,13 @@ export function initChain(scene) {
 
 // ── Watcher: lightweight scoring ─────────────────────────────────────────────
 
+// Watcher threshold: 0.0 = everything triggers, 1.0 = nothing triggers.
+// 0.3 means "anything that's not pure noise." Delma's prompt defines
+// what scores high (decisions, people, architecture) vs low (routine edits).
 const WATCH_THRESHOLD = 0.3
 
+// Lightweight scoring call — runs every ~5 messages, costs ~1s on Haiku.
+// Returns { score, trigger, summary }. Only triggers extraction if score >= threshold.
 export async function watchTranscript(batch, chars) {
   const { delma } = chars
 
@@ -77,6 +82,9 @@ export async function watchTranscript(batch, chars) {
 
 // ── Full extraction chain ────────────────────────────────────────────────────
 
+// Full extraction pipeline. Same orchestration engine as the document chain:
+// Delma decomposes → dynamic pipeline of Sarah/Marcus/James → memory files written.
+// Ends by composing CLAUDE.md and logging the session.
 export async function runExtraction(transcriptBatch, existingMemory, chars, opts = {}) {
   const { delma, marcus, sarah, james } = chars
   const agentChars = { sarah, marcus, james }
@@ -236,6 +244,9 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
   }
 
   // ── Write memory files ─────────────────────────────────────────────────────
+  // Marcus's updates are written to .delma/ via the REST API.
+  // Then CLAUDE.md is recomposed from all memory files and copied to project root.
+  // Finally, a session log entry records what was extracted.
   setStage({ text: 'Delma is saving knowledge', color: AGENT_COLORS.delma })
   handoffTo(delma)
   delma.faceCamera()

@@ -6,7 +6,10 @@
  * and transcript accumulation for the watcher.
  */
 
-const BATCH_SIZE = 5  // messages before triggering watcher
+// How many messages accumulate before the watcher is triggered.
+// Lower = more responsive extraction, higher = less noise.
+// 5 is a sweet spot: enough context per batch without overwhelming the watcher.
+const BATCH_SIZE = 5
 
 export function createAgentSDK({ onMessage, onStatus, onTranscriptBatch }) {
   let ws = null

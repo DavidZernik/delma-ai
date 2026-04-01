@@ -1,3 +1,15 @@
+/**
+ * server/index.js — Delma backend.
+ *
+ * Three responsibilities:
+ * 1. WebSocket endpoint that spawns `claude --json` as a child process,
+ *    piping stdin/stdout between the browser and the CLI.
+ * 2. REST endpoints for .delma/ memory file management (read, write,
+ *    compose CLAUDE.md, append session log).
+ * 3. Proxy endpoints for LLM API calls (Anthropic, DeepSeek, OpenAI)
+ *    and Brave web search — used by the extraction chain and comparison panel.
+ */
+
 import express from 'express'
 import { config } from 'dotenv'
 import { fileURLToPath } from 'url'
@@ -358,6 +370,10 @@ if (process.env.NODE_ENV === 'production') {
 const PORT = process.env.PORT || 3001
 const server = createServer(app)
 
+// WebSocket: spawns claude CLI in the user's project directory.
+// Client sends { type: 'user_message', content: '...' } — we pipe to stdin.
+// Claude's stdout (JSON lines) is parsed and forwarded to the client.
+// On disconnect, the claude process is killed.
 const wss = new WebSocketServer({ server, path: '/ws/agent-sdk' })
 
 wss.on('connection', (ws, req) => {
