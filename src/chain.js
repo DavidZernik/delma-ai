@@ -14,7 +14,7 @@
  */
 
 import * as THREE from 'three'
-import { callClaudeWithRetry, SONNET, HAIKU, DEEPSEEK_V3 } from './api.js'
+import { callClaudeWithRetry, SONNET, HAIKU, DEEPSEEK_V3, GPT4O, GPT4O_MINI } from './api.js'
 import { workingTicker, setTicker } from './tickers.js'
 import { createHandoffSystem } from './handoff.js'
 import * as P from './prompts.js'
@@ -44,7 +44,7 @@ function setStage(entries) {
   el.classList.add('active')
 }
 
-const MODEL_MAP = { deepseek: DEEPSEEK_V3, haiku: HAIKU, sonnet: SONNET }
+const MODEL_MAP = { deepseek: DEEPSEEK_V3, haiku: HAIKU, sonnet: SONNET, gpt4o: GPT4O, 'gpt4o-mini': GPT4O_MINI }
 
 let handoff = null
 let _scene  = null

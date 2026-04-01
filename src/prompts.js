@@ -62,9 +62,9 @@ JSON only:
   "extraction_focus": "what kind of knowledge to extract",
   "memory_targets": ["environment.md|logic.md|people.md"],
   "briefings": { "sarah": "", "marcus": "", "james": "" },
-  "model_sarah": "haiku|sonnet",
-  "model_marcus": "haiku|sonnet",
-  "model_james": "haiku|sonnet",
+  "model_sarah": "haiku|sonnet|deepseek|gpt4o|gpt4o-mini",
+  "model_marcus": "haiku|sonnet|deepseek|gpt4o|gpt4o-mini",
+  "model_james": "haiku|sonnet|deepseek|gpt4o|gpt4o-mini",
   "log_summary": "one sentence — what knowledge was found"
 }`
 

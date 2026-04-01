@@ -5,14 +5,16 @@
  * callClaudeWithRetry — one automatic retry on failure
  */
 
-export const SONNET     = 'claude-sonnet-4-20250514'
-export const HAIKU      = 'claude-haiku-4-5-20251001'
+export const SONNET      = 'claude-sonnet-4-20250514'
+export const HAIKU       = 'claude-haiku-4-5-20251001'
 export const DEEPSEEK_V3 = 'deepseek-chat'
+export const GPT4O       = 'gpt-4o'
+export const GPT4O_MINI  = 'gpt-4o-mini'
 
 // Timeout per model tier
-const TIMEOUT_MS = { [HAIKU]: 55000, [SONNET]: 120000, [DEEPSEEK_V3]: 60000 }
+const TIMEOUT_MS = { [HAIKU]: 55000, [SONNET]: 120000, [DEEPSEEK_V3]: 60000, [GPT4O]: 120000, [GPT4O_MINI]: 55000 }
 // Max tokens per model tier
-const MAX_TOKENS = { [HAIKU]: 6000, [SONNET]: 8000, [DEEPSEEK_V3]: 8000 }
+const MAX_TOKENS = { [HAIKU]: 6000, [SONNET]: 8000, [DEEPSEEK_V3]: 8000, [GPT4O]: 8000, [GPT4O_MINI]: 6000 }
 
 async function _post(body, signal) {
   let response

@@ -6,8 +6,8 @@
  *    piping stdin/stdout between the browser and the CLI.
  * 2. REST endpoints for .delma/ memory file management (read, write,
  *    compose CLAUDE.md, append session log).
- * 3. Proxy endpoint for LLM API calls (Anthropic, DeepSeek) —
- *    used by the extraction chain.
+ * 3. Proxy endpoint for LLM API calls (Anthropic, OpenAI, DeepSeek) —
+ *    Delma routes agents to the best model per task.
  */
 
 import express from 'express'
@@ -133,47 +133,56 @@ app.post('/api/memory/session-log', async (req, res) => {
   }
 })
 
-// ── Existing API endpoints ───────────────────────────────────────────────────
+// ── LLM proxy — routes to Anthropic, OpenAI, or DeepSeek based on model name ─
+
+// OpenAI-compatible handler (shared by OpenAI and DeepSeek)
+async function callOpenAICompatible(apiUrl, apiKey, provider, model, system, user, max_tokens, res) {
+  let response
+  try {
+    response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: max_tokens ?? 2000,
+        messages: [
+          ...(system ? [{ role: 'system', content: system }] : []),
+          { role: 'user', content: user }
+        ]
+      })
+    })
+  } catch (e) {
+    return res.status(502).json({ error: `Failed to reach ${provider} API: ${e.message}` })
+  }
+  if (!response.ok) {
+    const text = await response.text()
+    return res.status(response.status).json({ error: `${provider} ${response.status}: ${text || '(empty body)'}` })
+  }
+  const data = await response.json()
+  const text = data.choices?.[0]?.message?.content || ''
+  return res.json({ content: [{ text }] })
+}
 
 app.post('/api/chat', async (req, res) => {
   const { system, user, max_tokens } = req.body
   const model = req.body.model || 'claude-sonnet-4-20250514'
 
-  // ── DeepSeek (OpenAI-compatible) ─────────────────────────────────────────
+  // ── DeepSeek ──────────────────────────────────────────────────────────────
   if (model.startsWith('deepseek-')) {
-    if (!process.env.DEEPSEEK_API_KEY) {
-      return res.status(500).json({ error: 'DEEPSEEK_API_KEY not set in .env' })
-    }
-    let response
-    try {
-      response = await fetch('https://api.deepseek.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.DEEPSEEK_API_KEY}`
-        },
-        body: JSON.stringify({
-          model,
-          max_tokens: max_tokens ?? 2000,
-          messages: [
-            ...(system ? [{ role: 'system', content: system }] : []),
-            { role: 'user', content: user }
-          ]
-        })
-      })
-    } catch (e) {
-      return res.status(502).json({ error: 'Failed to reach DeepSeek API: ' + e.message })
-    }
-    if (!response.ok) {
-      const text = await response.text()
-      return res.status(response.status).json({ error: `DeepSeek ${response.status}: ${text || '(empty body)'}` })
-    }
-    const data = await response.json()
-    const text = data.choices?.[0]?.message?.content || ''
-    return res.json({ content: [{ text }] })
+    if (!process.env.DEEPSEEK_API_KEY) return res.status(500).json({ error: 'DEEPSEEK_API_KEY not set in .env' })
+    return callOpenAICompatible('https://api.deepseek.com/v1/chat/completions', process.env.DEEPSEEK_API_KEY, 'DeepSeek', model, system, user, max_tokens, res)
   }
 
-  // ── Anthropic ─────────────────────────────────────────────────────────────
+  // ── OpenAI ────────────────────────────────────────────────────────────────
+  if (model.startsWith('gpt-') || model.startsWith('o1') || model.startsWith('o3')) {
+    if (!process.env.OPENAI_API_KEY) return res.status(500).json({ error: 'OPENAI_API_KEY not set in .env' })
+    return callOpenAICompatible('https://api.openai.com/v1/chat/completions', process.env.OPENAI_API_KEY, 'OpenAI', model, system, user, max_tokens, res)
+  }
+
+  // ── Anthropic (default) ───────────────────────────────────────────────────
   if (!process.env.ANTHROPIC_API_KEY) {
     return res.status(500).json({ error: 'ANTHROPIC_API_KEY not set in .env' })
   }
