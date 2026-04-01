@@ -200,7 +200,7 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
         const result = await withWorking(char,
           ['evaluating what matters...', 'checking against existing knowledge...'],
           P.SARAH_EXTRACT + tools.getToolDescriptions('sarah'),
-          { ...mem.getAll(), briefing, authority: sarahEntry.authority },
+          { transcript: mem.get('transcript'), existing_memory: mem.get('existing_memory'), shared_context: mem.getSummary(), briefing, authority: sarahEntry.authority },
           model
         )
         await displayWorking(char, result.working_steps, result.log_summary)
@@ -268,7 +268,10 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
               label: target,
               systemPrompt: P.MARCUS_EXTRACT + tools.getToolDescriptions('marcus'),
               userMessage: {
-                ...mem.getAll(),
+                transcript: mem.get('transcript'),
+                existing_memory: mem.get('existing_memory'),
+                shared_context: mem.getSummary(),
+                sarah_extractions: mem.get('extractions') || [],
                 briefing,
                 authority: marcusEntry.authority,
                 memory_targets: targetFilter
@@ -288,7 +291,10 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
               ['writing memory docs...'],
               P.MARCUS_EXTRACT + tools.getToolDescriptions('marcus'),
               {
-                ...mem.getAll(),
+                transcript: mem.get('transcript'),
+                existing_memory: mem.get('existing_memory'),
+                shared_context: mem.getSummary(),
+                sarah_extractions: mem.get('extractions') || [],
                 briefing,
                 authority: marcusEntry.authority,
                 memory_targets: targetFilter
@@ -339,7 +345,9 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
           ['validating captures...'],
           P.JAMES_EXTRACT + tools.getToolDescriptions('james'),
           {
-            ...mem.getAll(),
+            transcript: mem.get('transcript'),
+            existing_memory: mem.get('existing_memory'),
+            shared_context: mem.getSummary(),
             proposed_updates: mem.get('updates') || [],
             briefing,
             authority: jamesEntry.authority

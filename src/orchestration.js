@@ -59,6 +59,33 @@ export class SharedMemory {
   getAll() { return { ...this._store } }
   getLog() { return [...this._log] }
   clear() { this._store = {}; this._log = [] }
+
+  // Produce a readable markdown digest grouped by who wrote what.
+  // Injected into agent prompts so they "see" the full context as structured text.
+  getSummary() {
+    if (this._log.length === 0) return ''
+
+    const byAgent = {}
+    for (const { key, from } of this._log) {
+      if (!byAgent[from]) byAgent[from] = []
+      const val = this._store[key]
+      if (val === undefined || val === null) continue
+      const display = typeof val === 'string'
+        ? (val.length > 300 ? val.slice(0, 297) + '...' : val)
+        : JSON.stringify(val).slice(0, 300)
+      byAgent[from].push({ key, display })
+    }
+
+    const lines = ['## Shared Context\n']
+    for (const [agent, entries] of Object.entries(byAgent)) {
+      lines.push(`### ${agent}`)
+      for (const { key, display } of entries) {
+        lines.push(`- **${key}**: ${display}`)
+      }
+      lines.push('')
+    }
+    return lines.join('\n').trimEnd()
+  }
 }
 
 // ── Semaphore — limits concurrent async operations ───────────────────────────
@@ -86,6 +113,13 @@ class Semaphore {
       next()
     }
   }
+
+  // Run fn while holding a slot — auto-releases even on error
+  async run(fn) {
+    await this.acquire()
+    try { return await fn() }
+    finally { this.release() }
+  }
 }
 
 // ── TaskQueue ────────────────────────────────────────────────────────────────
@@ -110,76 +144,78 @@ export class TaskQueue {
     this._status.set(task.id, 'pending')
   }
 
+  // Recursively cascade-fail all tasks that depend (transitively) on failedId
+  _cascadeFail(failedId, pending, finished, onTaskDone) {
+    for (const [id, task] of pending) {
+      if (this._status.get(id) !== 'pending') continue
+      if (!task.dependsOn.includes(failedId)) continue
+
+      console.warn(`[queue] ${id} cascade-failed — dependency ${failedId} failed`)
+      this._status.set(id, 'failed')
+      this._results.set(id, { error: `Cascade failure: dependency ${failedId} failed` })
+      pending.delete(id)
+      finished.add(id)
+      if (onTaskDone) onTaskDone(task, this._results.get(id))
+      // Recurse — anything depending on THIS task also fails
+      this._cascadeFail(id, pending, finished, onTaskDone)
+    }
+  }
+
   async run(onTaskStart, onTaskDone) {
     const pending = new Map(this._tasks)
-    const finished = new Set()  // completed or failed
+    const finished = new Set()
 
     return new Promise((resolve, reject) => {
       const check = () => {
         for (const [id, task] of pending) {
           if (this._status.get(id) !== 'pending') continue
 
-          // Check if any dependency failed — cascade failure
+          // Cascade failure check
           const failedDep = task.dependsOn.find(dep => this._status.get(dep) === 'failed')
           if (failedDep) {
-            console.warn(`[queue] ${id} cascade-failed — dependency ${failedDep} failed`)
-            this._status.set(id, 'failed')
-            this._results.set(id, { error: `Cascade failure: dependency ${failedDep} failed` })
-            pending.delete(id)
-            finished.add(id)
-            if (onTaskDone) onTaskDone(task, this._results.get(id))
+            this._cascadeFail(failedDep, pending, finished, onTaskDone)
             if (finished.size === this._tasks.size) return resolve(Object.fromEntries(this._results))
             check()
             return
           }
 
-          // Check if all deps are completed (not just finished — must be successful)
           const depsReady = task.dependsOn.every(dep => this._status.get(dep) === 'completed')
           if (!depsReady) continue
 
-          // All deps met — acquire semaphore and run
           this._status.set(id, 'running')
           pending.delete(id)
 
-          // Run with semaphore
-          this._semaphore.acquire().then(() => {
+          // semaphore.run() auto-releases even on error
+          this._semaphore.run(async () => {
             if (onTaskStart) onTaskStart(task)
 
             const depResults = {}
-            for (const dep of task.dependsOn) {
-              depResults[dep] = this._results.get(dep)
+            for (const dep of task.dependsOn) depResults[dep] = this._results.get(dep)
+
+            try {
+              const result = await task.run(depResults)
+              this._results.set(id, result)
+              this._status.set(id, 'completed')
+              finished.add(id)
+              if (onTaskDone) onTaskDone(task, result)
+              console.log(`[queue] ${id} completed (${finished.size}/${this._tasks.size})`)
+            } catch (err) {
+              console.error(`[queue] ${id} failed:`, err)
+              this._results.set(id, { error: err.message })
+              this._status.set(id, 'failed')
+              finished.add(id)
+              if (onTaskDone) onTaskDone(task, { error: err.message })
             }
 
-            task.run(depResults)
-              .then(result => {
-                this._results.set(id, result)
-                this._status.set(id, 'completed')
-                this._semaphore.release()
-                finished.add(id)
-                if (onTaskDone) onTaskDone(task, result)
-                console.log(`[queue] ${id} completed (${finished.size}/${this._tasks.size})`)
-                if (finished.size === this._tasks.size) return resolve(Object.fromEntries(this._results))
-                check()
-              })
-              .catch(err => {
-                console.error(`[queue] ${id} failed:`, err)
-                this._results.set(id, { error: err.message })
-                this._status.set(id, 'failed')
-                this._semaphore.release()
-                finished.add(id)
-                if (onTaskDone) onTaskDone(task, { error: err.message })
-                if (finished.size === this._tasks.size) return resolve(Object.fromEntries(this._results))
-                check()  // cascade check will pick up dependents
-              })
+            if (finished.size === this._tasks.size) return resolve(Object.fromEntries(this._results))
+            check()
           })
         }
 
-        // Deadlock: nothing can progress
+        // Deadlock detection
         const stillPending = [...pending.values()].filter(t => this._status.get(t.id) === 'pending')
         if (stillPending.length > 0 && [...this._status.values()].filter(s => s === 'running').length === 0) {
-          const stuck = stillPending.map(t => t.id)
-          console.error(`[queue] deadlock — stuck: ${stuck.join(', ')}`)
-          reject(new Error(`Deadlock: ${stuck.join(', ')}`))
+          reject(new Error(`Deadlock: ${stillPending.map(t => t.id).join(', ')}`))
         }
       }
 
