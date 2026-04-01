@@ -356,8 +356,8 @@
 
     #memory-toggle-btn {
       position: absolute;
-      bottom: 10px;
-      left: 10px;
+      top: 10px;
+      right: 10px;
       font-size: 11px;
       font-family: 'Courier New', Courier, monospace;
       color: rgba(255,255,255,0.5);
@@ -610,8 +610,8 @@
   <div id="left">
     <div id="canvas-container">
       <div id="stage-bar"></div>
-      <button id="memory-toggle-btn">Memory</button>
-      <div id="memory-overlay">
+      <button id="memory-toggle-btn">Hide Memory</button>
+      <div id="memory-overlay" class="open">
         <div id="memory-inner">
           <div id="memory-tabs">
             <button class="memory-tab active" data-file="environment.md">Environment</button>
