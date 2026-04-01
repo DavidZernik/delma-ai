@@ -59,6 +59,9 @@ const MODEL_MAP = { deepseek: DEEPSEEK_V3, haiku: HAIKU, sonnet: SONNET, gpt4o: 
 let handoff = null
 let _scene  = null
 
+// Failed writes queued for retry on next extraction
+let _failedWrites = []
+
 // Track active stage entries — parallel tasks add/remove themselves
 let _activeStages = []
 
@@ -428,7 +431,26 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
   delma.faceCamera()
   delma.setLookTarget(CAMERA_POS)
 
+  // ── Retry any failed writes from previous extractions ─────────────────────
+  if (_failedWrites.length) {
+    console.log(`[extract] retrying ${_failedWrites.length} failed writes from previous extraction`)
+    const retrying = [..._failedWrites]
+    _failedWrites = []
+    for (const fw of retrying) {
+      try {
+        const res = await fetch(fw.url, fw.opts)
+        if (!res.ok) throw new Error(`${res.status}`)
+        console.log(`[extract] retry succeeded: ${fw.label}`)
+      } catch (e) {
+        console.warn(`[extract] retry failed again: ${fw.label}`)
+        _failedWrites.push(fw)  // re-queue for next time
+      }
+    }
+  }
+
+  // ── Write memory files ───────────────────────────────────────────────────
   const marcusUpdates = mem.get('updates') || []
+  let writeFailures = 0
 
   for (const update of marcusUpdates) {
     if (update.file && update.content) {
@@ -443,12 +465,18 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
         setTicker(delma.tickerEl, `Updated ${update.file}: ${update.change_summary}`, delma.def.distanceOpacity)
       } catch (e) {
         console.error(`[extract] failed to write ${update.file}:`, e)
+        writeFailures++
+        _failedWrites.push({
+          label: `memory/${update.file}`,
+          url: `/api/memory/${update.file}`,
+          opts: { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: update.content }) }
+        })
       }
     }
   }
 
-  // Compose CLAUDE.md
-  if (marcusUpdates.length) {
+  // Compose CLAUDE.md (only if all writes succeeded — don't compose from partial state)
+  if (marcusUpdates.length && writeFailures === 0) {
     try {
       const res = await fetch('/api/memory/compose', { method: 'POST' })
       if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
@@ -456,6 +484,9 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
     } catch (e) {
       console.error('[extract] failed to compose CLAUDE.md:', e)
     }
+  } else if (writeFailures > 0) {
+    console.warn(`[extract] skipping CLAUDE.md compose — ${writeFailures} write(s) failed`)
+    if (onStep) onStep('Delma', `⚠ ${writeFailures} memory write(s) failed — will retry next extraction`)
   }
 
   // Log session
@@ -469,9 +500,14 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
     if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
   } catch (e) {
     console.error('[extract] failed to log session:', e)
+    _failedWrites.push({
+      label: 'session-log',
+      url: '/api/memory/session-log',
+      opts: { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entry: logEntry }) }
+    })
   }
 
-  // Write per-agent history — each agent's decisions persist across sessions
+  // Write per-agent history
   const timestamp = new Date().toISOString()
   const agentHistories = {
     sarah: steps.filter(s => s.to === 'Sarah').map(s => s.summary),
@@ -481,17 +517,24 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
   for (const [agent, summaries] of Object.entries(agentHistories)) {
     if (!summaries.length) continue
     const entry = `\n## ${timestamp}\n${summaries.join('\n')}\n`
+    let existingHistory = ''
     try {
       const readRes = await fetch(`/api/memory/${agent}-history.md`)
-      const existing = readRes.ok ? (await readRes.json()).content || '' : ''
+      existingHistory = readRes.ok ? (await readRes.json()).content || '' : ''
       const res = await fetch(`/api/memory/${agent}-history.md`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: existing + entry })
+        body: JSON.stringify({ content: existingHistory + entry })
       })
       if (!res.ok) throw new Error(`${res.status}`)
     } catch (e) {
       console.error(`[extract] failed to write ${agent} history:`, e)
+      _failedWrites.push({
+        label: `${agent}-history`,
+        url: `/api/memory/${agent}-history.md`,
+        opts: { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: existingHistory + entry }) }
+      })
+      if (onStep) onStep('Delma', `⚠ Failed to save ${agent}'s history — will retry`)
     }
   }
 
