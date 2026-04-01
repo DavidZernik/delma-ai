@@ -6,8 +6,8 @@
  *    piping stdin/stdout between the browser and the CLI.
  * 2. REST endpoints for .delma/ memory file management (read, write,
  *    compose CLAUDE.md, append session log).
- * 3. Proxy endpoints for LLM API calls (Anthropic, DeepSeek, OpenAI)
- *    and Brave web search — used by the extraction chain and comparison panel.
+ * 3. Proxy endpoint for LLM API calls (Anthropic, DeepSeek) —
+ *    used by the extraction chain.
  */
 
 import express from 'express'

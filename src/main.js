@@ -3,8 +3,7 @@
  *
  * Wires together:
  * - 3D office scene (left panel) — characters, animations, handoffs
- * - Agent SDK panel (center) — websocket to claude CLI, streaming messages
- * - Comparison panel (right) — vanilla Claude without memory context
+ * - Agent SDK panel (right) — websocket to claude CLI, streaming messages
  * - Extraction pipeline — watcher scores transcript batches, triggers
  *   the knowledge extraction chain when something worth capturing appears
  *
