@@ -133,6 +133,57 @@ app.post('/api/memory/session-log', async (req, res) => {
   }
 })
 
+// ── Agent tools — scoped file access for extraction agents ───────────────────
+
+app.post('/api/tools/file_read', async (req, res) => {
+  try {
+    const { path: filePath, projectDir: dir } = req.body
+    if (!dir || !filePath) return res.status(400).json({ error: 'Missing path or projectDir' })
+
+    // Prevent path traversal — file must be within project dir
+    const resolved = join(dir, filePath)
+    if (!resolved.startsWith(dir)) return res.status(403).json({ error: 'Path traversal rejected' })
+    if (!existsSync(resolved)) return res.json({ content: '', exists: false })
+
+    const content = await readFile(resolved, 'utf-8')
+    // Cap at 10KB to prevent blowing up context windows
+    res.json({ content: content.slice(0, 10240), exists: true, truncated: content.length > 10240 })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.post('/api/tools/grep', async (req, res) => {
+  try {
+    const { pattern, path: subPath, projectDir: dir } = req.body
+    if (!dir || !pattern) return res.status(400).json({ error: 'Missing pattern or projectDir' })
+
+    const { execSync } = await import('child_process')
+    const searchDir = subPath ? join(dir, subPath) : dir
+
+    // Prevent path traversal
+    if (!searchDir.startsWith(dir)) return res.status(403).json({ error: 'Path traversal rejected' })
+
+    try {
+      // Use grep with limited output — max 50 matches, skip binary files, skip node_modules
+      const cmd = `grep -rn --include='*.{js,ts,json,md,py,jsx,tsx}' -m 50 '${pattern.replace(/'/g, "\\'")}' '${searchDir}' 2>/dev/null | head -50`
+      const output = execSync(cmd, { timeout: 5000, maxBuffer: 1024 * 64 }).toString()
+      const matches = output.split('\n').filter(Boolean).map(line => {
+        const match = line.match(/^(.+?):(\d+):(.*)$/)
+        if (!match) return { line }
+        return { file: match[1].replace(dir + '/', ''), lineNum: parseInt(match[2]), content: match[3].trim() }
+      })
+      res.json({ matches })
+    } catch (e) {
+      // grep returns exit code 1 when no matches — not an error
+      if (e.status === 1) return res.json({ matches: [] })
+      throw e
+    }
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 // ── LLM proxy — routes to Anthropic, OpenAI, or DeepSeek based on model name ─
 
 // OpenAI-compatible handler (shared by OpenAI and DeepSeek)

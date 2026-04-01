@@ -123,7 +123,9 @@ async function handleTranscriptBatch(batch) {
   // Step 3: Run full extraction chain
   isExtracting = true
   try {
-    const result = await runExtraction(batch, existingMemory, characters)
+    const result = await runExtraction(batch, existingMemory, characters, {
+      projectDir: projectDirInput.value.trim()
+    })
     console.log('[main] extraction complete:', result.updates.length, 'files updated')
   } catch (err) {
     console.error('[main] extraction failed:', err)

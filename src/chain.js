@@ -25,7 +25,7 @@ import * as THREE from 'three'
 import { callClaudeWithRetry, SONNET, HAIKU, DEEPSEEK_V3, GPT4O, GPT4O_MINI } from './api.js'
 import { workingTicker, setTicker } from './tickers.js'
 import { createHandoffSystem } from './handoff.js'
-import { EventBus, SharedMemory, TaskQueue } from './orchestration.js'
+import { EventBus, SharedMemory, TaskQueue, AgentTools } from './orchestration.js'
 import * as P from './prompts.js'
 
 const CAMERA_POS = new THREE.Vector3(0.5, 3.5, -0.5)
@@ -115,7 +115,8 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
   // Create orchestration primitives for this extraction
   const bus = new EventBus()
   const mem = new SharedMemory()
-  const queue = new TaskQueue()
+  const queue = new TaskQueue({ concurrency: 2 })  // max 2 parallel API calls
+  const tools = new AgentTools(opts.projectDir || null)
 
   // Seed shared memory with input context
   mem.set('transcript', transcriptBatch, 'system')
@@ -197,7 +198,7 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
         const start = Date.now()
         const result = await withWorking(char,
           ['evaluating what matters...', 'checking against existing knowledge...'],
-          P.SARAH_EXTRACT,
+          P.SARAH_EXTRACT + tools.getToolDescriptions('sarah'),
           { ...mem.getAll(), briefing, authority: sarahEntry.authority },
           model
         )
@@ -257,7 +258,7 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
           const targetFilter = target === 'all' ? memoryTargets : [target]
           const result = await withWorking(char,
             ['writing memory docs...'],
-            P.MARCUS_EXTRACT,
+            P.MARCUS_EXTRACT + tools.getToolDescriptions('marcus'),
             {
               ...mem.getAll(),
               briefing,
@@ -306,7 +307,7 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
         // James sees everything — shared memory has the full context
         const result = await withWorking(char,
           ['validating captures...'],
-          P.JAMES_EXTRACT,
+          P.JAMES_EXTRACT + tools.getToolDescriptions('james'),
           {
             ...mem.getAll(),
             proposed_updates: mem.get('updates') || [],
