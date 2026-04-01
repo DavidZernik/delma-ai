@@ -58,6 +58,29 @@ const MODEL_MAP = { deepseek: DEEPSEEK_V3, haiku: HAIKU, sonnet: SONNET, gpt4o: 
 let handoff = null
 let _scene  = null
 
+// Track active stage entries — parallel tasks add/remove themselves
+let _activeStages = []
+
+function addStage(id, text, color) {
+  _activeStages = _activeStages.filter(s => s.id !== id)
+  _activeStages.push({ id, text, color })
+  setStage(_activeStages)
+}
+
+function removeStage(id) {
+  _activeStages = _activeStages.filter(s => s.id !== id)
+  if (_activeStages.length) {
+    setStage(_activeStages)
+  } else {
+    setStage(null)
+  }
+}
+
+function clearStages() {
+  _activeStages = []
+  setStage(null)
+}
+
 export function initChain(scene) {
   _scene  = scene
   handoff = createHandoffSystem(scene)
@@ -105,7 +128,8 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
   marcus.faceDesk(); sarah.faceDesk(); james.faceDesk()
 
   // ── Step 1: Delma decomposes ───────────────────────────────────────────────
-  setStage({ text: 'Delma is analyzing the session', color: AGENT_COLORS.delma })
+  clearStages()
+  addStage('delma', 'Delma is analyzing the session', AGENT_COLORS.delma)
   delma.faceCamera()
   delma.setLookTarget(CAMERA_POS)
 
@@ -141,7 +165,7 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
   //   we create one Marcus task per target — they run in parallel
   // - James depends on ALL Marcus tasks
 
-  setStage({ text: 'Delma is briefing the team', color: AGENT_COLORS.delma })
+  addStage('delma', 'Delma is briefing the team', AGENT_COLORS.delma)
 
   const sarahInPipeline = pipeline.some(p => p.agent === 'sarah')
   const marcusInPipeline = pipeline.some(p => p.agent === 'marcus')
@@ -168,7 +192,8 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
         delma.faceCamera(); delma.setLookTarget(CAMERA_POS)
         char.faceDesk()
 
-        setStage({ text: 'Sarah is evaluating', color: AGENT_COLORS.sarah })
+        removeStage('delma')
+        addStage('sarah', 'Sarah is evaluating', AGENT_COLORS.sarah)
         const start = Date.now()
         const result = await withWorking(char,
           ['evaluating what matters...', 'checking against existing knowledge...'],
@@ -178,6 +203,7 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
         )
         await displayWorking(char, result.working_steps, result.log_summary)
         steps.push(logStep(2, 'Delma', 'Sarah', result.log_summary, start))
+        removeStage('sarah')
 
         // Write to shared memory and publish
         mem.set('extractions', result.extractions || [], 'sarah')
@@ -225,7 +251,7 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
           }
 
           const stageText = targets.length > 1 ? `Marcus is writing ${target}` : 'Marcus is writing'
-          setStage({ text: stageText, color: AGENT_COLORS.marcus })
+          addStage(taskId, stageText, AGENT_COLORS.marcus)
           const start = Date.now()
 
           const targetFilter = target === 'all' ? memoryTargets : [target]
@@ -242,6 +268,7 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
           )
           await displayWorking(char, result.working_steps, result.log_summary)
           steps.push(logStep(3, 'Delma', 'Marcus', result.log_summary, start))
+          removeStage(taskId)
 
           // Write to shared memory and publish
           const updates = result.updates || []
@@ -273,7 +300,7 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
         delma.faceCamera(); delma.setLookTarget(CAMERA_POS)
         char.faceDesk()
 
-        setStage({ text: 'James is validating', color: AGENT_COLORS.james })
+        addStage('james', 'James is validating', AGENT_COLORS.james)
         const start = Date.now()
 
         // James sees everything — shared memory has the full context
@@ -298,7 +325,7 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
         if (result.approved === false && jamesEntry.authority === 'can_reject' && result.issues?.length) {
           bus.publish('rejection', 'james', 'can_reject', result.issues)
 
-          setStage({ text: 'Marcus is revising', color: AGENT_COLORS.marcus })
+          addStage('marcus-revise', 'Marcus is revising', AGENT_COLORS.marcus)
           handoffTo(marcus)
           marcus.startWorking()
           const revStart = Date.now()
@@ -315,8 +342,10 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
             bus.publish('revision', 'marcus', 'supports', revised.updates)
           }
           steps.push(logStep(4.1, 'James', 'Marcus', revised?.log_summary || 'revised', revStart))
+          removeStage('marcus-revise')
         }
 
+        removeStage('james')
         return result
       }
     })
@@ -333,7 +362,7 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
   )
 
   // ── Write memory files ─────────────────────────────────────────────────────
-  setStage({ text: 'Delma is saving knowledge', color: AGENT_COLORS.delma })
+  addStage('delma-save', 'Delma is saving knowledge', AGENT_COLORS.delma)
   handoffTo(delma)
   delma.faceCamera()
   delma.setLookTarget(CAMERA_POS)
@@ -381,7 +410,7 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
     console.error('[extract] failed to log session:', e)
   }
 
-  setStage(null)
+  clearStages()
 
   const duration = Math.round((Date.now() - t0) / 1000)
   const busMessages = bus.query().length
