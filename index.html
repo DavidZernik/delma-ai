@@ -487,6 +487,28 @@
     }
     #send-btn:hover:not(:disabled) { background: #333333; transform: scale(1.06); }
     #send-btn:disabled { background: #d8d1c6; cursor: not-allowed; }
+
+    /* ── Compare toggle ──────────────────────────── */
+    #compare-toggle {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      font-size: 11px;
+      font-family: inherit;
+      color: #9b8b73;
+      background: rgba(247, 244, 239, 0.9);
+      border: 1px solid #d8d1c6;
+      border-radius: 8px;
+      padding: 5px 12px;
+      cursor: pointer;
+      z-index: 20;
+      transition: background 0.15s;
+    }
+    #compare-toggle:hover { background: #ede8e0; }
+
+    body.compare-off #claude-panel,
+    body.compare-off #analysis-panel { display: none; }
+    body.compare-off #delma-panel { flex: 1; }
   </style>
 </head>
 <body>
@@ -499,6 +521,7 @@
   </div>
 
   <div id="right-side">
+    <button id="compare-toggle">Compare: ON</button>
     <div id="panels-row">
 
       <!-- Left panel: Delma AI output + input -->

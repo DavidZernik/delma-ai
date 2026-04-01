@@ -25,7 +25,6 @@ const analysisStatus = document.getElementById('analysis-status')
 const analysisBody   = document.getElementById('analysis-body')
 
 let isRunning = false
-let checkpointResolve = null
 let currentDelmaResponseEl = null
 
 function appendTurn(query) {
@@ -48,36 +47,8 @@ function appendTurn(query) {
   return responseEl
 }
 
-// ── Checkpoint handler ────────────────────────────────────────────────────
-function makeCheckpointHandler() {
-  return (framing) => new Promise(resolve => {
-    checkpointResolve = resolve
-    input.disabled = false
-    input.value = ''
-    input.placeholder = 'Press Enter to confirm, or type a correction...'
-    sendBtn.disabled = false
-    suggestion.textContent = `Sarah's framing: "${framing}"`
-    suggestion.style.opacity = '1'
-    suggestion.style.pointerEvents = 'none'
-    input.focus()
-  })
-}
-
 // ── Submit ────────────────────────────────────────────────────────────────
 async function handleSubmit() {
-  if (checkpointResolve) {
-    const userInput = input.value.trim()
-    const resolve = checkpointResolve
-    checkpointResolve = null
-    input.disabled = true
-    input.placeholder = 'Working on it...'
-    sendBtn.disabled = true
-    suggestion.style.opacity = '0'
-    suggestion.textContent = ''
-    resolve(userInput || null)
-    return
-  }
-
   const query = input.value.trim()
   if (!query || isRunning) return
 
@@ -103,13 +74,12 @@ async function handleSubmit() {
 
   const t0 = Date.now()
 
-  // Fire both in parallel
-  const compPromise = runComparison(query)
+  // Fire comparison in parallel (if enabled)
+  const compareOn = !document.body.classList.contains('compare-off')
+  const compPromise = compareOn ? runComparison(query) : Promise.resolve()
 
   try {
-    const result = await runChain(query, characters, {
-      onCheckpoint: makeCheckpointHandler()
-    })
+    const result = await runChain(query, characters)
 
     if (result.finalContent) renderDeliverable(result.finalContent)
     renderLog(result.steps, result.duration)
@@ -143,7 +113,7 @@ async function handleSubmit() {
   input.focus()
 
   await compPromise
-  await runAnalysis(query)
+  if (compareOn) await runAnalysis(query)
 }
 
 // ── Delma panel renderers ─────────────────────────────────────────────────
@@ -213,6 +183,14 @@ suggestion.addEventListener('click', () => {
   suggestion.style.opacity = '0'
   suggestion.style.pointerEvents = 'none'
   handleSubmit()
+})
+
+// ── Compare toggle ───────────────────────────────────────────────────────
+const compareToggle = document.getElementById('compare-toggle')
+compareToggle.addEventListener('click', () => {
+  document.body.classList.toggle('compare-off')
+  const on = !document.body.classList.contains('compare-off')
+  compareToggle.textContent = `Compare: ${on ? 'ON' : 'OFF'}`
 })
 
 // ── Animation loop ────────────────────────────────────────────────────────

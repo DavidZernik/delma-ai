@@ -19,7 +19,7 @@
 
 import * as THREE from 'three'
 import { callClaudeWithRetry, callSearch, SONNET, HAIKU, DEEPSEEK_V3 } from './api.js'
-import { showLine, workingTicker, iconFor, sleep, setTicker } from './tickers.js'
+import { showLine, workingTicker, sleep, setTicker } from './tickers.js'
 import { createHandoffSystem } from './handoff.js'
 import { runSingleNode } from './subagents.js'
 import * as P from './prompts.js'
