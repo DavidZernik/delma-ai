@@ -31,11 +31,16 @@ const AGENT_COLORS = {
 function setStage(entries) {
   const el = document.getElementById('stage-bar')
   if (!el) return
-  if (!entries) { el.classList.remove('active'); el.innerHTML = ''; return }
+  if (!entries) { el.classList.remove('active'); el.textContent = ''; return }
   const items = Array.isArray(entries) ? entries : [entries]
-  el.innerHTML = items.map(({ text, color }) =>
-    `<div class="stage-item" style="background:${color}">${text}</div>`
-  ).join('')
+  el.textContent = ''
+  for (const { text, color } of items) {
+    const div = document.createElement('div')
+    div.className = 'stage-item'
+    div.style.background = color
+    div.textContent = text
+    el.appendChild(div)
+  }
   el.classList.add('active')
 }
 
@@ -256,11 +261,12 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
     if (update.file && update.content) {
       console.log(`[extract] writing ${update.file}: ${update.change_summary}`)
       try {
-        await fetch(`/api/memory/${update.file}`, {
+        const res = await fetch(`/api/memory/${update.file}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ content: update.content })
         })
+        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
         setTicker(delma.tickerEl, `Updated ${update.file}: ${update.change_summary}`, delma.def.distanceOpacity)
       } catch (e) {
         console.error(`[extract] failed to write ${update.file}:`, e)
@@ -271,7 +277,8 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
   // Compose CLAUDE.md
   if (marcusUpdates.length) {
     try {
-      await fetch('/api/memory/compose', { method: 'POST' })
+      const res = await fetch('/api/memory/compose', { method: 'POST' })
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
       console.log('[extract] CLAUDE.md composed')
     } catch (e) {
       console.error('[extract] failed to compose CLAUDE.md:', e)
@@ -281,11 +288,12 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
   // Log session
   const logEntry = steps.map(s => `${s.from}→${s.to}: ${s.summary}`).join('\n')
   try {
-    await fetch('/api/memory/session-log', {
+    const res = await fetch('/api/memory/session-log', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ entry: logEntry })
     })
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
   } catch (e) {
     console.error('[extract] failed to log session:', e)
   }

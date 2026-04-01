@@ -2,30 +2,17 @@
 
 export const sleep = ms => new Promise(r => setTimeout(r, ms))
 
-// Icon HTML for check statuses
-const STATUS_ICON = {
-  confirmed:  `<span style="color:#2D8A4E;font-weight:700;margin-right:5px">✓</span>`,
-  outdated:   `<span style="color:#C0392B;font-weight:700;margin-right:5px">✗</span>`,
-  incomplete: `<span style="color:#C0392B;font-weight:700;margin-right:5px">✗</span>`,
-  missing:    `<span style="color:#D4A017;font-weight:700;margin-right:5px">△</span>`,
-  misleading: `<span style="color:#C0392B;font-weight:700;margin-right:5px">✗</span>`
-}
-
-export function iconFor(status) {
-  return STATUS_ICON[status] || ''
-}
-
 const FADE = 200  // ms for fade in/out
 
 /**
  * Set ticker content persistently — fire-and-forget, no auto-fadeout.
- * Safe to call from parallel async paths.
+ * Safe to call from parallel async paths. Uses textContent to prevent XSS.
  */
-export function setTicker(el, html, baseOpacity = 1.0) {
+export function setTicker(el, text, baseOpacity = 1.0) {
   if (el._css2dObj) el._css2dObj.visible = true
   el.style.transition = 'none'
   el.style.opacity = '0'
-  el.innerHTML = html
+  el.textContent = text
   void el.offsetHeight
   el.style.transition = `opacity ${FADE}ms ease`
   el.style.opacity = String(baseOpacity)
@@ -35,12 +22,12 @@ export function setTicker(el, html, baseOpacity = 1.0) {
  * Show a single line in the ticker.
  * Returns a promise that resolves when the fade-out completes.
  */
-export function showLine(el, html, holdMs = 1200, baseOpacity = 1.0) {
+export function showLine(el, text, holdMs = 1200, baseOpacity = 1.0) {
   return new Promise(resolve => {
     if (el._css2dObj) el._css2dObj.visible = true
     el.style.transition = 'none'
     el.style.opacity = '0'
-    el.innerHTML = html
+    el.textContent = text
     void el.offsetHeight
 
     el.style.transition = `opacity ${FADE}ms ease`
@@ -61,7 +48,7 @@ export function showLine(el, html, holdMs = 1200, baseOpacity = 1.0) {
  */
 export async function showLines(el, lines, baseOpacity = 1.0) {
   for (const line of lines) {
-    await showLine(el, line.html, line.hold ?? 1200, baseOpacity)
+    await showLine(el, line.text ?? line.html ?? line, line.hold ?? 1200, baseOpacity)
     await sleep(80)
   }
 }
@@ -77,7 +64,7 @@ export async function workingTicker(el, messages, baseOpacity, signal) {
     const msg = messages[i % messages.length]
     el.style.transition = 'none'
     el.style.opacity = '0'
-    el.innerHTML = msg
+    el.textContent = msg
     void el.offsetHeight
 
     el.style.transition = `opacity ${FADE}ms ease`
