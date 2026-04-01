@@ -370,6 +370,12 @@ wss.on('connection', (ws, req) => {
     return
   }
 
+  if (!existsSync(dir)) {
+    ws.send(JSON.stringify({ type: 'error', content: `Directory does not exist: ${dir}` }))
+    ws.close()
+    return
+  }
+
   projectDir = dir
   console.log(`[ws] Agent SDK session — project: ${dir}`)
 
@@ -413,8 +419,10 @@ wss.on('connection', (ws, req) => {
 
   claude.on('close', (code) => {
     console.log(`[ws] claude process exited with code ${code}`)
-    ws.send(JSON.stringify({ type: 'exit', code }))
-    ws.close()
+    if (ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify({ type: 'exit', code }))
+      ws.close()
+    }
   })
 
   ws.on('message', (msg) => {

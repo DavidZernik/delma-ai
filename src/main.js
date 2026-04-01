@@ -37,6 +37,12 @@ const agentSDK = createAgentSDK({
 })
 
 function handleSDKMessage(data) {
+  // Skip user_message echoes from server — we render those locally in handleSubmit
+  if (data.type === 'user_message') return
+  renderSDKMessage(data)
+}
+
+function renderSDKMessage(data) {
   const el = document.createElement('div')
   el.className = `sdk-message sdk-${data.type || 'raw'}`
 
@@ -161,12 +167,8 @@ async function handleSubmit() {
     return
   }
 
-  // Show user message in SDK panel
-  const userEl = document.createElement('div')
-  userEl.className = 'sdk-message sdk-user'
-  userEl.textContent = query
-  sdkBody.appendChild(userEl)
-  sdkBody.scrollTop = sdkBody.scrollHeight
+  // Render user message immediately (don't wait for server echo)
+  renderSDKMessage({ type: 'user_message', content: query })
 
   // Send to Agent SDK
   agentSDK.send(query)
