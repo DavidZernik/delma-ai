@@ -192,24 +192,24 @@
       text-transform: uppercase;
     }
 
-    /* ── SDK panel (dark theme) ───────────────────── */
+    /* ── SDK panel (light theme) ──────────────────── */
     #sdk-panel {
-      background: #1a1a2e;
+      background: #ffffff;
     }
     #sdk-panel .panel-header {
-      background: #1a1a2e;
-      border-bottom-color: #2a2a3e;
+      background: #ffffff;
+      border-bottom-color: #e5e7eb;
     }
-    #sdk-panel .panel-title { color: #e0e0e0; }
-    #sdk-panel .panel-subtitle { color: #6b6b8a; }
-    #sdk-panel .panel-status { color: #6b6b8a; background: #1a1a2e; }
-    #sdk-panel .panel-body { scrollbar-color: #2a2a3e transparent; }
+    #sdk-panel .panel-title { color: #111827; }
+    #sdk-panel .panel-subtitle { color: #9ca3af; }
+    #sdk-panel .panel-status { color: #9ca3af; background: #ffffff; }
+    #sdk-panel .panel-body { scrollbar-color: #e5e7eb transparent; }
     #sdk-panel .panel-footer {
-      border-top-color: #2a2a3e;
-      background: #1a1a2e;
+      border-top-color: #e5e7eb;
+      background: #ffffff;
     }
-    #sdk-panel .panel-time { color: #6b6b8a; }
-    #sdk-panel .panel-label { color: #4a4a6a; }
+    #sdk-panel .panel-time { color: #9ca3af; }
+    #sdk-panel .panel-label { color: #d1d5db; }
 
     /* ── SDK messages ────────────────────────────── */
     .sdk-message {
@@ -219,20 +219,21 @@
       font-family: 'Courier New', Courier, monospace;
       white-space: pre-wrap;
       word-break: break-word;
+      color: #374151;
     }
     .sdk-user {
-      color: #a0c4ff;
+      color: #1a1a1a;
       padding: 6px 12px;
-      background: rgba(160, 196, 255, 0.08);
+      background: #f3f4f6;
       border-radius: 8px;
       margin: 4px 0;
     }
-    .sdk-assistant { color: #e0e0e0; }
-    .sdk-tool { color: #ffd700; font-size: 11px; opacity: 0.7; }
-    .sdk-tool-result { color: #888; font-size: 11px; opacity: 0.5; }
-    .sdk-error { color: #ff6b6b; }
-    .sdk-status { color: #6b6b8a; font-style: italic; }
-    .sdk-raw { color: #b0b0b0; }
+    .sdk-assistant { color: #1a1a1a; }
+    .sdk-tool { color: #92400e; font-size: 11px; opacity: 0.7; }
+    .sdk-tool-result { color: #9ca3af; font-size: 11px; opacity: 0.6; }
+    .sdk-error { color: #dc2626; }
+    .sdk-status { color: #9ca3af; font-style: italic; }
+    .sdk-raw { color: #6b7280; }
 
     .turn {
       display: flex;
@@ -275,34 +276,34 @@
       flex: 1;
       font-size: 11px;
       font-family: 'Courier New', Courier, monospace;
-      color: #e0e0e0;
-      background: #2a2a3e;
-      border: 1px solid #3a3a5e;
+      color: #374151;
+      background: #f3f4f6;
+      border: 1px solid #e5e7eb;
       border-radius: 6px;
       padding: 5px 10px;
       outline: none;
     }
-    #project-dir::placeholder { color: #4a4a6a; }
+    #project-dir::placeholder { color: #9ca3af; }
 
     #connect-btn {
       font-size: 11px;
       font-family: inherit;
-      color: #e0e0e0;
-      background: #3a5a8a;
+      color: #ffffff;
+      background: #3b82f6;
       border: none;
       border-radius: 6px;
       padding: 5px 14px;
       cursor: pointer;
       transition: background 0.15s;
     }
-    #connect-btn:hover { background: #4a6a9a; }
+    #connect-btn:hover { background: #2563eb; }
 
     /* ── Input area ──────────────────────────────── */
     #input-area {
       flex-shrink: 0;
       padding: 10px 16px 16px;
-      background: #1a1a2e;
-      border-top: 1px solid #2a2a3e;
+      background: #ffffff;
+      border-top: 1px solid #e5e7eb;
       display: flex;
       flex-direction: column;
       gap: 6px;
@@ -310,28 +311,29 @@
 
     #suggestion {
       font-size: 12px;
-      color: #6b6b8a;
+      color: #9ca3af;
       opacity: 0;
       transition: opacity 0.8s;
       cursor: pointer;
       pointer-events: none;
       padding: 0 6px;
     }
-    #suggestion:hover { color: #8b8baa; }
+    #suggestion:hover { color: #6b7280; }
 
     #input-bar {
       display: flex;
       align-items: flex-end;
       width: 100%;
-      background: #2a2a3e;
-      border: 1px solid #3a3a5e;
+      background: #ffffff;
+      border: 1px solid #d1d5db;
       border-radius: 16px;
       padding: 8px 8px 8px 18px;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.2);
-      transition: border-color 0.15s;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+      transition: border-color 0.15s, box-shadow 0.15s;
     }
     #input-bar:focus-within {
-      border-color: #4a6a9a;
+      border-color: #3b82f6;
+      box-shadow: 0 1px 8px rgba(59,130,246,0.12);
     }
 
     #input {
@@ -340,7 +342,7 @@
       outline: none;
       font-size: 14px;
       line-height: 1.55;
-      color: #e0e0e0;
+      color: #1a1a1a;
       background: transparent;
       font-family: inherit;
       min-width: 0;
@@ -351,14 +353,14 @@
       padding: 3px 0;
     }
 
-    #input::placeholder { color: #4a4a6a; }
-    #input:disabled     { color: #3a3a5e; }
+    #input::placeholder { color: #9ca3af; }
+    #input:disabled     { color: #d1d5db; }
 
     #send-btn {
       flex-shrink: 0;
       width: 34px; height: 34px;
       border-radius: 50%;
-      background: #3a5a8a;
+      background: #1a1a1a;
       border: none;
       cursor: pointer;
       display: flex;
@@ -369,8 +371,8 @@
       transition: background 0.15s, transform 0.1s;
       margin-left: 6px;
     }
-    #send-btn:hover:not(:disabled) { background: #4a6a9a; transform: scale(1.06); }
-    #send-btn:disabled { background: #2a2a3e; cursor: not-allowed; }
+    #send-btn:hover:not(:disabled) { background: #333333; transform: scale(1.06); }
+    #send-btn:disabled { background: #d1d5db; cursor: not-allowed; }
 
     /* ── Mobile: stacked layout ──────────────────── */
     @media (max-width: 768px) {
@@ -396,7 +398,7 @@
 
       .output-panel {
         border-left: none;
-        border-top: 1px solid #2a2a3e;
+        border-top: 1px solid #e5e7eb;
       }
 
       .panel-header {
