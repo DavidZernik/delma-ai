@@ -8,7 +8,10 @@
  *   Display track — working_steps, log_summary → tickers
  *   Content track — document → flows through every step, delivered at end
  *
- * Delma composes a pipeline sequence per request. Three sequences:
+ * Delma composes a pipeline sequence per request. Four sequences:
+ *
+ *   ROUTE_LIGHT      → Delma → one solo agent → Delma delivers
+ *                      Brief/simple requests. Minimum viable team.
  *
  *   ROUTE_DIRECT     → Delma → Marcus → James → Delma delivers
  *                      Sections are obvious. No strategic overhead needed.
@@ -33,13 +36,25 @@ import { createHandoffSystem } from './handoff.js'
 import { runSingleNode } from './subagents.js'
 import * as P from './prompts.js'
 
+const SOLO_PROMPTS = {
+  sarah: P.SARAH_SOLO,
+  marcus: P.MARCUS_SOLO,
+  james: P.JAMES_SOLO
+}
+
 // ── Route constants ───────────────────────────────────────────────────────────
-// Delma composes one of three pipeline sequences per request.
+// Delma composes one of four pipeline sequences per request.
+const ROUTE_LIGHT      = 'light'       // Delma → one agent (solo)
 const ROUTE_DIRECT     = 'direct'      // Delma → Marcus → James
 const ROUTE_STRATEGIC  = 'strategic'   // Delma → Sarah leads → Marcus + James
 const ROUTE_FULL       = 'full'        // Delma → Sarah architects → Marcus + Sarah + James → Delma validates
 
 function resolveRoute(s1) {
+  if (s1.route === 'light')    return ROUTE_LIGHT
+  if (s1.route === 'direct')   return ROUTE_DIRECT
+  if (s1.route === 'strategic') return ROUTE_STRATEGIC
+  if (s1.route === 'full')     return ROUTE_FULL
+  // Fallback for old-style responses
   if (s1.lead_agent === 'sarah') return ROUTE_STRATEGIC
   if (s1.skip_sarah === true)    return ROUTE_DIRECT
   return ROUTE_FULL
@@ -127,8 +142,8 @@ export async function runChain(query, chars, opts = {}) {
   const marcusModel = MODEL_MAP[s1.model_marcus] ?? DEEPSEEK_V3
   const sarahModel  = MODEL_MAP[s1.model_sarah]  ?? DEEPSEEK_V3
   const jamesModel  = MODEL_MAP[s1.model_james]  ?? HAIKU
-  const wordBudget = s1.task_spec?.word_budget || 800
-  console.log('[chain] plan — route:', route, '| model_james:', s1.model_james, '| word_budget:', wordBudget)
+  const lengthSignal = s1.task_spec?.length || 'moderate'
+  console.log('[chain] plan — route:', route, '| model_james:', s1.model_james, '| length:', lengthSignal)
 
   // ── Step 1.5: Web search (if Delma flagged it) ────────────────────────────
   let searchContext = ''
@@ -157,6 +172,68 @@ export async function runChain(query, chars, opts = {}) {
     delma.stopWorking()
   }
 
+  // ── LIGHT route: Delma + one solo agent ──────────────────────────────────
+  if (route === ROUTE_LIGHT) {
+    const soloName = s1.solo_agent || 'sarah'
+    const soloChar = chars[soloName]
+    const soloModel = MODEL_MAP[s1[`model_${soloName}`]] ?? (soloName === 'james' ? HAIKU : DEEPSEEK_V3)
+    const soloPrompt = SOLO_PROMPTS[soloName]
+
+    delma.faceCharacter(soloChar)
+    delma.setLookTarget(soloChar)
+    soloChar.faceCharacter(delma)
+    soloChar.setLookTarget(delma)
+
+    const briefing = s1.briefing_to_sarah || s1.marcus_mandate || s1.log_summary
+    console.log(`  [ticker:Delma] briefing ${soloName}:`, briefing)
+    await showLine(delma.tickerEl, briefing, 1000, delma.def.distanceOpacity)
+    await handoffTo(soloChar)
+    delma.faceCamera(); delma.setLookTarget(CAMERA_POS)
+    soloChar.faceDesk()
+
+    const capName = soloName.charAt(0).toUpperCase() + soloName.slice(1)
+    setStage({ text: `${capName} is working`, color: AGENT_COLORS[soloName] })
+    console.log(`[chain] step 2 — ${capName} solo`)
+    stepStart = Date.now()
+    const soloResult = await withWorking(soloChar,
+      ['working on it...'],
+      soloPrompt,
+      { task_spec: s1.task_spec, original_query: query, shared_context: searchContext },
+      soloModel
+    )
+    console.log(`[chain] step 2 done —`, soloResult.log_summary)
+    await displayWorking(soloChar, soloResult.working_steps, soloResult.log_summary)
+    steps.push(logStep(2, 'Delma', capName, soloResult.log_summary, stepStart))
+
+    // Deliver
+    setStage({ text: 'Delma is delivering', color: AGENT_COLORS.delma })
+    await handoffTo(delma)
+    await delma.walkTo(delma.def.homeX, delma.def.homeZ)
+    delma.faceCamera()
+    delma.setLookTarget(CAMERA_POS)
+
+    stepStart = Date.now()
+    const deliveryLines = soloResult.delivery_lines?.length
+      ? soloResult.delivery_lines
+      : [`Delivered: ${s1.task_spec.deliverable}`]
+
+    delma.tickerEl.classList.add('delivery')
+    for (const line of deliveryLines) {
+      console.log(`  [ticker:Delma] DELIVER: ${line}`)
+      await showLine(delma.tickerEl, line, 2000, delma.def.distanceOpacity)
+      await sleep(80)
+    }
+    delma.tickerEl.classList.remove('delivery')
+    setStage(null)
+    steps.push(logStep(3, 'Delma', 'User', deliveryLines[0] || 'delivered', stepStart))
+
+    const duration = Math.round((Date.now() - t0) / 1000)
+    console.log('[chain] complete — %ds | %d steps | light route', duration, steps.length)
+    console.table(steps)
+
+    return { corrections: 0, improvements: 1, duration, steps, finalContent: soloResult.document || null }
+  }
+
   // ── Step 2: Sarah or architecture phase ───────────────────────────────────
   let approvedArch
   let sarahLead = null  // populated on ROUTE_STRATEGIC
@@ -179,7 +256,7 @@ export async function runChain(query, chars, opts = {}) {
     stepStart = Date.now()
     sarahLead = await withWorking(sarah,
       ['reading the situation...', 'forming a position...', 'structuring the recommendation...'],
-      P.SARAH_LEAD, { task_spec: s1.task_spec, original_query: query, word_budget: wordBudget }, sarahModel
+      P.SARAH_LEAD, { task_spec: s1.task_spec, original_query: query }, sarahModel
     )
     console.log('[chain] step 2 done — recommendation:', sarahLead.recommendation, '|', sarahLead.log_summary)
     await displayWorking(sarah, sarahLead.working_steps, sarahLead.log_summary)
@@ -221,7 +298,7 @@ export async function runChain(query, chars, opts = {}) {
     stepStart = Date.now()
     const s2 = await withWorking(sarah,
       ['designing structure...', 'defining sections...', 'specifying output format...'],
-      P.SARAH_ARCHITECTURE, { ...s1.task_spec, word_budget: wordBudget }, sarahModel
+      P.SARAH_ARCHITECTURE, s1.task_spec, sarahModel
     )
     console.log('[chain] step 2 done —', s2.log_summary)
     await displayWorking(sarah, s2.working_steps, s2.log_summary)
@@ -236,7 +313,7 @@ export async function runChain(query, chars, opts = {}) {
       stepStart = Date.now()
       const s3 = await withWorking(delma,
         ['checking framework alignment...', 'verifying scope coverage...'],
-        P.DELMA_VALIDATE_ARCHITECTURE, { task_spec: { ...s1.task_spec, word_budget: wordBudget }, architecture: s2 },
+        P.DELMA_VALIDATE_ARCHITECTURE, { task_spec: s1.task_spec, architecture: s2 },
         HAIKU
       )
       console.log('[chain] step 3 done — approved:', s3.approved, '| misalignments:', s3.misalignments?.length ?? 0, '|', s3.log_summary)
@@ -263,9 +340,7 @@ export async function runChain(query, chars, opts = {}) {
       ? `${approvedArch.shared_context || ''}\n\nWEB RESEARCH:\n${searchContext}`.trim()
       : approvedArch.shared_context || ''
   }
-  const sectionCount = cappedArch.subjects.length || 1
-  const perSectionBudget = Math.floor(wordBudget / sectionCount)
-  console.log('[chain] budget — word_budget:', wordBudget, '| sections:', sectionCount, '| per_section:', perSectionBudget)
+  console.log('[chain] sections:', cappedArch.subjects.length, '| length:', lengthSignal)
 
   // ── Step 4: Parallel pipeline ──────────────────────────────────────────
   delma.faceCharacter(marcus)
@@ -307,19 +382,19 @@ export async function runChain(query, chars, opts = {}) {
           all_sections: cappedArch.subjects,
           section_title: subject,
           section_brief: sectionBrief || { section: subject, argument: subject, marcus_task: 'provide supporting details' },
-          section_word_limit: perSectionBudget
+          length: lengthSignal
         }
       : {
           task_spec: {
             objective: s1.task_spec.objective,
             deliverable: s1.task_spec.deliverable,
-            key_constraints: s1.task_spec.key_constraints
+            key_constraints: s1.task_spec.key_constraints,
+            length: lengthSignal
           },
           shared_context: cappedArch.shared_context || '',
           all_sections: cappedArch.subjects,
           section_title: subject,
-          fields_to_cover: cappedArch.data_fields,
-          section_word_limit: perSectionBudget
+          fields_to_cover: cappedArch.data_fields
         }
 
     setTicker(marcus.tickerEl, `writing "${subject}"...`, marcus.def.distanceOpacity)
