@@ -1,12 +1,12 @@
 /**
  * chain.js — document-as-artifact agent chain.
  *
- * The chain builds ONE document from start to finish.
- * Each agent receives the current document and returns a better version.
+ * The chain builds ONE document via relay — each agent contributes their
+ * specialty, passing context forward to the next.
  *
  * Two tracks:
  *   Display track — working_steps, log_summary → tickers
- *   Content track — document → flows through every step, delivered at end
+ *   Content track — document + context → flows through the pipeline
  *
  * Delma composes a dynamic pipeline per request — an ordered list of agents
  * with roles and authority levels. The chain executes whatever she decides,
@@ -14,8 +14,6 @@
  *
  * Overlays:
  *   Web search       → runs after Delma scopes, before pipeline starts
- *   User checkpoint  → after Delma scopes, user sees the plan and can adjust
- *   Premise challenge → if Sarah flags a flawed premise, pipeline pauses
  *   James rejection  → Marcus revise + James re-check, one cycle max
  */
 
@@ -197,19 +195,6 @@ export async function runChain(query, chars, opts = {}) {
       await displayWorking(char, result.working_steps, result.log_summary)
       steps.push(logStep(stepNum, 'Delma', 'Sarah', result.log_summary, stepStart))
 
-      // Premise challenge — pause pipeline, surface to user
-      if (result.premise_challenge && result.premise_challenge !== 'null' && opts.onCheckpoint) {
-        console.log('[chain] premise challenge:', result.premise_challenge)
-        setStage({ text: 'Sarah is challenging the premise', color: AGENT_COLORS.sarah })
-        await showLine(char.tickerEl, result.premise_challenge, 2000, char.def.distanceOpacity)
-        const userResponse = await opts.onCheckpoint(result.premise_challenge)
-        if (userResponse) {
-          console.log('[chain] user responded to premise challenge:', userResponse)
-          // User overrode — continue with their direction
-        }
-        // Either way, continue pipeline with Sarah's output
-      }
-
       // Store Sarah's context for Marcus downstream
       sarahContext = {
         subjects: result.subjects || [],
@@ -330,7 +315,9 @@ export async function runChain(query, chars, opts = {}) {
           original_query: query,
           briefing,
           authority,
-          task_spec: s1.task_spec
+          task_spec: s1.task_spec,
+          sarah_recommendation: sarahContext.recommendation || '',
+          shared_context: sarahContext.shared_context || ''
         },
         model
       )
