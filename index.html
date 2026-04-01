@@ -56,6 +56,14 @@
       box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
       white-space: nowrap;
     }
+    .stage-item.failed {
+      background: #991b1b !important;
+      animation: failPulse 1.5s ease-in-out;
+    }
+    @keyframes failPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
 
     /* ── CSS2D labels ────────────────────────────── */
     .char-label {

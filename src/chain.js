@@ -26,6 +26,7 @@ import { callClaudeWithRetry, SONNET, HAIKU, DEEPSEEK_V3, GPT4O, GPT4O_MINI } fr
 import { workingTicker, setTicker } from './tickers.js'
 import { createHandoffSystem } from './handoff.js'
 import { EventBus, SharedMemory, TaskQueue, AgentTools } from './orchestration.js'
+import { runSingleNode } from './subagents.js'
 import * as P from './prompts.js'
 
 const CAMERA_POS = new THREE.Vector3(0.5, 3.5, -0.5)
@@ -43,9 +44,9 @@ function setStage(entries) {
   if (!entries) { el.classList.remove('active'); el.textContent = ''; return }
   const items = Array.isArray(entries) ? entries : [entries]
   el.textContent = ''
-  for (const { text, color } of items) {
+  for (const { text, color, failed } of items) {
     const div = document.createElement('div')
-    div.className = 'stage-item'
+    div.className = 'stage-item' + (failed ? ' failed' : '')
     div.style.background = color
     div.textContent = text
     el.appendChild(div)
@@ -61,9 +62,9 @@ let _scene  = null
 // Track active stage entries — parallel tasks add/remove themselves
 let _activeStages = []
 
-function addStage(id, text, color) {
+function addStage(id, text, color, failed = false) {
   _activeStages = _activeStages.filter(s => s.id !== id)
-  _activeStages.push({ id, text, color })
+  _activeStages.push({ id, text, color, failed })
   setStage(_activeStages)
 }
 
@@ -223,13 +224,16 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
   }
 
   // Marcus tasks — one per memory target for parallel execution, or one if single target
+  // Multiple targets spawn sub-agent figures (mini Marcus) for each parallel file update.
   const marcusTaskIds = []
   if (marcusInPipeline) {
     const targets = memoryTargets.length > 1 ? memoryTargets : ['all']
     const marcusDeps = sarahInPipeline ? ['sarah'] : []
+    const isParallel = targets.length > 1
 
-    for (const target of targets) {
-      const taskId = targets.length > 1 ? `marcus-${target.replace('.md', '')}` : 'marcus'
+    for (let i = 0; i < targets.length; i++) {
+      const target = targets[i]
+      const taskId = isParallel ? `marcus-${target.replace('.md', '')}` : 'marcus'
       marcusTaskIds.push(taskId)
 
       queue.add({
@@ -241,8 +245,8 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
           const model = MODEL_MAP[s1.model_marcus] ?? HAIKU
           const briefing = briefings.marcus || ''
 
-          // Only do handoff animation for first Marcus task (avoid visual noise)
-          if (taskId === marcusTaskIds[0]) {
+          // First task does the handoff animation
+          if (i === 0) {
             delma.faceCharacter(char); delma.setLookTarget(char)
             char.faceCharacter(delma); char.setLookTarget(delma)
             if (briefing) setTicker(delma.tickerEl, briefing, delma.def.distanceOpacity)
@@ -251,24 +255,50 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
             char.faceDesk()
           }
 
-          const stageText = targets.length > 1 ? `Marcus is writing ${target}` : 'Marcus is writing'
+          const stageText = isParallel ? `Marcus is writing ${target}` : 'Marcus is writing'
           addStage(taskId, stageText, AGENT_COLORS.marcus)
           const start = Date.now()
-
           const targetFilter = target === 'all' ? memoryTargets : [target]
-          const result = await withWorking(char,
-            ['writing memory docs...'],
-            P.MARCUS_EXTRACT + tools.getToolDescriptions('marcus'),
-            {
-              ...mem.getAll(),
-              briefing,
-              authority: marcusEntry.authority,
-              memory_targets: targetFilter
-            },
-            model
-          )
-          await displayWorking(char, result.working_steps, result.log_summary)
-          steps.push(logStep(3, 'Delma', 'Marcus', result.log_summary, start))
+
+          let result
+          if (isParallel) {
+            // Parallel targets: spawn a sub-agent mini figure per file
+            char.startWorking()
+            result = await runSingleNode(_scene, char, i, {
+              label: target,
+              systemPrompt: P.MARCUS_EXTRACT + tools.getToolDescriptions('marcus'),
+              userMessage: {
+                ...mem.getAll(),
+                briefing,
+                authority: marcusEntry.authority,
+                memory_targets: targetFilter
+              },
+              model
+            })
+            // runSingleNode returns the raw result or null on failure
+            if (!result) {
+              char.stopWorking()
+              removeStage(taskId)
+              throw new Error(`Marcus failed to write ${target}`)
+            }
+            char.stopWorking()
+          } else {
+            // Single target: Marcus works directly (no sub-agent figure)
+            result = await withWorking(char,
+              ['writing memory docs...'],
+              P.MARCUS_EXTRACT + tools.getToolDescriptions('marcus'),
+              {
+                ...mem.getAll(),
+                briefing,
+                authority: marcusEntry.authority,
+                memory_targets: targetFilter
+              },
+              model
+            )
+            await displayWorking(char, result.working_steps, result.log_summary)
+          }
+
+          steps.push(logStep(3, 'Delma', 'Marcus', result.log_summary || `wrote ${target}`, start))
           removeStage(taskId)
 
           // Write to shared memory and publish
@@ -358,8 +388,22 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
   await queue.run(
     // onTaskStart
     (task) => console.log(`[extract] starting ${task.id}`),
-    // onTaskDone
-    (task, result) => console.log(`[extract] completed ${task.id}`)
+    // onTaskDone — show failure in stage bar if task failed or cascade-failed
+    (task, result) => {
+      if (result?.error) {
+        const capName = (task.agent || task.id).charAt(0).toUpperCase() + (task.agent || task.id).slice(1)
+        const isCascade = result.error.startsWith('Cascade failure')
+        const text = isCascade
+          ? `${capName} skipped — upstream failed`
+          : `${capName} failed`
+        addStage(`fail-${task.id}`, text, '#991b1b', true)
+        console.warn(`[extract] ${task.id} failed:`, result.error)
+        // Auto-remove failed stage after 3 seconds
+        setTimeout(() => removeStage(`fail-${task.id}`), 3000)
+      } else {
+        console.log(`[extract] completed ${task.id}`)
+      }
+    }
   )
 
   // ── Write memory files ─────────────────────────────────────────────────────
