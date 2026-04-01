@@ -38,11 +38,20 @@ app.get('/api/memory', async (req, res) => {
   }
 })
 
+// Sanitize memory filenames — prevent path traversal
+function safeMemoryFile(filename) {
+  const base = filename.replace(/[^a-zA-Z0-9._-]/g, '')
+  if (!base || base.startsWith('.')) return null
+  return base
+}
+
 // Read a memory file
 app.get('/api/memory/:file', async (req, res) => {
   try {
+    const safe = safeMemoryFile(req.params.file)
+    if (!safe) return res.status(400).json({ error: 'Invalid filename' })
     const dir = await ensureDelmaDir()
-    const filePath = join(dir, req.params.file)
+    const filePath = join(dir, safe)
     if (!existsSync(filePath)) return res.json({ content: '', exists: false })
     const content = await readFile(filePath, 'utf-8')
     res.json({ content, exists: true })
@@ -54,8 +63,10 @@ app.get('/api/memory/:file', async (req, res) => {
 // Write a memory file
 app.put('/api/memory/:file', async (req, res) => {
   try {
+    const safe = safeMemoryFile(req.params.file)
+    if (!safe) return res.status(400).json({ error: 'Invalid filename' })
     const dir = await ensureDelmaDir()
-    const filePath = join(dir, req.params.file)
+    const filePath = join(dir, safe)
     await writeFile(filePath, req.body.content, 'utf-8')
     res.json({ ok: true })
   } catch (e) {
@@ -386,6 +397,12 @@ wss.on('connection', (ws, req) => {
         ws.send(JSON.stringify({ type: 'raw', content: line }))
       }
     }
+  })
+
+  claude.on('error', (err) => {
+    console.error(`[ws] failed to spawn claude:`, err.message)
+    ws.send(JSON.stringify({ type: 'error', content: `Failed to start claude: ${err.message}. Is claude CLI installed?` }))
+    ws.close()
   })
 
   claude.stderr.on('data', (data) => {

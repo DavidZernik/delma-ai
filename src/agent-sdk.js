@@ -76,10 +76,8 @@ export function createAgentSDK({ onMessage, onStatus, onTranscriptBatch }) {
   function send(message) {
     if (!ws || !connected) return
     ws.send(JSON.stringify({ type: 'user_message', content: message }))
-
-    // Add user message to transcript
-    transcript.push({ type: 'user_message', content: message })
-    messageCount++
+    // Don't push to transcript here — the server echoes it back as part of the session stream
+    // Pushing locally would double-count user messages in the watcher batch
   }
 
   function disconnect() {

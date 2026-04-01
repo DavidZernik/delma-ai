@@ -3,6 +3,7 @@ import { createCharacters } from './characters.js'
 import { initChain, watchTranscript, runExtraction } from './chain.js'
 import { createAgentSDK } from './agent-sdk.js'
 import { callClaudeRaw } from './api.js'
+import { SINGLE_CLAUDE } from './prompts.js'
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────
 const { scene, camera, renderer, css2dRenderer, clock, lightsController, screens } = initScene()
@@ -19,7 +20,6 @@ const sendBtn        = document.getElementById('send-btn')
 const suggestion     = document.getElementById('suggestion')
 const sdkStatus      = document.getElementById('sdk-status')
 const sdkBody        = document.getElementById('sdk-body')
-const sdkTime        = document.getElementById('sdk-time')
 const compStatus     = document.getElementById('comp-status')
 const compBody       = document.getElementById('comp-body')
 const analysisStatus = document.getElementById('analysis-status')
@@ -194,8 +194,7 @@ async function runComparison(query) {
   compBody.appendChild(turnEl)
 
   try {
-    const system = 'You are a knowledgeable assistant. Answer directly and specifically.'
-    const result = await callClaudeRaw(system, query)
+    const result = await callClaudeRaw(SINGLE_CLAUDE, query)
     respEl.textContent = result
     compStatus.textContent = 'Complete'
   } catch (err) {

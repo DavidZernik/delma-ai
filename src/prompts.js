@@ -162,8 +162,6 @@ JSON only:
 }`
 
 
-// ── Comparison panel: single Claude call (no memory context) ─────────────────
+// ── Comparison panel: vanilla Claude without memory context ──────────────────
 export const SINGLE_CLAUDE = `\
-You are a knowledgeable assistant. Answer the user's question with a comprehensive, well-organized response.
-
-Cover the key options, compare them on the dimensions that matter for the use case, and give a clear and direct recommendation with reasoning. Be specific. State your recommendation directly — do not hedge with "it depends" without giving a specific answer.`
+You are a helpful coding assistant. Answer the user's question directly and specifically. You have no project context or institutional knowledge — work only from what the user tells you in this message.`
