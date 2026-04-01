@@ -211,7 +211,7 @@ app.post('/api/search', async (req, res) => {
   let response
   try {
     response = await fetch(
-      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${count}&result_filter=query`,
+      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${count}`,
       {
         headers: {
           'Accept': 'application/json',
