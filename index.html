@@ -488,6 +488,45 @@
     #send-btn:hover:not(:disabled) { background: #333333; transform: scale(1.06); }
     #send-btn:disabled { background: #d8d1c6; cursor: not-allowed; }
 
+    #input-controls { display: flex; flex-direction: column; gap: 8px; }
+
+    #project-settings {
+      display: flex;
+      gap: 16px;
+      padding: 0 6px;
+    }
+
+    .setting-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .setting-label {
+      font-size: 11px;
+      color: #9b8b73;
+      letter-spacing: 0.04em;
+    }
+
+    .setting-select {
+      font-size: 11px;
+      font-family: inherit;
+      color: #3d3228;
+      background: #ede8e0;
+      border: 1px solid #d8d1c6;
+      border-radius: 6px;
+      padding: 3px 8px;
+      cursor: pointer;
+      outline: none;
+      appearance: none;
+      -webkit-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%239b8b73' d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 6px center;
+      padding-right: 20px;
+    }
+    .setting-select:hover { background-color: #e3ddd4; }
+
     /* ── Compare toggle ──────────────────────────── */
     #compare-toggle {
       position: absolute;
@@ -566,9 +605,29 @@
     <div id="input-area">
       <div id="suggestion">Try: Compare email marketing platforms for a mid-size e-commerce brand</div>
       <div id="summary"></div>
-      <div id="input-bar">
-        <textarea id="input" rows="1" placeholder="Ask anything..." autocomplete="off" spellcheck="false"></textarea>
-        <button id="send-btn">&#8594;</button>
+      <div id="input-controls">
+        <div id="project-settings">
+          <div class="setting-group">
+            <span class="setting-label">Speed</span>
+            <select id="speed-select" class="setting-select">
+              <option value="fast">Fast</option>
+              <option value="balanced" selected>Balanced</option>
+              <option value="thorough">Thorough</option>
+            </select>
+          </div>
+          <div class="setting-group">
+            <span class="setting-label">Budget</span>
+            <select id="budget-select" class="setting-select">
+              <option value="budget">Budget</option>
+              <option value="standard" selected>Standard</option>
+              <option value="premium">Premium</option>
+            </select>
+          </div>
+        </div>
+        <div id="input-bar">
+          <textarea id="input" rows="1" placeholder="Ask anything..." autocomplete="off" spellcheck="false"></textarea>
+          <button id="send-btn">&#8594;</button>
+        </div>
       </div>
     </div>
 

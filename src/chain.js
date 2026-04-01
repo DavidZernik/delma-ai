@@ -78,11 +78,15 @@ export async function runChain(query, chars, opts = {}) {
   delma.faceCamera()
   delma.setLookTarget(CAMERA_POS)
 
-  console.log('[chain] step 1 — Delma decompose')
+  const speed = opts.speed || 'balanced'
+  const budget = opts.budget || 'standard'
+
+  console.log('[chain] step 1 — Delma decompose | speed:', speed, '| budget:', budget)
   let stepStart = Date.now()
+  const clientConstraints = `CLIENT CONSTRAINTS: speed=${speed}, budget=${budget}`
   const s1 = await withWorking(delma,
     ['scoping the request...', 'deciding who works...'],
-    P.DELMA_DECOMPOSE, query, HAIKU
+    P.DELMA_DECOMPOSE, `${clientConstraints}\n\nREQUEST: ${query}`, HAIKU
   )
   console.log('[chain] step 1 done — complexity:', s1.complexity, '|', s1.log_summary)
   await displayWorking(delma, s1.working_steps, s1.log_summary)

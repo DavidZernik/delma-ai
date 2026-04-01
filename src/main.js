@@ -79,8 +79,12 @@ async function handleSubmit() {
   const compPromise = compareOn ? runComparison(query) : Promise.resolve()
 
   try {
+    const speed = document.getElementById('speed-select').value
+    const budget = document.getElementById('budget-select').value
     const result = await runChain(query, characters, {
-      onDocument: (content) => renderDeliverable(content)
+      onDocument: (content) => renderDeliverable(content),
+      speed,
+      budget
     })
 
     // Final render in case onDocument wasn't called or document changed after last call
