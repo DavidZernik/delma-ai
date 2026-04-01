@@ -374,12 +374,41 @@
     #send-btn:hover:not(:disabled) { background: #333333; transform: scale(1.06); }
     #send-btn:disabled { background: #d1d5db; cursor: not-allowed; }
 
+    /* ── Resizer handle between panels ──────────── */
+    #resizer {
+      flex: 0 0 5px;
+      background: #0D1117;
+      cursor: col-resize;
+      position: relative;
+      z-index: 20;
+      transition: background 0.15s;
+    }
+    #resizer:hover, #resizer.active {
+      background: #3b82f6;
+    }
+    #resizer::after {
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 3px;
+      height: 40px;
+      border-radius: 2px;
+      background: rgba(255,255,255,0.15);
+    }
+    #resizer:hover::after, #resizer.active::after {
+      background: rgba(255,255,255,0.5);
+    }
+
     /* ── Mobile: stacked layout ──────────────────── */
     @media (max-width: 768px) {
       body {
         flex-direction: column;
         overflow: auto;
       }
+
+      #resizer { display: none; }
 
       #left {
         width: 100% !important;
@@ -473,6 +502,9 @@
       <div id="stage-bar"></div>
     </div>
   </div>
+
+  <!-- Draggable resizer between 3D office and SDK panel -->
+  <div id="resizer"></div>
 
   <div id="right-side">
     <div id="panels-row">

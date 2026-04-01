@@ -216,6 +216,36 @@ function animate() {
 animate()
 input.focus()
 
+// ── Resizer drag — adjustable column widths ──────────────────────────────
+const resizer = document.getElementById('resizer')
+const MIN_LEFT = 0.2   // 3D office won't go below 20% of viewport
+const MAX_LEFT = 0.65  // or above 65%
+let leftFrac = LEFT_FRAC  // starts at the default from scene.js
+
+resizer.addEventListener('mousedown', (e) => {
+  e.preventDefault()
+  resizer.classList.add('active')
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+
+  function onMove(e) {
+    const frac = Math.min(MAX_LEFT, Math.max(MIN_LEFT, e.clientX / window.innerWidth))
+    leftFrac = frac
+    handleResize()
+  }
+
+  function onUp() {
+    resizer.classList.remove('active')
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+  }
+
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp)
+})
+
 // ── Resize — handles desktop (side-by-side) and mobile (stacked) ─────────
 function handleResize() {
   const isMobile = window.innerWidth <= 768
@@ -226,7 +256,7 @@ function handleResize() {
     h = leftEl.clientHeight
     leftEl.style.width = ''  // let CSS handle it
   } else {
-    w = Math.round(window.innerWidth * LEFT_FRAC)
+    w = Math.round(window.innerWidth * leftFrac)
     h = window.innerHeight
     leftEl.style.width = w + 'px'
   }
