@@ -156,8 +156,8 @@ async function runAnalysis(query) {
   analysisStatus.textContent = 'Analyzing...'
   analysisBody.textContent = ''
 
-  const system = `Compare these two AI responses in one short paragraph of plain English. Be direct and specific. Name a clear winner and say why in 2-3 sentences — no hedging, no bullet points.`
-  const user = `Request: "${query}"\n\nSingle Claude:\n${claudeText}\n\nDelma Team:\n${delmaDeliverable}`
+  const system = `You're analyzing whether a multi-agent team structure produced better output than a single model call. Don't just compare quality — explain WHY the team structure helped or didn't. What specific decision by which agent made the difference? Did the briefing shape the output? Did the team add overhead without value? Be specific: name the agent, the decision, and the effect. 2-3 sentences, plain English, no hedging.`
+  const user = `Request: "${query}"\n\nSingle model (one call, no team):\n${claudeText}\n\nDelma team output:\n${delmaDeliverable}`
 
   try {
     const analysis = await callClaudeRaw(system, user)
