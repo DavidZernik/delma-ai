@@ -96,10 +96,17 @@ export async function runChain(query, chars, opts = {}) {
   await displayWorking(delma, s1.working_steps, s1.log_summary)
   steps.push(logStep(1, 'User', 'Delma', s1.log_summary, stepStart))
 
-  const pipeline = s1.pipeline || []
+  // Filter Delma out of pipeline (she coordinates, doesn't execute)
+  const pipeline = (s1.pipeline || []).filter(p => p.agent !== 'delma')
   const lengthSignal = s1.task_spec?.length || 'moderate'
   const sectionCount = s1.task_spec?.sections || 1
   const briefings = s1.briefings || {}
+
+  // Guard: pipeline must have at least one agent
+  if (!pipeline.length) {
+    console.warn('[chain] empty pipeline after filtering — defaulting to marcus')
+    pipeline.push({ agent: 'marcus', role: 'produce the deliverable', authority: 'shapes_the_document' })
+  }
 
   console.log('[chain] pipeline:', pipeline.map(p => `${p.agent}(${p.authority})`).join(' → '), '| length:', lengthSignal, '| sections:', sectionCount)
 
@@ -132,16 +139,6 @@ export async function runChain(query, chars, opts = {}) {
       await showLine(delma.tickerEl, `web: ${chunks.length} queries complete`, 1200, delma.def.distanceOpacity)
     }
     delma.stopWorking()
-  }
-
-  // ── User checkpoint: show plan, let user adjust ───────────────────────────
-  if (opts.onCheckpoint && pipeline.length > 1) {
-    const planDesc = s1.plan_summary || pipeline.map(p => p.agent).join(' → ')
-    const correction = await opts.onCheckpoint(planDesc)
-    if (correction) {
-      console.log('[chain] user correction at checkpoint:', correction)
-      // TODO: re-run Delma decompose with correction context
-    }
   }
 
   // ── Execute pipeline ──────────────────────────────────────────────────────
