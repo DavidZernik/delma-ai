@@ -38,3 +38,16 @@ Weight shifts by task type. The same person has different power depending on the
 - **supports** — contributes but follows someone else's lead
 - **can_reject** — (James) can reject and force one revision
 - **advisory** — (James) flags issues without blocking delivery
+
+## Future: self-improving orchestration
+
+Delma logs every session — what was planned, what was executed, what failed, what the user corrected. A retrospective layer analyzes patterns across sessions and recommends changes to how the team is composed.
+
+The learnings are structural, not domain-specific: pipeline order, agent selection, authority levels, input routing, when to challenge vs. proceed. They don't make prompts longer — they change the orchestration logic itself. Every user makes the system better for every other user.
+
+Learning happens at two levels:
+
+- **Global orchestration** — structural patterns from all sessions improve how the team works: pipeline composition, agent authority, when to challenge vs. proceed. These benefit every user.
+- **Per-instance context** — each company reviews their own sessions and provides feedback: business rules, preferences, constraints. These are scoped to their instance, fed to agents as input, and never leak into the core or other customers' experiences.
+
+The bet extends: not only is the org chart a form of intelligence, it can optimize itself — universally and per-customer.

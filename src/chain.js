@@ -1,27 +1,22 @@
 /**
- * chain.js — document relay chain.
+ * chain.js — knowledge extraction chain.
  *
- * The chain builds ONE document via relay — each agent contributes their
- * specialty, passing context forward to the next.
+ * Watches Agent SDK sessions and extracts institutional knowledge.
+ * Same orchestration engine as the document pipeline — dynamic pipeline
+ * composition, agent authority, guiderails — different job.
  *
- * Two tracks:
- *   Display track — working_steps, log_summary → tickers
- *   Content track — document + context → flows through the pipeline
+ * Two entry points:
+ *   watchTranscript(batch) — lightweight watcher, scores for knowledge
+ *   runExtraction(batch, memory) — full extraction chain when triggered
  *
- * Delma composes a dynamic pipeline per request — an ordered list of agents
- * with roles and authority levels. The chain executes whatever she decides,
- * constrained by guiderails baked into her prompt.
- *
- * Overlays:
- *   Web search       → runs after Delma scopes, before pipeline starts
- *   James rejection  → Marcus revise + James re-check, one cycle max
+ * The relay: Delma scopes → Sarah challenges → Marcus writes → James validates
+ * Same handoffs, same 3D visualization, same agent personalities.
  */
 
 import * as THREE from 'three'
-import { callClaudeWithRetry, callSearch, SONNET, HAIKU, DEEPSEEK_V3 } from './api.js'
-import { showLine, workingTicker, sleep, setTicker } from './tickers.js'
+import { callClaudeWithRetry, SONNET, HAIKU, DEEPSEEK_V3 } from './api.js'
+import { workingTicker, setTicker } from './tickers.js'
 import { createHandoffSystem } from './handoff.js'
-import { runSingleNode } from './subagents.js'
 import * as P from './prompts.js'
 
 const CAMERA_POS = new THREE.Vector3(0.5, 3.5, -0.5)
@@ -48,124 +43,105 @@ const MODEL_MAP = { deepseek: DEEPSEEK_V3, haiku: HAIKU, sonnet: SONNET }
 
 let handoff = null
 let _scene  = null
-let _onDocument = null  // callback for streaming document to UI
 
 export function initChain(scene) {
   _scene  = scene
   handoff = createHandoffSystem(scene)
 }
 
-// ── Main entry ───────────────────────────────────────────────────────────────
+// ── Watcher: lightweight scoring ─────────────────────────────────────────────
 
-export async function runChain(query, chars, opts = {}) {
+const WATCH_THRESHOLD = 0.3
+
+export async function watchTranscript(batch, chars) {
+  const { delma } = chars
+
+  console.log('[watch] scoring batch:', batch.length, 'chars')
+
+  const result = await callClaudeWithRetry(
+    P.DELMA_WATCH,
+    batch,
+    null,
+    HAIKU
+  )
+
+  console.log('[watch] score:', result.score, '| trigger:', result.trigger, '|', result.summary)
+
+  if (result.score >= WATCH_THRESHOLD) {
+    // Brief visual cue — Delma noticed something
+    setTicker(delma.tickerEl, result.summary, delma.def.distanceOpacity)
+  }
+
+  return result
+}
+
+// ── Full extraction chain ────────────────────────────────────────────────────
+
+export async function runExtraction(transcriptBatch, existingMemory, chars, opts = {}) {
   const { delma, marcus, sarah, james } = chars
   const agentChars = { sarah, marcus, james }
   const t0 = Date.now()
   const steps = []
-  _onDocument = opts.onDocument || null
 
-  // Disk always knows who holds it — animation is fire-and-forget, doesn't block the pipeline
   let diskHolder = delma
   const handoffTo = (to) => { handoff.send(diskHolder, to); diskHolder = to }
 
-  console.log('[chain] starting:', query)
+  console.log('[extract] starting extraction')
 
-  // All characters face their desks at start
   marcus.faceDesk(); sarah.faceDesk(); james.faceDesk()
 
-  // ── Step 1: Delma — decompose ──────────────────────────────────────────────
-  setStage({ text: 'Delma is scoping the request', color: AGENT_COLORS.delma })
+  // ── Step 1: Delma — decompose extraction ───────────────────────────────────
+  setStage({ text: 'Delma is analyzing the session', color: AGENT_COLORS.delma })
   delma.faceCamera()
   delma.setLookTarget(CAMERA_POS)
 
-  const speed = opts.speed || 'balanced'
-  const budget = opts.budget || 'standard'
-
-  console.log('[chain] step 1 — Delma decompose | speed:', speed, '| budget:', budget)
   let stepStart = Date.now()
-  const clientConstraints = `CLIENT CONSTRAINTS: speed=${speed}, budget=${budget}`
   const s1 = await withWorking(delma,
-    ['scoping the request...', 'deciding who works...'],
-    P.DELMA_DECOMPOSE, `${clientConstraints}\n\nREQUEST: ${query}`, HAIKU
+    ['analyzing session knowledge...', 'deciding who processes...'],
+    P.DELMA_DECOMPOSE,
+    {
+      transcript: transcriptBatch,
+      existing_memory: existingMemory
+    },
+    HAIKU
   )
-  console.log('[chain] step 1 done — complexity:', s1.complexity, '|', s1.log_summary)
+  console.log('[extract] step 1 done —', s1.log_summary)
   await displayWorking(delma, s1.working_steps, s1.log_summary)
-  steps.push(logStep(1, 'User', 'Delma', s1.log_summary, stepStart))
+  steps.push(logStep(1, 'Session', 'Delma', s1.log_summary, stepStart))
 
-  // Filter Delma out of pipeline (she coordinates, doesn't execute)
   const pipeline = (s1.pipeline || []).filter(p => p.agent !== 'delma')
-  const lengthSignal = s1.task_spec?.length || 'moderate'
-  const sectionCount = s1.task_spec?.sections || 1
   const briefings = s1.briefings || {}
+  const memoryTargets = s1.memory_targets || []
 
-  // Guard: pipeline must have at least one agent
   if (!pipeline.length) {
-    console.warn('[chain] empty pipeline after filtering — defaulting to marcus')
-    pipeline.push({ agent: 'marcus', role: 'produce the deliverable', authority: 'shapes_the_document' })
+    console.warn('[extract] empty pipeline — defaulting to marcus')
+    pipeline.push({ agent: 'marcus', role: 'write memory captures', authority: 'shapes_the_document' })
   }
 
-  console.log('[chain] pipeline:', pipeline.map(p => `${p.agent}(${p.authority})`).join(' → '), '| length:', lengthSignal, '| sections:', sectionCount)
-
-  // Show plan to user
-  if (s1.plan_summary) {
-    setTicker(delma.tickerEl, s1.plan_summary, delma.def.distanceOpacity)
-  }
-
-  // ── Step 1.5: Web search (if Delma flagged it) ────────────────────────────
-  let searchContext = ''
-  if (s1.needs_search && s1.search_queries?.length) {
-    console.log('[chain] step 1.5 — web search:', s1.search_queries)
-    setStage({ text: 'Delma is searching the web', color: AGENT_COLORS.delma })
-    delma.startWorking()
-    setTicker(delma.tickerEl, 'searching the web...', delma.def.distanceOpacity)
-
-    // Run all searches in parallel
-    const results = await Promise.all(
-      s1.search_queries.slice(0, 3).map(async q => {
-        try {
-          const { context } = await callSearch(q, 5)
-          console.log(`  [search] "${q}" → ${context?.length ?? 0} chars`)
-          return context || ''
-        } catch (e) {
-          console.warn(`  [search] "${q}" failed:`, e.message)
-          return ''
-        }
-      })
-    )
-
-    const chunks = results.filter(Boolean)
-    if (chunks.length) {
-      searchContext = chunks.join('\n\n')
-      setTicker(delma.tickerEl, `web: ${chunks.length} queries complete`, delma.def.distanceOpacity)
-    }
-    delma.stopWorking()
-  }
+  console.log('[extract] pipeline:', pipeline.map(p => `${p.agent}(${p.authority})`).join(' → '), '| targets:', memoryTargets.join(', '))
 
   // ── Execute pipeline ──────────────────────────────────────────────────────
   setStage({ text: 'Delma is briefing the team', color: AGENT_COLORS.delma })
 
-  let document = ''
-  let deliveryLines = []
-  let sarahContext = {}  // subjects, section_briefs, shared_context, recommendation
+  let sarahExtractions = []
+  let marcusUpdates = []
   let stepNum = 2
 
   for (const entry of pipeline) {
     const { agent, role, authority } = entry
     const char = agentChars[agent]
-    if (!char) { console.warn('[chain] unknown agent:', agent); continue }
+    if (!char) continue
 
     const capName = agent.charAt(0).toUpperCase() + agent.slice(1)
     const model = MODEL_MAP[s1[`model_${agent}`]] ?? HAIKU
     const briefing = briefings[agent] || ''
 
-    // ── Handoff animation ─────────────────────────────────────────────────
     delma.faceCharacter(char)
     delma.setLookTarget(char)
     char.faceCharacter(delma)
     char.setLookTarget(delma)
 
     if (briefing) {
-      console.log(`  [ticker:Delma] briefing ${agent}:`, briefing)
       setTicker(delma.tickerEl, briefing, delma.def.distanceOpacity)
     }
     handoffTo(char)
@@ -175,248 +151,144 @@ export async function runChain(query, chars, opts = {}) {
     setStage({ text: `${capName} is working`, color: AGENT_COLORS[agent] })
     stepStart = Date.now()
 
-    // ── SARAH ───────────────────────────────────────────────────────────────
+    // ── SARAH ─────────────────────────────────────────────────────────────
     if (agent === 'sarah') {
-      const marcusDownstream = pipeline.some(p => p.agent === 'marcus')
-      console.log(`[chain] step ${stepNum} — Sarah (${authority}), marcus_downstream: ${marcusDownstream}`)
       const result = await withWorking(char,
-        ['reading the situation...', 'forming a position...'],
-        P.SARAH_WORK,
+        ['evaluating what matters...', 'checking against existing knowledge...'],
+        P.SARAH_EXTRACT,
         {
-          task_spec: s1.task_spec,
-          original_query: query,
+          transcript: transcriptBatch,
+          existing_memory: existingMemory,
           briefing,
-          authority,
-          shared_context: searchContext,
-          marcus_downstream: marcusDownstream
+          authority
         },
         model
       )
-      console.log(`[chain] step ${stepNum} done —`, result.log_summary)
+      console.log(`[extract] Sarah done —`, result.log_summary)
       await displayWorking(char, result.working_steps, result.log_summary)
       steps.push(logStep(stepNum, 'Delma', 'Sarah', result.log_summary, stepStart))
 
-      // Store Sarah's context for Marcus downstream
-      sarahContext = {
-        subjects: result.subjects || [],
-        section_briefs: result.section_briefs || [],
-        shared_context: result.shared_context || '',
-        recommendation: result.recommendation || ''
-      }
-
-      // If Sarah produced a solo document, capture it
-      if (result.document) {
-        document = result.document
-        if (_onDocument) _onDocument(document)
-        deliveryLines = result.delivery_lines || []
-      }
-
-    // ── MARCUS ──────────────────────────────────────────────────────────────
-    } else if (agent === 'marcus') {
-      console.log(`[chain] step ${stepNum} — Marcus (${authority}), sections: ${sectionCount}`)
-
-      if (sectionCount <= 1 || (sarahContext.subjects?.length || 0) <= 1) {
-        // ── Solo / single section: Marcus produces the whole thing ──────────
-        const result = await withWorking(char,
-          ['writing...'],
-          P.MARCUS_WORK,
-          {
-            task_spec: s1.task_spec,
-            original_query: query,
-            briefing,
-            authority,
-            shared_context: searchContext
-              ? `${sarahContext.shared_context || ''}\n\nWEB RESEARCH:\n${searchContext}`.trim()
-              : sarahContext.shared_context || '',
-            sarah_recommendation: sarahContext.recommendation || '',
-            section_briefs: sarahContext.section_briefs || []
-          },
-          model
-        )
-        console.log(`[chain] step ${stepNum} done —`, result.log_summary)
-        await displayWorking(char, result.working_steps, result.log_summary)
-        steps.push(logStep(stepNum, 'Delma', 'Marcus', result.log_summary, stepStart))
-        document = result.document || ''
-        if (_onDocument) _onDocument(document)
-        deliveryLines = result.delivery_lines || []
-
-      } else {
-        // ── Multi-section: parallel sub-agents ─────────────────────────────
-        const subjects = sarahContext.subjects.slice(0, 3)
-        const sharedCtx = searchContext
-          ? `${sarahContext.shared_context || ''}\n\nWEB RESEARCH:\n${searchContext}`.trim()
-          : sarahContext.shared_context || ''
-
-        char.startWorking()
-        setStage({ text: 'Marcus is writing sections', color: AGENT_COLORS.marcus })
-
-        const sectionResults = await Promise.all(
-          subjects.map((subject, idx) => {
-            const sectionBrief = sarahContext.section_briefs?.find(b => b.section === subject)
-            return runSingleNode(_scene, char, idx, {
-              label: subject,
-              systemPrompt: P.MARCUS_SECTION,
-              userMessage: {
-                task_spec: s1.task_spec,
-                shared_context: sharedCtx,
-                all_sections: subjects,
-                section_title: subject,
-                section_brief: sectionBrief || { section: subject, marcus_task: briefing },
-                sarah_recommendation: sarahContext.recommendation || '',
-                length: lengthSignal
-              },
-              model
-            })
-          })
-        )
-        char.stopWorking()
-
-        const validSections = sectionResults.filter(Boolean)
-        console.log(`[chain] step ${stepNum} — Marcus wrote ${validSections.length}/${subjects.length} sections`)
-
-        // Assembly step only for 3+ sections
-        if (validSections.length >= 3) {
-          setStage({ text: 'Marcus is assembling', color: AGENT_COLORS.marcus })
-          char.startWorking()
-          const assemblyResult = await withWorking(char,
-            ['assembling...'],
-            P.MARCUS_ASSEMBLE,
-            {
-              task_spec: { objective: s1.task_spec.objective, deliverable: s1.task_spec.deliverable },
-              shared_context: sharedCtx,
-              sections: validSections.map(s => ({ section_title: s.section_title, content: s.content }))
-            },
-            model, 12000
-          )
-          char.stopWorking()
-          document = assemblyResult?.document
-            || validSections.map(s => `## ${s.section_title}\n\n${s.content}`).join('\n\n')
-
-          if (assemblyResult?.coherence_fixes?.length) {
-            for (const fix of assemblyResult.coherence_fixes) {
-              setTicker(char.tickerEl, `↳ ${fix}`, char.def.distanceOpacity)
-            }
-          }
-        } else {
-          // 1-2 sections: just concatenate, no assembly call
-          document = validSections.map(s => `## ${s.section_title}\n\n${s.content}`).join('\n\n')
+      sarahExtractions = result.extractions || []
+      if (result.rejections?.length) {
+        for (const r of result.rejections) {
+          console.log(`  [Sarah] rejected: ${r}`)
         }
-
-        if (_onDocument) _onDocument(document)
-        await displayWorking(char, [], `${validSections.length} sections written`)
-        steps.push(logStep(stepNum, 'Delma', 'Marcus', `${validSections.length} sections produced`, stepStart))
       }
 
-    // ── JAMES ───────────────────────────────────────────────────────────────
-    } else if (agent === 'james') {
-      console.log(`[chain] step ${stepNum} — James (${authority})`)
+    // ── MARCUS ────────────────────────────────────────────────────────────
+    } else if (agent === 'marcus') {
       const result = await withWorking(char,
-        ['checking the document...'],
-        P.JAMES_CHECK,
+        ['writing memory docs...'],
+        P.MARCUS_EXTRACT,
         {
-          document,
-          original_query: query,
+          transcript: transcriptBatch,
+          existing_memory: existingMemory,
+          sarah_extractions: sarahExtractions,
           briefing,
           authority,
-          task_spec: s1.task_spec,
-          sarah_recommendation: sarahContext.recommendation || '',
-          shared_context: sarahContext.shared_context || ''
+          memory_targets: memoryTargets
         },
         model
       )
-      console.log(`[chain] step ${stepNum} done — approved:`, result.approved, '|', result.log_summary)
+      console.log(`[extract] Marcus done —`, result.log_summary)
       await displayWorking(char, result.working_steps, result.log_summary)
+      steps.push(logStep(stepNum, 'Delma', 'Marcus', result.log_summary, stepStart))
 
-      if (result.issues?.length) {
-        for (const issue of result.issues) {
-          console.log(`  [ticker:James] ⚠ ${issue}`)
-          setTicker(char.tickerEl, `⚠ ${issue}`, char.def.distanceOpacity)
-        }
-      }
+      marcusUpdates = result.updates || []
+
+    // ── JAMES ─────────────────────────────────────────────────────────────
+    } else if (agent === 'james') {
+      const result = await withWorking(char,
+        ['validating captures...'],
+        P.JAMES_EXTRACT,
+        {
+          transcript: transcriptBatch,
+          existing_memory: existingMemory,
+          proposed_updates: marcusUpdates,
+          briefing,
+          authority
+        },
+        model
+      )
+      console.log(`[extract] James done — approved:`, result.approved)
+      await displayWorking(char, result.working_steps, result.log_summary)
       steps.push(logStep(stepNum, 'Delma', 'James', result.log_summary, stepStart))
 
-      // Rejection cycle (only if authority allows)
+      // Rejection cycle
       if (result.approved === false && authority === 'can_reject' && result.issues?.length) {
-        console.log('[chain] James rejected — Marcus revision cycle')
-
-        // Marcus revises
         setStage({ text: 'Marcus is revising', color: AGENT_COLORS.marcus })
         handoffTo(marcus)
         marcus.startWorking()
         stepStart = Date.now()
         const revised = await withWorking(marcus,
-          ['addressing feedback...'],
+          ['fixing captures...'],
           P.MARCUS_REVISE,
-          { document, issues: result.issues },
+          { updates: marcusUpdates, issues: result.issues, existing_memory: existingMemory },
           MODEL_MAP[s1.model_marcus] ?? HAIKU
         )
         marcus.stopWorking()
-        if (revised?.document) {
-          document = revised.document
-          if (_onDocument) _onDocument(document)
-        }
+        if (revised?.updates) marcusUpdates = revised.updates
         steps.push(logStep(stepNum + 0.1, 'James', 'Marcus', revised?.log_summary || 'revised', stepStart))
-
-        // James re-checks
-        setStage({ text: 'James is re-checking', color: AGENT_COLORS.james })
-        handoffTo(char)
-        stepStart = Date.now()
-        const recheck = await withWorking(char,
-          ['re-checking...'],
-          P.JAMES_CHECK,
-          { document, original_query: query, briefing, authority: 'advisory', task_spec: s1.task_spec },
-          model
-        )
-        console.log('[chain] James re-check — approved:', recheck.approved)
-        await displayWorking(char, recheck.working_steps, recheck.log_summary)
-        steps.push(logStep(stepNum + 0.2, 'Marcus', 'James', recheck.log_summary, stepStart))
-
-        if (recheck.delivery_lines?.length) deliveryLines = recheck.delivery_lines
-        if (recheck.approved === false && recheck.issues?.length) {
-          deliveryLines.push(`Note: ${recheck.issues.join('; ')}`)
-        }
-      } else {
-        if (result.delivery_lines?.length) deliveryLines = result.delivery_lines
-        if (authority === 'advisory' && result.issues?.length) {
-          deliveryLines.push(`Note: ${result.issues.join('; ')}`)
-        }
       }
     }
 
     stepNum++
   }
 
-  // ── Deliver ───────────────────────────────────────────────────────────────
-  setStage({ text: 'Delma is delivering', color: AGENT_COLORS.delma })
+  // ── Write memory files ─────────────────────────────────────────────────────
+  setStage({ text: 'Delma is saving knowledge', color: AGENT_COLORS.delma })
   handoffTo(delma)
-  delma.walkTo(delma.def.homeX, delma.def.homeZ)
   delma.faceCamera()
   delma.setLookTarget(CAMERA_POS)
 
-  stepStart = Date.now()
-  if (!deliveryLines.length) {
-    deliveryLines = [`Delivered: ${s1.task_spec?.deliverable || 'response'}`]
+  for (const update of marcusUpdates) {
+    if (update.file && update.content) {
+      console.log(`[extract] writing ${update.file}: ${update.change_summary}`)
+      try {
+        await fetch(`/api/memory/${update.file}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: update.content })
+        })
+        setTicker(delma.tickerEl, `Updated ${update.file}: ${update.change_summary}`, delma.def.distanceOpacity)
+      } catch (e) {
+        console.error(`[extract] failed to write ${update.file}:`, e)
+      }
+    }
   }
 
-  delma.tickerEl.classList.add('delivery')
-  for (const line of deliveryLines) {
-    console.log(`  [ticker:Delma] DELIVER: ${line}`)
-    setTicker(delma.tickerEl, line, delma.def.distanceOpacity)
+  // Compose CLAUDE.md
+  if (marcusUpdates.length) {
+    try {
+      await fetch('/api/memory/compose', { method: 'POST' })
+      console.log('[extract] CLAUDE.md composed')
+    } catch (e) {
+      console.error('[extract] failed to compose CLAUDE.md:', e)
+    }
   }
-  delma.tickerEl.classList.remove('delivery')
+
+  // Log session
+  const logEntry = steps.map(s => `${s.from}→${s.to}: ${s.summary}`).join('\n')
+  try {
+    await fetch('/api/memory/session-log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entry: logEntry })
+    })
+  } catch (e) {
+    console.error('[extract] failed to log session:', e)
+  }
+
   setStage(null)
-  steps.push(logStep(stepNum, 'Delma', 'User', deliveryLines[0] || 'delivered', stepStart))
 
   const duration = Math.round((Date.now() - t0) / 1000)
-  console.log('[chain] complete — %ds | %d steps | pipeline: %s', duration, steps.length, pipeline.map(p => p.agent).join('→'))
+  console.log('[extract] complete — %ds | %d steps | %d files updated', duration, steps.length, marcusUpdates.length)
   console.table(steps)
 
   return {
-    corrections: 0,
-    improvements: pipeline.length,
     duration,
     steps,
-    finalContent: document || null
+    updates: marcusUpdates
   }
 }
 
@@ -442,8 +314,6 @@ function logStep(step, from, to, summary, startMs) {
     time: ((Date.now() - startMs) / 1000).toFixed(1) + 's'
   }
 }
-
-// ── withWorking ───────────────────────────────────────────────────────────────
 
 async function withWorking(char, loadingMessages, systemPrompt, userMessage, model, maxTokens) {
   model = model || HAIKU

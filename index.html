@@ -93,14 +93,6 @@
       transition: opacity 400ms ease;
       user-select: none;
     }
-    .ticker.delivery {
-      font-size: 14px;
-      max-width: 340px;
-      background: rgba(255, 255, 255, 0.98);
-      font-weight: 500;
-      letter-spacing: 0.01em;
-      box-shadow: 0 3px 16px rgba(0, 0, 0, 0.16);
-    }
 
     /* ── Right side ──────────────────────────────── */
     #right-side {
@@ -196,27 +188,6 @@
       letter-spacing: 0.02em;
     }
 
-    /* ── Model selector ──────────────────────────── */
-    .model-select {
-      flex-shrink: 0;
-      font-size: 12px;
-      font-family: inherit;
-      color: #374151;
-      background: #f3f4f6;
-      border: 1px solid #e5e7eb;
-      border-radius: 8px;
-      padding: 5px 10px;
-      cursor: pointer;
-      outline: none;
-      appearance: none;
-      -webkit-appearance: none;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%239ca3af' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
-      background-repeat: no-repeat;
-      background-position: right 8px center;
-      padding-right: 26px;
-    }
-    .model-select:hover { background-color: #e9eaec; }
-
     .panel-status {
       display: flex;
       align-items: center;
@@ -226,24 +197,6 @@
       padding: 12px 24px 0;
       flex-shrink: 0;
       min-height: 34px;
-    }
-
-    .panel-status.active { color: #3b82f6; }
-
-    .comp-dot {
-      display: inline-block;
-      width: 7px; height: 7px;
-      border-radius: 50%;
-      background: #3b82f6;
-      animation: pulse 1.2s ease-in-out infinite;
-    }
-
-    .comp-done    { color: #22c55e; font-size: 14px; }
-    .comp-writing { color: #3b82f6; font-size: 10px; }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 1; transform: scale(1); }
-      50%       { opacity: 0.4; transform: scale(0.85); }
     }
 
     .panel-body {
@@ -280,166 +233,51 @@
       text-transform: uppercase;
     }
 
-    /* ── Theme: Claude.ai ─────────────────────────── */
-    #claude-panel.theme-claude {
-      background: #f7f4ef;
+    /* ── SDK panel (dark theme) ───────────────────── */
+    #sdk-panel {
+      background: #1a1a2e;
     }
-    #claude-panel.theme-claude .panel-header {
-      background: #f7f4ef;
-      border-bottom-color: #e3ddd4;
+    #sdk-panel .panel-header {
+      background: #1a1a2e;
+      border-bottom-color: #2a2a3e;
     }
-    #claude-panel.theme-claude .panel-body {
-      scrollbar-color: #e3ddd4 transparent;
+    #sdk-panel .panel-title { color: #e0e0e0; }
+    #sdk-panel .panel-subtitle { color: #6b6b8a; }
+    #sdk-panel .panel-status { color: #6b6b8a; background: #1a1a2e; }
+    #sdk-panel .panel-body { scrollbar-color: #2a2a3e transparent; }
+    #sdk-panel .panel-footer {
+      border-top-color: #2a2a3e;
+      background: #1a1a2e;
     }
-    #claude-panel.theme-claude .panel-footer {
-      border-top-color: #e3ddd4;
-      background: #f7f4ef;
-    }
-    #claude-panel.theme-claude .panel-status {
-      background: #f7f4ef;
-    }
-    #claude-panel.theme-claude .turn {
-      border-bottom-color: #e3ddd4;
-    }
-    #claude-panel.theme-claude .user-msg {
-      background: #e9e3d8;
-      color: #1a1a1a;
-      border-radius: 18px 18px 4px 18px;
-    }
-    #claude-panel.theme-claude .response-text {
-      color: #1a1a1a;
-    }
-    #claude-panel.theme-claude .panel-title {
-      color: #1a1a1a;
-    }
-    #claude-panel.theme-claude .panel-subtitle {
-      color: #9b8b73;
-    }
-    #claude-panel.theme-claude .panel-time { color: #9b8b73; }
-    #claude-panel.theme-claude .panel-label { color: #c4b99a; }
-    #claude-panel.theme-claude .panel-status.active { color: #c96442; }
-    #claude-panel.theme-claude .comp-dot { background: #c96442; }
-    #claude-panel.theme-claude .comp-writing { color: #c96442; }
-    #claude-panel.theme-claude .comp-done { color: #2d7d32; }
-    #claude-panel.theme-claude .model-select {
-      background-color: #ede8e0;
-      border-color: #d8d1c6;
-      color: #3d3228;
-    }
-    #claude-panel.theme-claude .model-select:hover { background-color: #e3ddd4; }
+    #sdk-panel .panel-time { color: #6b6b8a; }
+    #sdk-panel .panel-label { color: #4a4a6a; }
 
-    /* ── Theme: ChatGPT ────────────────────────────── */
-    #claude-panel.theme-gpt {
-      background: #ffffff;
-    }
-    #claude-panel.theme-gpt .user-msg {
-      background: #f4f4f4;
-      color: #0d0d0d;
-      border-radius: 18px 18px 4px 18px;
-    }
-    #claude-panel.theme-gpt .response-text {
-      color: #0d0d0d;
-    }
-    #claude-panel.theme-gpt .panel-status.active { color: #10a37f; }
-    #claude-panel.theme-gpt .comp-dot { background: #10a37f; }
-    #claude-panel.theme-gpt .comp-writing { color: #10a37f; }
-    #claude-panel.theme-gpt .comp-done { color: #10a37f; }
-
-    /* ── Delma panel warm theme ─────────────────── */
-    #delma-panel {
-      background: #f7f4ef;
-    }
-    #delma-panel .panel-header {
-      background: #f7f4ef;
-      border-bottom-color: #e3ddd4;
-    }
-    #delma-panel .panel-body {
-      scrollbar-color: #e3ddd4 transparent;
-    }
-    #delma-panel .panel-footer {
-      border-top-color: #e3ddd4;
-      background: #f7f4ef;
-    }
-    #delma-panel .panel-status { background: #f7f4ef; }
-    #delma-panel .turn { border-bottom-color: #e3ddd4; }
-    #delma-panel .panel-title { color: #1a1a1a; }
-    #delma-panel .panel-subtitle { color: #9b8b73; }
-    #delma-panel .panel-time { color: #9b8b73; }
-    #delma-panel .panel-label { color: #c4b99a; }
-    #delma-panel .panel-status.active { color: #c96442; }
-    #delma-panel .comp-dot { background: #c96442; }
-    #delma-panel .comp-writing { color: #c96442; }
-    #delma-panel .comp-done { color: #2d7d32; }
-    #delma-panel .response-text { color: #1a1a1a; }
-
-    /* ── Input area — spans both columns ─────── */
-    #input-area {
-      flex-shrink: 0;
-      padding: 10px 16px 16px;
-      background: #f7f4ef;
-      border-top: 1px solid #e5e7eb;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-
-    #suggestion {
-      font-size: 12px;
-      color: #9b8b73;
-      opacity: 0;
-      transition: opacity 0.8s;
-      cursor: pointer;
-      pointer-events: none;
-      padding: 0 6px;
-    }
-    #suggestion:hover { color: #6b5a48; }
-
-    #summary {
-      font-size: 11px;
-      color: #9b8b73;
-      opacity: 0;
-      transition: opacity 0.8s;
-      padding: 0 6px;
-      letter-spacing: 0.03em;
-    }
-
-    #input-bar {
-      display: flex;
-      align-items: flex-end;
-      width: 100%;
-      background: #ffffff;
-      border: 1px solid #d8d1c6;
-      border-radius: 16px;
-      padding: 8px 8px 8px 18px;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-      transition: border-color 0.15s, box-shadow 0.15s;
-    }
-    #input-bar:focus-within {
-      border-color: #b8a99a;
-      box-shadow: 0 1px 8px rgba(0,0,0,0.10);
-    }
-
-    #input {
-      flex: 1;
-      border: none;
-      outline: none;
-      font-size: 14px;
+    /* ── SDK messages ────────────────────────────── */
+    .sdk-message {
+      padding: 8px 0;
+      font-size: 13px;
       line-height: 1.55;
-      color: #1a1a1a;
-      background: transparent;
-      font-family: inherit;
-      min-width: 0;
-      resize: none;
-      overflow-y: hidden;
-      min-height: 24px;
-      max-height: 120px;
-      padding: 3px 0;
+      font-family: 'Courier New', Courier, monospace;
+      white-space: pre-wrap;
+      word-break: break-word;
     }
+    .sdk-user {
+      color: #a0c4ff;
+      padding: 6px 12px;
+      background: rgba(160, 196, 255, 0.08);
+      border-radius: 8px;
+      margin: 4px 0;
+    }
+    .sdk-assistant { color: #e0e0e0; }
+    .sdk-tool { color: #ffd700; font-size: 11px; opacity: 0.7; }
+    .sdk-tool-result { color: #888; font-size: 11px; opacity: 0.5; }
+    .sdk-error { color: #ff6b6b; }
+    .sdk-status { color: #6b6b8a; font-style: italic; }
+    .sdk-raw { color: #b0b0b0; }
 
-    #input::placeholder { color: #b8a99a; }
-    #input:disabled     { color: #c4b99a; }
+    /* ── Comparison panel (light) ─────────────────── */
+    #comp-panel { background: #ffffff; }
 
-    /* ── Conversation turns ─────────────────────── */
     .turn {
       display: flex;
       flex-direction: column;
@@ -451,7 +289,7 @@
 
     .user-msg {
       align-self: flex-end;
-      background: #e9e3d8;
+      background: #f3f4f6;
       color: #1a1a1a;
       font-size: 13px;
       line-height: 1.55;
@@ -470,11 +308,101 @@
       word-break: break-word;
     }
 
+    /* ── Project dir + connect ────────────────────── */
+    .project-bar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    #project-dir {
+      flex: 1;
+      font-size: 11px;
+      font-family: 'Courier New', Courier, monospace;
+      color: #e0e0e0;
+      background: #2a2a3e;
+      border: 1px solid #3a3a5e;
+      border-radius: 6px;
+      padding: 5px 10px;
+      outline: none;
+    }
+    #project-dir::placeholder { color: #4a4a6a; }
+
+    #connect-btn {
+      font-size: 11px;
+      font-family: inherit;
+      color: #e0e0e0;
+      background: #3a5a8a;
+      border: none;
+      border-radius: 6px;
+      padding: 5px 14px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    #connect-btn:hover { background: #4a6a9a; }
+
+    /* ── Input area ──────────────────────────────── */
+    #input-area {
+      flex-shrink: 0;
+      padding: 10px 16px 16px;
+      background: #1a1a2e;
+      border-top: 1px solid #2a2a3e;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    #suggestion {
+      font-size: 12px;
+      color: #6b6b8a;
+      opacity: 0;
+      transition: opacity 0.8s;
+      cursor: pointer;
+      pointer-events: none;
+      padding: 0 6px;
+    }
+    #suggestion:hover { color: #8b8baa; }
+
+    #input-bar {
+      display: flex;
+      align-items: flex-end;
+      width: 100%;
+      background: #2a2a3e;
+      border: 1px solid #3a3a5e;
+      border-radius: 16px;
+      padding: 8px 8px 8px 18px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+      transition: border-color 0.15s;
+    }
+    #input-bar:focus-within {
+      border-color: #4a6a9a;
+    }
+
+    #input {
+      flex: 1;
+      border: none;
+      outline: none;
+      font-size: 14px;
+      line-height: 1.55;
+      color: #e0e0e0;
+      background: transparent;
+      font-family: inherit;
+      min-width: 0;
+      resize: none;
+      overflow-y: hidden;
+      min-height: 24px;
+      max-height: 120px;
+      padding: 3px 0;
+    }
+
+    #input::placeholder { color: #4a4a6a; }
+    #input:disabled     { color: #3a3a5e; }
+
     #send-btn {
       flex-shrink: 0;
       width: 34px; height: 34px;
       border-radius: 50%;
-      background: #1a1a1a;
+      background: #3a5a8a;
       border: none;
       cursor: pointer;
       display: flex;
@@ -485,47 +413,8 @@
       transition: background 0.15s, transform 0.1s;
       margin-left: 6px;
     }
-    #send-btn:hover:not(:disabled) { background: #333333; transform: scale(1.06); }
-    #send-btn:disabled { background: #d8d1c6; cursor: not-allowed; }
-
-    #input-controls { display: flex; flex-direction: column; gap: 8px; }
-
-    #project-settings {
-      display: flex;
-      gap: 16px;
-      padding: 0 6px;
-    }
-
-    .setting-group {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .setting-label {
-      font-size: 11px;
-      color: #9b8b73;
-      letter-spacing: 0.04em;
-    }
-
-    .setting-select {
-      font-size: 11px;
-      font-family: inherit;
-      color: #3d3228;
-      background: #ede8e0;
-      border: 1px solid #d8d1c6;
-      border-radius: 6px;
-      padding: 3px 8px;
-      cursor: pointer;
-      outline: none;
-      appearance: none;
-      -webkit-appearance: none;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%239b8b73' d='M1 1l4 4 4-4'/%3E%3C/svg%3E");
-      background-repeat: no-repeat;
-      background-position: right 6px center;
-      padding-right: 20px;
-    }
-    .setting-select:hover { background-color: #e3ddd4; }
+    #send-btn:hover:not(:disabled) { background: #4a6a9a; transform: scale(1.06); }
+    #send-btn:disabled { background: #2a2a3e; cursor: not-allowed; }
 
     /* ── Compare toggle ──────────────────────────── */
     #compare-toggle {
@@ -534,20 +423,20 @@
       right: 10px;
       font-size: 11px;
       font-family: inherit;
-      color: #9b8b73;
-      background: rgba(247, 244, 239, 0.9);
-      border: 1px solid #d8d1c6;
+      color: #6b6b8a;
+      background: rgba(26, 26, 46, 0.9);
+      border: 1px solid #3a3a5e;
       border-radius: 8px;
       padding: 5px 12px;
       cursor: pointer;
       z-index: 20;
       transition: background 0.15s;
     }
-    #compare-toggle:hover { background: #ede8e0; }
+    #compare-toggle:hover { background: #2a2a3e; }
 
-    body.compare-off #claude-panel,
+    body.compare-off #comp-panel,
     body.compare-off #analysis-panel { display: none; }
-    body.compare-off #delma-panel { flex: 1; }
+    body.compare-off #sdk-panel { flex: 1; }
   </style>
 </head>
 <body>
@@ -563,75 +452,54 @@
     <button id="compare-toggle">Compare: ON</button>
     <div id="panels-row">
 
-      <!-- Left panel: Delma AI output + input -->
-      <div id="delma-panel" class="output-panel">
+      <!-- Center panel: Agent SDK chat -->
+      <div id="sdk-panel" class="output-panel">
         <div class="panel-header">
           <div class="panel-header-text">
-            <div class="panel-title">Delma AI</div>
-            <div class="panel-subtitle">Team deliverable · Chain log</div>
+            <div class="panel-title">Agent SDK</div>
+            <div class="panel-subtitle">Claude Code with Delma memory</div>
+          </div>
+          <div class="project-bar">
+            <input id="project-dir" type="text" placeholder="/path/to/project" />
+            <button id="connect-btn">Connect</button>
           </div>
         </div>
-        <div id="delma-status" class="panel-status">Waiting for input...</div>
-        <div id="delma-body" class="panel-body"></div>
+        <div id="sdk-status" class="panel-status">Not connected</div>
+        <div id="sdk-body" class="panel-body"></div>
         <div class="panel-footer">
-          <span id="delma-time" class="panel-time"></span>
-          <span class="panel-label">Multi-agent</span>
+          <span id="sdk-time" class="panel-time"></span>
+          <span class="panel-label">Memory-augmented</span>
         </div>
       </div>
 
-      <!-- Right panel: Direct model output -->
-      <div id="claude-panel" class="output-panel">
+      <!-- Right panel: Vanilla Claude (no memory) -->
+      <div id="comp-panel" class="output-panel">
         <div class="panel-header">
           <div class="panel-header-text">
-            <div class="panel-title">Direct Model</div>
-            <div class="panel-subtitle">Single model call</div>
+            <div class="panel-title">Claude</div>
+            <div class="panel-subtitle">No memory context</div>
           </div>
-          <select id="model-select" class="model-select">
-            <option value="claude-sonnet-4-20250514">Claude Sonnet</option>
-            <option value="gpt-4o">GPT-4o</option>
-          </select>
         </div>
-        <div id="claude-status" class="panel-status">Waiting for input...</div>
-        <div id="claude-body" class="panel-body"></div>
+        <div id="comp-status" class="panel-status">Waiting...</div>
+        <div id="comp-body" class="panel-body"></div>
         <div class="panel-footer">
-          <span id="claude-time" class="panel-time"></span>
-          <span id="direct-model-label" class="panel-label">Claude Sonnet</span>
+          <span class="panel-time"></span>
+          <span class="panel-label">Vanilla</span>
         </div>
       </div>
 
     </div>
 
-    <!-- Input area: spans both columns -->
+    <!-- Input area -->
     <div id="input-area">
-      <div id="suggestion">Try: Compare email marketing platforms for a mid-size e-commerce brand</div>
-      <div id="summary"></div>
-      <div id="input-controls">
-        <div id="project-settings">
-          <div class="setting-group">
-            <span class="setting-label">Speed</span>
-            <select id="speed-select" class="setting-select">
-              <option value="fast">Fast</option>
-              <option value="balanced" selected>Balanced</option>
-              <option value="thorough">Thorough</option>
-            </select>
-          </div>
-          <div class="setting-group">
-            <span class="setting-label">Budget</span>
-            <select id="budget-select" class="setting-select">
-              <option value="budget">Budget</option>
-              <option value="standard" selected>Standard</option>
-              <option value="premium">Premium</option>
-            </select>
-          </div>
-        </div>
-        <div id="input-bar">
-          <textarea id="input" rows="1" placeholder="Ask anything..." autocomplete="off" spellcheck="false"></textarea>
-          <button id="send-btn">&#8594;</button>
-        </div>
+      <div id="suggestion">Connect to a project directory to start a session</div>
+      <div id="input-bar">
+        <textarea id="input" rows="1" placeholder="Connect to start..." autocomplete="off" spellcheck="false" disabled></textarea>
+        <button id="send-btn" disabled>&#8594;</button>
       </div>
     </div>
 
-    <!-- Analysis: spans both columns -->
+    <!-- Analysis -->
     <div id="analysis-panel">
       <div id="analysis-header">
         <span id="analysis-title">Analysis</span>

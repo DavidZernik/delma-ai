@@ -32,7 +32,7 @@ export function initScene() {
   document.getElementById('canvas-container').appendChild(css2dRenderer.domElement)
 
   // ── Lighting ─────────────────────────────────────
-  const ambientLight = new THREE.AmbientLight(0xFFF5E8, 0.70)
+  const ambientLight = new THREE.AmbientLight(0xFFF5E8, 0.80)
   scene.add(ambientLight)
 
   // Ceiling simulation — warm overhead
@@ -49,7 +49,7 @@ export function initScene() {
   scene.add(mainLight)
 
   // Fill from camera position — warms faces visible to camera
-  const fillLight = new THREE.DirectionalLight(0xFFEAD0, 0.30)
+  const fillLight = new THREE.DirectionalLight(0xFFEAD0, 0.40)
   fillLight.position.set(-4, 5, 1)
   fillLight.target.position.set(0, 1, -8)
   scene.add(fillLight)
@@ -110,8 +110,8 @@ function buildRoom(scene) {
   frontWall.rotation.y = Math.PI
   scene.add(frontWall)
 
-  // Right wall — windows + panels
-  addWindowWall(scene, ROOM_W / 2, ROOM_H, ROOM_D)
+  // Right wall — full glass conference wall + office behind
+  addGlassWall(scene, ROOM_W / 2, ROOM_H, ROOM_D)
 
   // ── Wainscoting — lower wall panels for richness ─
   addWainscoting(scene, ROOM_W, ROOM_H, ROOM_D)
@@ -121,34 +121,31 @@ function buildRoom(scene) {
 
   // ── Pendant lights ───────────────────────────────
   addPendant(scene,  0,    ROOM_H, -3.5)   // Over Sarah
-  addPendant(scene, -0.6,  ROOM_H, -9)     // Over James
-  addPendant(scene,  1.0,  ROOM_H, -9)     // Over Marcus
-  addPendant(scene,  0.2,  ROOM_H, -12)    // Over Priya
+  addPendant(scene, -1.5,  ROOM_H, -9)     // Over James
+  addPendant(scene,  1.8,  ROOM_H, -9)     // Over Marcus
+  addPendant(scene,  0.2,  ROOM_H, -14)    // Over Priya
   addPendant(scene,  0,    ROOM_H, -6)     // Aisle fill
   addPendant(scene,  0,    ROOM_H, -16)    // Back fill
 
   // ── Furniture ────────────────────────────────────
   const screens = {
     delma:  addDesk(scene,  0,    -3.5,  2.4, true,  false),
-    james:  addDesk(scene, -0.6,  -9,    1.4, false, false),
-    marcus: addDesk(scene,  1.0,  -9,    1.4, false, false),
-    sarah:  addDesk(scene,  0.2,  -12,   1.4, false, true)
+    james:  addDesk(scene, -1.5,  -9,    1.4, false, false),
+    marcus: addDesk(scene,  1.8,  -9,    1.4, false, false),
+    sarah:  addDesk(scene,  0.2,  -14,   1.4, false, true)
   }
 
   // Chairs
-  addChair(scene, -0.6, -9,   false)  // James
-  addChair(scene,  1.0, -9,   false)  // Marcus
-  addChair(scene,  0.2, -12,  true)   // Priya — reversed chair (on -Z side)
+  addChair(scene, -1.5, -9,   false)  // James
+  addChair(scene,  1.8, -9,   false)  // Marcus
+  addChair(scene,  0.2, -14,  true)   // Priya — reversed chair (on -Z side)
 
   // ── Paintings — Renaissance style ───────────────
   // Left wall — landscape paintings (safe, no windows)
   addPainting(scene, -4.35, 2.5, -4.5,  'left', 'colorfield')
   addPainting(scene, -4.35, 2.5, -10.5, 'left', 'gestural')
   addPainting(scene, -4.35, 2.5, -16.5, 'left', 'geometric')
-  // Right wall — portrait paintings fitted between windows (z=-5,-9,-13,-17)
-  addPainting(scene, 4.35, 2.5, -3.0,  'right', 'colorfield', true)
-  addPainting(scene, 4.35, 2.5, -7.0,  'right', 'gestural',   true)
-  addPainting(scene, 4.35, 2.5, -11.0, 'right', 'geometric',  true)
+  // (right wall is now glass — no paintings)
 
   // ── Whiteboard (left wall, mid-room) ─────────────
   addWhiteboard(scene, -4.3, 2.1, -14)
@@ -156,15 +153,15 @@ function buildRoom(scene) {
   // bookshelf removed
 
   // ── Plants ───────────────────────────────────────
-  addPlant(scene,  3.8,  -1.5, 1.8)
-  addPlant(scene, -4.0,  -1.5, 1.8)
-  addPlant(scene, -4.0,  -14,  1.4)
-  addPlant(scene,  3.8,  -17,  1.4)
+  addPlant(scene,  3.4,  -1.5, 2.4)
+  addPlant(scene, -4.0,  -1.5, 2.4)
+  addPlant(scene, -4.0,  -14,  2.0)
+  addPlant(scene,  3.4,  -17,  2.0)
 
   // divider removed
 
   // ── Area rug ─────────────────────────────────────
-  addRug(scene, 0.2, -10.5, 6.5, 9.5)
+  addRug(scene, 0.2, -11, 7.5, 11)
   return screens
 }
 
@@ -178,46 +175,164 @@ function addWall(scene, geo, x, y, z, ry) {
   scene.add(mesh)
 }
 
-function addWindowWall(scene, wallX, roomH, roomD) {
-  const wallMat  = new THREE.MeshLambertMaterial({ color: 0xF8F7F5 })
+function addGlassWall(scene, wallX, roomH, roomD) {
   const glassMat = new THREE.MeshLambertMaterial({
-    color: 0xC4D8E8, transparent: true, opacity: 0.32,
-    emissive: 0x88AACC, emissiveIntensity: 0.35
+    color: 0xD0E0EC, transparent: true, opacity: 0.18,
+    emissive: 0x90B0CC, emissiveIntensity: 0.15
   })
-  const frameMat = new THREE.MeshLambertMaterial({ color: 0xF4F0E8 })
+  const frameMat = new THREE.MeshLambertMaterial({ color: 0x888888 })
+  const kickMat  = new THREE.MeshLambertMaterial({ color: 0xE8E6E2 })
 
-  const windowPositions = [-5, -9, -13, -17]
-  const windowH = 2.3, windowW = 1.9
+  // Full glass panel
+  const glassH = roomH - 0.6  // glass starts above a kick plate
+  const glass = new THREE.Mesh(new THREE.PlaneGeometry(roomD, glassH), glassMat)
+  glass.rotation.y = -Math.PI / 2
+  glass.position.set(wallX - 0.02, 0.6 + glassH / 2, -roomD / 2)
+  scene.add(glass)
 
-  const fullWall = new THREE.Mesh(new THREE.PlaneGeometry(roomD, roomH), wallMat)
-  fullWall.rotation.y = -Math.PI / 2
-  fullWall.position.set(wallX, roomH / 2, -roomD / 2)
-  scene.add(fullWall)
+  // Kick plate at bottom
+  const kick = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.6, roomD), kickMat)
+  kick.position.set(wallX, 0.3, -roomD / 2)
+  scene.add(kick)
 
-  for (const wz of windowPositions) {
-    const frameOuter = new THREE.Mesh(
-      new THREE.BoxGeometry(0.08, windowH + 0.14, windowW + 0.14), frameMat
-    )
-    frameOuter.position.set(wallX - 0.04, 1.8 + windowH / 2, wz)
-    scene.add(frameOuter)
+  // Vertical mullions — thin dark metal
+  const mullionPositions = [0, -4, -8, -12, -16, -roomD]
+  for (const mz of mullionPositions) {
+    const mullion = new THREE.Mesh(new THREE.BoxGeometry(0.05, roomH, 0.04), frameMat)
+    mullion.position.set(wallX, roomH / 2, mz)
+    scene.add(mullion)
+  }
 
-    const glass = new THREE.Mesh(new THREE.PlaneGeometry(windowW, windowH), glassMat)
-    glass.rotation.y = -Math.PI / 2
-    glass.position.set(wallX - 0.02, 1.8 + windowH / 2, wz)
-    scene.add(glass)
+  // Top rail
+  const topRail = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.05, roomD), frameMat)
+  topRail.position.set(wallX, roomH - 0.025, -roomD / 2)
+  scene.add(topRail)
 
-    // Window cross bars
-    const barMat = new THREE.MeshLambertMaterial({ color: 0xF0ECE4 })
-    const hBar = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.04, windowW), barMat)
-    hBar.position.set(wallX - 0.01, 1.8 + windowH / 2, wz)
-    scene.add(hBar)
-    const vBar = new THREE.Mesh(new THREE.BoxGeometry(0.06, windowH, 0.04), barMat)
-    vBar.position.set(wallX - 0.01, 1.8 + windowH / 2, wz)
-    scene.add(vBar)
+  // Horizontal mid-rail
+  const midRail = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.03, roomD), frameMat)
+  midRail.position.set(wallX, 0.6, -roomD / 2)
+  scene.add(midRail)
 
-    const winLight = new THREE.PointLight(0xFFF5E0, 0.5, 9)
-    winLight.position.set(wallX - 1.2, 2.6, wz)
-    scene.add(winLight)
+  // Soft light from the office space beyond
+  const officeLight = new THREE.PointLight(0xFFF8F0, 0.8, 14)
+  officeLight.position.set(wallX + 3, 3.5, -roomD / 2)
+  scene.add(officeLight)
+
+  // ── Office space behind glass ──────────────────
+  addOfficeBeyondGlass(scene, wallX, roomH, roomD)
+}
+
+function addOfficeBeyondGlass(scene, wallX, roomH, roomD) {
+  const offX = wallX + 0.5  // just beyond the glass
+
+  // Office floor
+  const floorMat = new THREE.MeshLambertMaterial({ color: 0x9A8060 })
+  const offFloor = new THREE.Mesh(new THREE.PlaneGeometry(8, roomD), floorMat)
+  offFloor.rotation.x = -Math.PI / 2
+  offFloor.position.set(wallX + 4, 0.001, -roomD / 2)
+  scene.add(offFloor)
+
+  // Office ceiling
+  const ceilMat = new THREE.MeshLambertMaterial({ color: 0xDDD8D0 })
+  const offCeil = new THREE.Mesh(new THREE.PlaneGeometry(8, roomD), ceilMat)
+  offCeil.rotation.x = Math.PI / 2
+  offCeil.position.set(wallX + 4, roomH, -roomD / 2)
+  scene.add(offCeil)
+
+  // Far wall — clearly tinted so it reads through glass
+  const farWallMat = new THREE.MeshLambertMaterial({ color: 0xC8C0B4 })
+  const farWall = new THREE.Mesh(new THREE.PlaneGeometry(roomD, roomH), farWallMat)
+  farWall.rotation.y = Math.PI / 2
+  farWall.position.set(wallX + 8, roomH / 2, -roomD / 2)
+  scene.add(farWall)
+
+  // Office ambient light
+  const ambLight = new THREE.PointLight(0xFFF5E8, 0.5, 12)
+  ambLight.position.set(wallX + 4, 4, -10)
+  scene.add(ambLight)
+
+  // ── Big paintings on far office wall ───────────
+  const farWallX = wallX + 7.96
+  addFarWallPainting(scene, farWallX, 2.5, -4,  'colorfield')
+  addFarWallPainting(scene, farWallX, 2.5, -10, 'gestural')
+  addFarWallPainting(scene, farWallX, 2.5, -16, 'geometric')
+
+  // ── Static office workers at desks ─────────────
+  const workerDefs = [
+    { x: offX + 2.0, z: -3,   rot: Math.PI / 2,  skin: 0xC68642, shirt: 0x3A5A8A, pants: 0x2A2A30 },
+    { x: offX + 3.5, z: -6,   rot: -Math.PI / 2, skin: 0xDBA07A, shirt: 0x6B4A5A, pants: 0x1E1E28 },
+    { x: offX + 2.0, z: -10,  rot: Math.PI / 2,  skin: 0xBF8060, shirt: 0x2D5A3D, pants: 0x20201A },
+    { x: offX + 3.5, z: -13,  rot: -Math.PI / 2, skin: 0xD4956A, shirt: 0x4A4A6A, pants: 0x2A2A30 },
+    { x: offX + 2.0, z: -16,  rot: Math.PI / 2,  skin: 0xC68642, shirt: 0x5A3A2A, pants: 0x1A1A22 },
+    { x: offX + 3.5, z: -18,  rot: -Math.PI / 2, skin: 0xBF8060, shirt: 0x3A5A5A, pants: 0x22222A },
+  ]
+
+  const deskMat    = new THREE.MeshLambertMaterial({ color: 0xD0C4B0 })
+  const deskLegMat = new THREE.MeshLambertMaterial({ color: 0xA0A0A0 })
+  const monMat     = new THREE.MeshLambertMaterial({ color: 0x1A1A1A })
+  const screenMat  = new THREE.MeshLambertMaterial({ color: 0x1E3050, emissive: 0x0A1835, emissiveIntensity: 0.8 })
+  const chairMat   = new THREE.MeshLambertMaterial({ color: 0x2A2A2A })
+
+  for (const w of workerDefs) {
+    const skinMat  = new THREE.MeshLambertMaterial({ color: w.skin })
+    const shirtMat = new THREE.MeshLambertMaterial({ color: w.shirt })
+    const pantsMat = new THREE.MeshLambertMaterial({ color: w.pants })
+
+    // Simple desk — modern/minimal
+    const dTop = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.04, 0.6), deskMat)
+    dTop.position.set(w.x, 0.78, w.z); scene.add(dTop)
+    // Desk legs — thin metal
+    for (const [lx, lz] of [[-0.55, -0.25], [-0.55, 0.25], [0.55, -0.25], [0.55, 0.25]]) {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.78, 6), deskLegMat)
+      leg.position.set(w.x + lx, 0.39, w.z + lz); scene.add(leg)
+    }
+
+    // Monitor
+    const monZ = w.rot > 0 ? w.z - 0.18 : w.z + 0.18
+    const mon = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.28, 0.02), monMat)
+    mon.position.set(w.x, 1.05, monZ); scene.add(mon)
+    const scr = new THREE.Mesh(new THREE.PlaneGeometry(0.36, 0.24), screenMat)
+    scr.position.set(w.x, 1.05, w.rot > 0 ? monZ + 0.012 : monZ - 0.012)
+    scr.rotation.y = w.rot > 0 ? 0 : Math.PI
+    scene.add(scr)
+
+    // Office chair (simple)
+    const chairZ = w.rot > 0 ? w.z + 0.30 : w.z - 0.30
+    const seat = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.06, 10), chairMat)
+    seat.position.set(w.x, 0.50, chairZ); scene.add(seat)
+    const chairBack = new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.38, 0.04), chairMat)
+    chairBack.position.set(w.x, 0.74, w.rot > 0 ? chairZ + 0.18 : chairZ - 0.18)
+    scene.add(chairBack)
+
+    // Static seated person — simplified figure
+    const personZ = chairZ
+
+    // Torso (seated)
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.42, 0.24), shirtMat)
+    torso.position.set(w.x, 0.75, personZ); scene.add(torso)
+
+    // Head
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 6), skinMat)
+    head.position.set(w.x, 1.10, personZ); scene.add(head)
+
+    // Arms resting on desk
+    const armY = 0.80
+    for (const side of [-1, 1]) {
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 0.28), shirtMat)
+      arm.position.set(w.x + side * 0.22, armY, w.rot > 0 ? personZ - 0.16 : personZ + 0.16)
+      scene.add(arm)
+      // Hand
+      const hand = new THREE.Mesh(new THREE.SphereGeometry(0.045, 6, 4), skinMat)
+      hand.position.set(w.x + side * 0.22, armY, w.rot > 0 ? personZ - 0.32 : personZ + 0.32)
+      scene.add(hand)
+    }
+
+    // Legs (under desk)
+    for (const side of [-1, 1]) {
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.48, 0.14), pantsMat)
+      leg.position.set(w.x + side * 0.10, 0.28, personZ)
+      scene.add(leg)
+    }
   }
 }
 
@@ -239,7 +354,8 @@ function addCornice(scene, w, h, d) {
 function addPendant(scene, x, ceilY, z) {
   const cordMat  = new THREE.MeshLambertMaterial({ color: 0x222018 })
   const shadeMat = new THREE.MeshLambertMaterial({ color: 0x2E2C26, side: THREE.BackSide })
-  const bulbMat  = new THREE.MeshLambertMaterial({ color: 0xFFEEAA, emissive: 0xFFEEAA, emissiveIntensity: 3.0 })
+  const shadeInnerMat = new THREE.MeshLambertMaterial({ color: 0xFFE8B0, emissive: 0xFFD080, emissiveIntensity: 0.6 })
+  const bulbMat  = new THREE.MeshLambertMaterial({ color: 0xFFEEAA, emissive: 0xFFEEAA, emissiveIntensity: 4.0 })
 
   const y = ceilY - 0.05
   const cord = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, 0.65, 6), cordMat)
@@ -248,15 +364,24 @@ function addPendant(scene, x, ceilY, z) {
   const shade = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.06, 0.20, 16), shadeMat)
   shade.position.set(x, y - 0.76, z); scene.add(shade)
 
+  // Inner shade surface catches light warmly
+  const shadeInner = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.055, 0.19, 16), shadeInnerMat)
+  shadeInner.position.set(x, y - 0.76, z); scene.add(shadeInner)
+
   const rim = new THREE.Mesh(new THREE.TorusGeometry(0.215, 0.010, 8, 24),
-    new THREE.MeshLambertMaterial({ color: 0x444440 }))
+    new THREE.MeshLambertMaterial({ color: 0x8A7A60 }))
   rim.rotation.x = Math.PI / 2; rim.position.set(x, y - 0.67, z); scene.add(rim)
 
-  const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.040, 8, 6), bulbMat)
+  const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), bulbMat)
   bulb.position.set(x, y - 0.76, z); scene.add(bulb)
 
-  const light = new THREE.PointLight(0xFFD890, 2.2, 9)
+  // Main downward pool of light
+  const light = new THREE.PointLight(0xFFD890, 3.5, 12)
   light.position.set(x, y - 0.84, z); scene.add(light)
+
+  // Subtle upward spill above the shade
+  const spill = new THREE.PointLight(0xFFE0A0, 0.6, 5)
+  spill.position.set(x, y - 0.60, z); scene.add(spill)
 }
 
 function addDesk(scene, x, z, width, isReception, reversed) {
@@ -400,6 +525,26 @@ function addPainting(scene, x, y, z, wall, style, portrait = false) {
 
   const picGlow = new THREE.PointLight(0xFFF8F0, 0.35, 2.5)
   picGlow.position.set(x + sign * 0.8, y + paintH / 2 + 0.1, z); scene.add(picGlow)
+}
+
+function addFarWallPainting(scene, x, y, z, style) {
+  const paintW = 2.8, paintH = 1.8
+  const fw = paintW + 0.09, fh = paintH + 0.09
+
+  const texFn = { colorfield: makeColorField, geometric: makeGeometric, gestural: makeGestural }
+  const tex = (texFn[style] || makeColorField)(paintW, paintH)
+  const canvasMat = new THREE.MeshLambertMaterial({ map: tex })
+
+  const frameMat = new THREE.MeshLambertMaterial({ color: 0x181818 })
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(0.04, fh, fw), frameMat)
+  frame.position.set(x, y, z); scene.add(frame)
+
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(paintW, paintH), canvasMat)
+  mesh.rotation.y = Math.PI / 2  // faces -X toward the glass
+  mesh.position.set(x - 0.04, y, z); scene.add(mesh)
+
+  const picGlow = new THREE.PointLight(0xFFF8F0, 0.3, 3)
+  picGlow.position.set(x - 0.8, y + paintH / 2 + 0.1, z); scene.add(picGlow)
 }
 
 function _paintCanvas(w, h, res = 512) {
@@ -980,9 +1125,9 @@ function addBackWindow(scene, roomW, roomH, roomD) {
   const depth = 0.30
 
   // Window shifted to right side of back wall
-  const winW = 2.4, winH = 1.55
-  const winCX = 2.2   // right of center
-  const winBottom = 1.5, winTop = winBottom + winH
+  const winW = 3.4, winH = 2.6
+  const winCX = 2.0   // right of center
+  const winBottom = 1.2, winTop = winBottom + winH
   const winCY = winBottom + winH / 2
 
   // ── Back wall face (4 panels around opening) ──
@@ -1205,46 +1350,75 @@ function drawCityNight() {
 // ── Rug canvas texture ─────────────────────────────────────────────────────
 
 function makeRugTexture() {
-  const W = 512, H = 512
+  const W = 1024, H = 1024
   const canvas = document.createElement('canvas')
   canvas.width = W; canvas.height = H
   const ctx = canvas.getContext('2d')
 
-  // Main field
-  ctx.fillStyle = '#1E2A3A'; ctx.fillRect(0, 0, W, H)
+  // Base — deep charcoal with subtle warm undertone
+  const baseBg = ctx.createLinearGradient(0, 0, W, H)
+  baseBg.addColorStop(0, '#1A1A1E')
+  baseBg.addColorStop(0.5, '#22222A')
+  baseBg.addColorStop(1, '#1A1A1E')
+  ctx.fillStyle = baseBg; ctx.fillRect(0, 0, W, H)
 
-  // Outer dark border
-  const b = 28
-  ctx.fillStyle = '#121820'
-  ctx.fillRect(0, 0, W, b); ctx.fillRect(0, H - b, W, b)
-  ctx.fillRect(0, 0, b, H); ctx.fillRect(W - b, 0, b, H)
-
-  // Gold stripe
-  const gs = 9
-  ctx.fillStyle = '#9A8048'
-  ctx.fillRect(b, b, W - 2 * b, gs); ctx.fillRect(b, H - b - gs, W - 2 * b, gs)
-  ctx.fillRect(b, b, gs, H - 2 * b); ctx.fillRect(W - b - gs, b, gs, H - 2 * b)
-
-  // Inner thin stripe
-  const b2 = b + gs + 12, ts = 4
-  ctx.fillStyle = '#6A5428'
-  ctx.fillRect(b2, b2, W - 2 * b2, ts); ctx.fillRect(b2, H - b2 - ts, W - 2 * b2, ts)
-  ctx.fillRect(b2, b2, ts, H - 2 * b2); ctx.fillRect(W - b2 - ts, b2, ts, H - 2 * b2)
-
-  // Corner accents
-  ctx.fillStyle = '#C8A040'
-  const cs = 18
-  for (const [cx, cy] of [[b, b], [W - b - cs, b], [b, H - b - cs], [W - b - cs, H - b - cs]]) {
-    ctx.fillRect(cx, cy, cs, cs)
+  // Subtle noise texture
+  for (let i = 0; i < 6000; i++) {
+    const nx = Math.random() * W, ny = Math.random() * H
+    ctx.fillStyle = `rgba(255,255,255,${Math.random() * 0.025})`
+    ctx.fillRect(nx, ny, 1, 1)
   }
 
-  // Small center motif
-  const mx = W / 2, my = H / 2, mr = 28
-  ctx.strokeStyle = '#7A6030'; ctx.lineWidth = 2
-  ctx.beginPath(); ctx.arc(mx, my, mr, 0, Math.PI * 2); ctx.stroke()
-  ctx.beginPath(); ctx.arc(mx, my, mr * 0.6, 0, Math.PI * 2); ctx.stroke()
-  ctx.fillStyle = '#9A8048'
-  ctx.beginPath(); ctx.arc(mx, my, 5, 0, Math.PI * 2); ctx.fill()
+  // Thin border — barely-there warm taupe
+  const b = 16
+  ctx.strokeStyle = 'rgba(180,160,130,0.25)'; ctx.lineWidth = 1.5
+  ctx.strokeRect(b, b, W - 2 * b, H - 2 * b)
+
+  // Inner fine border
+  ctx.strokeStyle = 'rgba(180,160,130,0.12)'; ctx.lineWidth = 0.8
+  ctx.strokeRect(b + 10, b + 10, W - 2 * (b + 10), H - 2 * (b + 10))
+
+  // Geometric pattern — overlapping translucent arcs (modern/minimal)
+  ctx.globalCompositeOperation = 'lighter'
+
+  // Large off-center circles
+  const circles = [
+    { x: W * 0.35, y: H * 0.38, r: 160, color: '140,120,90' },
+    { x: W * 0.65, y: H * 0.55, r: 130, color: '120,130,140' },
+    { x: W * 0.50, y: H * 0.46, r: 100, color: '160,140,110' },
+  ]
+  for (const c of circles) {
+    ctx.strokeStyle = `rgba(${c.color},0.08)`; ctx.lineWidth = 1.5
+    ctx.beginPath(); ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2); ctx.stroke()
+    ctx.strokeStyle = `rgba(${c.color},0.05)`; ctx.lineWidth = 0.8
+    ctx.beginPath(); ctx.arc(c.x, c.y, c.r * 0.75, 0, Math.PI * 2); ctx.stroke()
+  }
+
+  // Diagonal thin lines — asymmetric modernist feel
+  ctx.globalCompositeOperation = 'source-over'
+  const lineColor = 'rgba(180,165,135,0.07)'
+  ctx.strokeStyle = lineColor; ctx.lineWidth = 0.8
+  for (let i = -6; i <= 6; i++) {
+    const offset = i * 80
+    ctx.beginPath()
+    ctx.moveTo(W * 0.3 + offset, b + 30)
+    ctx.lineTo(W * 0.7 + offset, H - b - 30)
+    ctx.stroke()
+  }
+
+  // Subtle horizontal bands at thirds
+  for (const fy of [0.33, 0.66]) {
+    const grad = ctx.createLinearGradient(0, H * fy - 20, 0, H * fy + 20)
+    grad.addColorStop(0, 'rgba(160,145,120,0)')
+    grad.addColorStop(0.5, 'rgba(160,145,120,0.06)')
+    grad.addColorStop(1, 'rgba(160,145,120,0)')
+    ctx.fillStyle = grad
+    ctx.fillRect(b + 20, H * fy - 20, W - 2 * (b + 20), 40)
+  }
+
+  // Small center accent — single clean dot
+  ctx.fillStyle = 'rgba(200,180,140,0.15)'
+  ctx.beginPath(); ctx.arc(W / 2, H / 2, 4, 0, Math.PI * 2); ctx.fill()
 
   return new THREE.CanvasTexture(canvas)
 }

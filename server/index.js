@@ -2,6 +2,11 @@ import express from 'express'
 import { config } from 'dotenv'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
+import { createServer } from 'http'
+import { WebSocketServer } from 'ws'
+import { spawn } from 'child_process'
+import { readdir, readFile, writeFile, mkdir } from 'fs/promises'
+import { existsSync } from 'fs'
 
 config()
 
@@ -9,6 +14,103 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 
 const app = express()
 app.use(express.json({ limit: '2mb' }))
+
+// Track active project directory (set by first websocket connection)
+let projectDir = null
+
+// ── .delma/ memory file endpoints ────────────────────────────────────────────
+
+async function ensureDelmaDir() {
+  if (!projectDir) throw new Error('No project directory set')
+  const dir = join(projectDir, '.delma')
+  if (!existsSync(dir)) await mkdir(dir, { recursive: true })
+  return dir
+}
+
+// List all memory files
+app.get('/api/memory', async (req, res) => {
+  try {
+    const dir = await ensureDelmaDir()
+    const files = await readdir(dir)
+    res.json({ files, projectDir })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// Read a memory file
+app.get('/api/memory/:file', async (req, res) => {
+  try {
+    const dir = await ensureDelmaDir()
+    const filePath = join(dir, req.params.file)
+    if (!existsSync(filePath)) return res.json({ content: '', exists: false })
+    const content = await readFile(filePath, 'utf-8')
+    res.json({ content, exists: true })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// Write a memory file
+app.put('/api/memory/:file', async (req, res) => {
+  try {
+    const dir = await ensureDelmaDir()
+    const filePath = join(dir, req.params.file)
+    await writeFile(filePath, req.body.content, 'utf-8')
+    res.json({ ok: true })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// Compose CLAUDE.md from all memory files and copy to project root
+app.post('/api/memory/compose', async (req, res) => {
+  try {
+    const dir = await ensureDelmaDir()
+    const memoryFiles = ['environment.md', 'logic.md', 'people.md']
+    const sections = []
+
+    for (const file of memoryFiles) {
+      const filePath = join(dir, file)
+      if (existsSync(filePath)) {
+        const content = await readFile(filePath, 'utf-8')
+        if (content.trim()) sections.push(content.trim())
+      }
+    }
+
+    const composed = sections.length
+      ? `# Composed by Delma — do not edit directly, changes will be overwritten\n\n${sections.join('\n\n---\n\n')}\n`
+      : ''
+
+    // Write to .delma/CLAUDE.md (source of truth)
+    await writeFile(join(dir, 'CLAUDE.md'), composed, 'utf-8')
+
+    // Copy to project root for Agent SDK to read
+    if (composed) {
+      await writeFile(join(projectDir, 'CLAUDE.md'), composed, 'utf-8')
+    }
+
+    res.json({ ok: true, length: composed.length })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// Append to session log
+app.post('/api/memory/session-log', async (req, res) => {
+  try {
+    const dir = await ensureDelmaDir()
+    const logPath = join(dir, 'session-log.md')
+    const existing = existsSync(logPath) ? await readFile(logPath, 'utf-8') : ''
+    const entry = `\n## ${new Date().toISOString()}\n${req.body.entry}\n`
+    await writeFile(logPath, existing + entry, 'utf-8')
+    res.json({ ok: true })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+// ── Existing API endpoints ───────────────────────────────────────────────────
 
 app.post('/api/chat', async (req, res) => {
   const { system, user, max_tokens } = req.body
@@ -126,7 +228,6 @@ app.post('/api/chat-stream', async (req, res) => {
       return res.end()
     }
 
-    // Translate OpenAI SSE → Anthropic SSE format so the client stays unchanged
     const reader = upstream.body.getReader()
     const dec = new TextDecoder()
     let buf = ''
@@ -187,7 +288,6 @@ app.post('/api/chat-stream', async (req, res) => {
     return res.end()
   }
 
-  // Pipe Anthropic SSE straight through
   const reader = upstream.body.getReader()
   const dec = new TextDecoder()
   try {
@@ -230,7 +330,6 @@ app.post('/api/search', async (req, res) => {
   }
 
   const data = await response.json()
-  // LLM Context endpoint returns pre-chunked relevance-scored context — pass through directly
   const context = data.query?.context
     || (data.web?.results || []).slice(0, count).map(r => `${r.title}: ${r.description || ''}`).join('\n')
   res.json({ context })
@@ -243,5 +342,81 @@ if (process.env.NODE_ENV === 'production') {
   app.get('*', (req, res) => res.sendFile(join(dist, 'index.html')))
 }
 
+// ── Start server with WebSocket ──────────────────────────────────────────────
+
 const PORT = process.env.PORT || 3001
-app.listen(PORT, () => console.log(`Server on http://localhost:${PORT}`))
+const server = createServer(app)
+
+const wss = new WebSocketServer({ server, path: '/ws/agent-sdk' })
+
+wss.on('connection', (ws, req) => {
+  const url = new URL(req.url, `http://localhost:${PORT}`)
+  const dir = url.searchParams.get('dir')
+
+  if (!dir) {
+    ws.send(JSON.stringify({ type: 'error', content: 'Missing ?dir= parameter' }))
+    ws.close()
+    return
+  }
+
+  projectDir = dir
+  console.log(`[ws] Agent SDK session — project: ${dir}`)
+
+  // Spawn claude CLI in the project directory
+  const claude = spawn('claude', ['--json'], {
+    cwd: dir,
+    env: { ...process.env, TERM: 'dumb' },
+    stdio: ['pipe', 'pipe', 'pipe']
+  })
+
+  let stdoutBuf = ''
+
+  claude.stdout.on('data', (data) => {
+    stdoutBuf += data.toString()
+    // Claude --json outputs one JSON object per line
+    const lines = stdoutBuf.split('\n')
+    stdoutBuf = lines.pop() // keep incomplete line in buffer
+    for (const line of lines) {
+      if (!line.trim()) continue
+      try {
+        const parsed = JSON.parse(line)
+        ws.send(JSON.stringify(parsed))
+      } catch {
+        // Not JSON — send as raw text
+        ws.send(JSON.stringify({ type: 'raw', content: line }))
+      }
+    }
+  })
+
+  claude.stderr.on('data', (data) => {
+    const text = data.toString()
+    console.error(`[claude stderr] ${text}`)
+    ws.send(JSON.stringify({ type: 'error', content: text }))
+  })
+
+  claude.on('close', (code) => {
+    console.log(`[ws] claude process exited with code ${code}`)
+    ws.send(JSON.stringify({ type: 'exit', code }))
+    ws.close()
+  })
+
+  ws.on('message', (msg) => {
+    const text = msg.toString()
+    try {
+      const parsed = JSON.parse(text)
+      if (parsed.type === 'user_message') {
+        claude.stdin.write(parsed.content + '\n')
+      }
+    } catch {
+      // Raw text — send directly to claude stdin
+      claude.stdin.write(text + '\n')
+    }
+  })
+
+  ws.on('close', () => {
+    console.log('[ws] client disconnected')
+    claude.kill()
+  })
+})
+
+server.listen(PORT, () => console.log(`Server on http://localhost:${PORT}`))

@@ -1,7 +1,7 @@
 import { initScene, LEFT_FRAC } from './scene.js'
 import { createCharacters } from './characters.js'
-import { initChain, runChain } from './chain.js'
-import { runComparison } from './comparison.js'
+import { initChain, watchTranscript, runExtraction } from './chain.js'
+import { createAgentSDK } from './agent-sdk.js'
 import { callClaudeRaw } from './api.js'
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────
@@ -14,163 +14,197 @@ const leftEl = document.getElementById('left')
 leftEl.style.width = Math.round(window.innerWidth * LEFT_FRAC) + 'px'
 
 // ── DOM refs ──────────────────────────────────────────────────────────────
-const input       = document.getElementById('input')
-const sendBtn     = document.getElementById('send-btn')
-const suggestion  = document.getElementById('suggestion')
-const summary     = document.getElementById('summary')
-const delmaStatus    = document.getElementById('delma-status')
-const delmaBody      = document.getElementById('delma-body')
-const delmaTime      = document.getElementById('delma-time')
+const input          = document.getElementById('input')
+const sendBtn        = document.getElementById('send-btn')
+const suggestion     = document.getElementById('suggestion')
+const sdkStatus      = document.getElementById('sdk-status')
+const sdkBody        = document.getElementById('sdk-body')
+const sdkTime        = document.getElementById('sdk-time')
+const compStatus     = document.getElementById('comp-status')
+const compBody       = document.getElementById('comp-body')
 const analysisStatus = document.getElementById('analysis-status')
 const analysisBody   = document.getElementById('analysis-body')
+const projectDirInput = document.getElementById('project-dir')
+const connectBtn     = document.getElementById('connect-btn')
 
-let isRunning = false
-let currentDelmaResponseEl = null
+let isExtracting = false
 
-function appendTurn(query) {
-  const turnEl = document.createElement('div')
-  turnEl.className = 'turn'
+// ── Agent SDK client ─────────────────────────────────────────────────────
+const agentSDK = createAgentSDK({
+  onMessage: handleSDKMessage,
+  onStatus: handleSDKStatus,
+  onTranscriptBatch: handleTranscriptBatch
+})
 
-  const userMsgEl = document.createElement('div')
-  userMsgEl.className = 'user-msg'
-  userMsgEl.textContent = query
+function handleSDKMessage(data) {
+  const el = document.createElement('div')
+  el.className = `sdk-message sdk-${data.type || 'raw'}`
 
-  const responseEl = document.createElement('div')
-  responseEl.className = 'response-text'
+  if (data.type === 'user_message') {
+    el.className = 'sdk-message sdk-user'
+    el.textContent = data.content
+  } else if (data.type === 'assistant' || data.type === 'assistant_message') {
+    el.className = 'sdk-message sdk-assistant'
+    el.textContent = data.content || JSON.stringify(data)
+  } else if (data.type === 'tool_use') {
+    el.className = 'sdk-message sdk-tool'
+    el.textContent = `⚡ ${data.name || data.tool}: ${JSON.stringify(data.input || '').slice(0, 100)}...`
+  } else if (data.type === 'tool_result') {
+    el.className = 'sdk-message sdk-tool-result'
+    el.textContent = JSON.stringify(data.content || data.output || '').slice(0, 200)
+  } else if (data.type === 'error') {
+    el.className = 'sdk-message sdk-error'
+    el.textContent = `Error: ${data.content}`
+  } else if (data.type === 'exit') {
+    el.className = 'sdk-message sdk-status'
+    el.textContent = `Session ended (code ${data.code})`
+  } else {
+    el.textContent = JSON.stringify(data).slice(0, 300)
+  }
 
-  turnEl.appendChild(userMsgEl)
-  turnEl.appendChild(responseEl)
-  delmaBody.appendChild(turnEl)
-  delmaBody.scrollTop = delmaBody.scrollHeight
-
-  currentDelmaResponseEl = responseEl
-  return responseEl
+  sdkBody.appendChild(el)
+  sdkBody.scrollTop = sdkBody.scrollHeight
 }
 
-// ── Submit ────────────────────────────────────────────────────────────────
+function handleSDKStatus(status) {
+  const labels = {
+    connecting: 'Connecting...',
+    connected: 'Connected',
+    disconnected: 'Disconnected',
+    error: 'Connection error'
+  }
+  sdkStatus.textContent = labels[status] || status
+
+  if (status === 'connected') {
+    input.disabled = false
+    input.placeholder = 'Ask Claude...'
+    sendBtn.disabled = false
+    connectBtn.textContent = 'Disconnect'
+  } else if (status === 'disconnected') {
+    input.disabled = false
+    input.placeholder = 'Connect to start...'
+    connectBtn.textContent = 'Connect'
+  }
+}
+
+async function handleTranscriptBatch(batch) {
+  if (isExtracting) return // don't overlap extraction chains
+  if (!batch.trim()) return
+
+  console.log('[main] transcript batch ready:', batch.length, 'chars')
+
+  // Step 1: Watcher scores the batch
+  const watchResult = await watchTranscript(batch, characters)
+
+  if (watchResult.score < 0.3) {
+    console.log('[main] watcher: noise, skipping')
+    return
+  }
+
+  // Step 2: Load existing memory
+  const existingMemory = await loadMemory()
+
+  // Step 3: Run full extraction chain
+  isExtracting = true
+  try {
+    const result = await runExtraction(batch, existingMemory, characters)
+    console.log('[main] extraction complete:', result.updates.length, 'files updated')
+  } catch (err) {
+    console.error('[main] extraction failed:', err)
+  }
+  isExtracting = false
+}
+
+async function loadMemory() {
+  const files = ['environment.md', 'logic.md', 'people.md']
+  const memory = {}
+  for (const file of files) {
+    try {
+      const res = await fetch(`/api/memory/${file}`)
+      const data = await res.json()
+      memory[file] = data.content || ''
+    } catch {
+      memory[file] = ''
+    }
+  }
+  return memory
+}
+
+// ── Connect/Disconnect ───────────────────────────────────────────────────
+connectBtn.addEventListener('click', () => {
+  if (agentSDK.isConnected()) {
+    agentSDK.disconnect()
+  } else {
+    const dir = projectDirInput.value.trim()
+    if (!dir) {
+      projectDirInput.focus()
+      return
+    }
+    agentSDK.connect(dir)
+  }
+})
+
+// ── Submit to Agent SDK ──────────────────────────────────────────────────
 async function handleSubmit() {
   const query = input.value.trim()
-  if (!query || isRunning) return
+  if (!query) return
 
-  clearTimeout(suggestionTimer)
-  suggestion.style.opacity = '0'
-  suggestion.style.pointerEvents = 'none'
-  summary.style.opacity = '0'
-
-  // Append new turn, reset status
-  appendTurn(query)
-  delmaStatus.textContent = 'Working...'
-  delmaTime.textContent = ''
-
-  // Reset analysis panel
-  analysisStatus.textContent = ''
-  analysisBody.textContent = ''
-
-  isRunning = true
-  input.disabled = true
-  input.placeholder = 'Working on it...'
+  input.value = ''
   input.style.height = 'auto'
-  sendBtn.disabled = true
 
-  const t0 = Date.now()
+  if (!agentSDK.isConnected()) {
+    // If not connected, just show a message
+    const el = document.createElement('div')
+    el.className = 'sdk-message sdk-error'
+    el.textContent = 'Not connected. Set project directory and click Connect.'
+    sdkBody.appendChild(el)
+    return
+  }
+
+  // Show user message in SDK panel
+  const userEl = document.createElement('div')
+  userEl.className = 'sdk-message sdk-user'
+  userEl.textContent = query
+  sdkBody.appendChild(userEl)
+  sdkBody.scrollTop = sdkBody.scrollHeight
+
+  // Send to Agent SDK
+  agentSDK.send(query)
 
   // Fire comparison in parallel (if enabled)
   const compareOn = !document.body.classList.contains('compare-off')
-  const compPromise = compareOn ? runComparison(query) : Promise.resolve()
+  if (compareOn) {
+    runComparison(query)
+  }
+}
+
+// ── Comparison panel (vanilla Claude, no memory) ─────────────────────────
+async function runComparison(query) {
+  compStatus.textContent = 'Thinking...'
+
+  const turnEl = document.createElement('div')
+  turnEl.className = 'turn'
+  const userEl = document.createElement('div')
+  userEl.className = 'user-msg'
+  userEl.textContent = query
+  const respEl = document.createElement('div')
+  respEl.className = 'response-text'
+  turnEl.appendChild(userEl)
+  turnEl.appendChild(respEl)
+  compBody.appendChild(turnEl)
 
   try {
-    const speed = document.getElementById('speed-select').value
-    const budget = document.getElementById('budget-select').value
-    const result = await runChain(query, characters, {
-      onDocument: (content) => renderDeliverable(content),
-      speed,
-      budget
-    })
-
-    // Final render in case onDocument wasn't called or document changed after last call
-    if (result.finalContent) renderDeliverable(result.finalContent)
-    renderLog(result.steps, result.duration)
-
-    const elapsed = ((Date.now() - t0) / 1000).toFixed(1)
-    delmaStatus.innerHTML = '<span class="comp-done">&#10003;</span> Complete'
-    delmaTime.textContent = `${elapsed}s · ${result.steps.length} steps`
-
-    await new Promise(r => setTimeout(r, 2000))
-    summary.textContent =
-      `${result.steps.length} steps · ${result.corrections} corrections · ${result.improvements} improvements · ${result.duration}s`
-    summary.style.opacity = '1'
-
+    const system = 'You are a knowledgeable assistant. Answer directly and specifically.'
+    const result = await callClaudeRaw(system, query)
+    respEl.textContent = result
+    compStatus.textContent = 'Complete'
   } catch (err) {
-    console.error('Chain failed:', err)
-    delmaStatus.textContent = 'Error'
-    const { delma } = characters
-    delma.faceCamera()
-    delma.tickerEl.innerHTML = 'Having trouble completing this task. Please try again.'
-    delma.tickerEl.style.transition = 'opacity 400ms ease'
-    delma.tickerEl.style.opacity = '1'
-    setTimeout(() => { delma.tickerEl.style.opacity = '0' }, 4000)
+    respEl.textContent = 'Error: ' + err.message
+    compStatus.textContent = 'Error'
   }
-
-  isRunning = false
-  input.disabled = false
-  input.placeholder = 'Ask a follow-up...'
-  input.value = ''
-  input.style.height = 'auto'
-  sendBtn.disabled = false
-  input.focus()
-
-  await compPromise
-  if (compareOn) await runAnalysis(query)
 }
 
-// ── Delma panel renderers ─────────────────────────────────────────────────
-function renderDeliverable(content) {
-  if (currentDelmaResponseEl) currentDelmaResponseEl.textContent = content
-  delmaBody.scrollTop = delmaBody.scrollHeight
-}
-
-function renderLog(steps, totalSeconds) {
-  if (!currentDelmaResponseEl) return
-  const divider = '\n\n' + '─'.repeat(36) + '\n  Chain Log\n' + '─'.repeat(36) + '\n\n'
-  let log = divider
-  for (const s of steps) {
-    log += `Step ${s.step}  ${s.from} → ${s.to}  (${s.time})\n`
-    log += `${s.summary}\n\n`
-  }
-  log += `Total: ${totalSeconds}s across ${steps.length} steps`
-  currentDelmaResponseEl.textContent += log
-  delmaBody.scrollTop = delmaBody.scrollHeight
-}
-
-async function runAnalysis(query) {
-  const claudeBody = document.getElementById('claude-body')
-  const lastClaudeResponse = claudeBody.querySelector('.turn:last-child .response-text')
-  const claudeText = lastClaudeResponse?.textContent.trim() || ''
-  const delmaText  = currentDelmaResponseEl?.textContent.trim() || ''
-  if (!claudeText || !delmaText) return
-
-  // Use only the deliverable portion of Delma (before the chain log divider)
-  const dividerIdx = delmaText.indexOf('────')
-  const delmaDeliverable = dividerIdx > 0 ? delmaText.slice(0, dividerIdx).trim() : delmaText
-
-  analysisStatus.textContent = 'Analyzing...'
-  analysisBody.textContent = ''
-
-  const system = `Did the multi-agent team produce better output than the single model? Answer in 2-3 bullet points, each one sentence max. Focus on: which agent decision made the difference, and why. Be blunt. Example format:
-- Delma's briefing caught X, which the single model missed
-- James added/didn't add value because Y
-- Net: team won/lost because Z`
-  const user = `Request: "${query}"\n\nSingle model (one call, no team):\n${claudeText}\n\nDelma team output:\n${delmaDeliverable}`
-
-  try {
-    const analysis = await callClaudeRaw(system, user)
-    analysisBody.textContent = analysis
-  } catch (err) {
-    analysisBody.textContent = 'Analysis unavailable.'
-  }
-  analysisStatus.textContent = ''
-}
-
+// ── Event listeners ──────────────────────────────────────────────────────
 sendBtn.addEventListener('click', handleSubmit)
 input.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit() }
@@ -180,21 +214,6 @@ input.addEventListener('input', () => {
   input.style.height = Math.min(input.scrollHeight, 120) + 'px'
 })
 
-// ── Auto-suggestion ───────────────────────────────────────────────────────
-let suggestionTimer = setTimeout(() => {
-  if (!isRunning && !input.value.trim()) {
-    suggestion.style.opacity = '1'
-    suggestion.style.pointerEvents = 'auto'
-  }
-}, 6000)
-
-suggestion.addEventListener('click', () => {
-  input.value = 'Compare email marketing platforms for a mid-size e-commerce brand'
-  suggestion.style.opacity = '0'
-  suggestion.style.pointerEvents = 'none'
-  handleSubmit()
-})
-
 // ── Compare toggle ───────────────────────────────────────────────────────
 const compareToggle = document.getElementById('compare-toggle')
 compareToggle.addEventListener('click', () => {
@@ -202,6 +221,14 @@ compareToggle.addEventListener('click', () => {
   const on = !document.body.classList.contains('compare-off')
   compareToggle.textContent = `Compare: ${on ? 'ON' : 'OFF'}`
 })
+
+// ── Auto-suggestion ──────────────────────────────────────────────────────
+setTimeout(() => {
+  if (!agentSDK.isConnected() && !input.value.trim()) {
+    suggestion.style.opacity = '1'
+    suggestion.style.pointerEvents = 'auto'
+  }
+}, 6000)
 
 // ── Animation loop ────────────────────────────────────────────────────────
 function animate() {
