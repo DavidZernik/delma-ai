@@ -131,7 +131,15 @@ async function handleTranscriptBatch(batch) {
   isExtracting = true
   try {
     const result = await runExtraction(batch, existingMemory, characters, {
-      projectDir: dir
+      projectDir: dir,
+      onExtractionStep: (agent, text) => {
+        // Show extraction activity in the SDK panel so users see what Delma's team is doing
+        const el = document.createElement('div')
+        el.className = 'sdk-message sdk-extraction'
+        el.textContent = `[${agent}] ${text}`
+        sdkBody.appendChild(el)
+        sdkBody.scrollTop = sdkBody.scrollHeight
+      }
     })
     console.log('[main] extraction complete:', result.updates.length, 'files updated')
   } catch (err) {
@@ -141,7 +149,11 @@ async function handleTranscriptBatch(batch) {
 }
 
 async function loadMemory() {
-  const files = ['environment.md', 'logic.md', 'people.md']
+  const files = [
+    'environment.md', 'logic.md', 'people.md',
+    'session-log.md',
+    'sarah-history.md', 'marcus-history.md', 'james-history.md'
+  ]
   const memory = {}
   for (const file of files) {
     try {

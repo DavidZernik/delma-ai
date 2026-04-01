@@ -318,7 +318,10 @@ wss.on('connection', async (ws, req) => {
     'environment.md': '# Environment\n\nTech stack, dependencies, infrastructure.\n',
     'logic.md': '# Logic\n\nBusiness logic, patterns, architectural decisions.\n',
     'people.md': '# People\n\nTeam, roles, preferences, org context.\n',
-    'session-log.md': '# Session Log\n'
+    'session-log.md': '# Session Log\n',
+    'sarah-history.md': '# Sarah — Extraction History\n',
+    'marcus-history.md': '# Marcus — Extraction History\n',
+    'james-history.md': '# James — Extraction History\n'
   }
   for (const [file, content] of Object.entries(defaultFiles)) {
     const filePath = join(delmaDir, file)
@@ -328,7 +331,26 @@ wss.on('connection', async (ws, req) => {
     }
   }
 
-  // Spawn claude CLI in the project directory
+  // Compose CLAUDE.md BEFORE spawning claude — so the CLI reads it on startup
+  const memoryFiles = ['environment.md', 'logic.md', 'people.md']
+  const sections = []
+  for (const file of memoryFiles) {
+    const filePath = join(delmaDir, file)
+    if (existsSync(filePath)) {
+      const content = await readFile(filePath, 'utf-8')
+      if (content.trim() && content.trim() !== `# ${file.replace('.md', '').charAt(0).toUpperCase() + file.replace('.md', '').slice(1)}`) {
+        sections.push(content.trim())
+      }
+    }
+  }
+  if (sections.length) {
+    const composed = `# Composed by Delma — do not edit directly, changes will be overwritten\n\n${sections.join('\n\n---\n\n')}\n`
+    await writeFile(join(delmaDir, 'CLAUDE.md'), composed, 'utf-8')
+    await writeFile(join(resolvedDir, 'CLAUDE.md'), composed, 'utf-8')
+    console.log(`[ws] CLAUDE.md composed before session (${composed.length} chars)`)
+  }
+
+  // Spawn claude CLI in the project directory — it reads CLAUDE.md natively
   const claude = spawn('claude', ['--json'], {
     cwd: dir,
     env: { ...process.env, TERM: 'dumb' },

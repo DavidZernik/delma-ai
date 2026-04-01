@@ -112,6 +112,7 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
   const agentChars = { sarah, marcus, james }
   const t0 = Date.now()
   const steps = []
+  const onStep = opts.onExtractionStep || null  // callback to show activity in UI
 
   // Create orchestration primitives for this extraction
   const bus = new EventBus()
@@ -119,9 +120,13 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
   const queue = new TaskQueue({ concurrency: 2 })  // max 2 parallel API calls
   const tools = new AgentTools(opts.projectDir || null)
 
-  // Seed shared memory with input context
+  // Seed shared memory with input context + session history
   mem.set('transcript', transcriptBatch, 'system')
   mem.set('existing_memory', existingMemory, 'system')
+  mem.set('session_log', existingMemory['session-log.md'] || '', 'system')
+  mem.set('sarah_history', existingMemory['sarah-history.md'] || '', 'system')
+  mem.set('marcus_history', existingMemory['marcus-history.md'] || '', 'system')
+  mem.set('james_history', existingMemory['james-history.md'] || '', 'system')
 
   let diskHolder = delma
   const handoffTo = (to) => { handoff.send(diskHolder, to); diskHolder = to }
@@ -143,7 +148,7 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
     HAIKU
   )
   console.log('[extract] step 1 done —', s1.log_summary)
-  await displayWorking(delma, s1.working_steps, s1.log_summary)
+  await displayWorking(delma, s1.working_steps, s1.log_summary, onStep)
   steps.push(logStep(1, 'Session', 'Delma', s1.log_summary, stepStart))
 
   mem.set('decomposition', s1, 'delma')
@@ -200,10 +205,10 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
         const result = await withWorking(char,
           ['evaluating what matters...', 'checking against existing knowledge...'],
           P.SARAH_EXTRACT + tools.getToolDescriptions('sarah'),
-          { transcript: mem.get('transcript'), existing_memory: mem.get('existing_memory'), shared_context: mem.getSummary(), briefing, authority: sarahEntry.authority },
+          { transcript: mem.get('transcript'), existing_memory: mem.get('existing_memory'), shared_context: mem.getSummary(), my_history: mem.get('sarah_history'), briefing, authority: sarahEntry.authority },
           model
         )
-        await displayWorking(char, result.working_steps, result.log_summary)
+        await displayWorking(char, result.working_steps, result.log_summary, onStep)
         steps.push(logStep(2, 'Delma', 'Sarah', result.log_summary, start))
         removeStage('sarah')
 
@@ -272,6 +277,7 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
                 existing_memory: mem.get('existing_memory'),
                 shared_context: mem.getSummary(),
                 sarah_extractions: mem.get('extractions') || [],
+                my_history: mem.get('marcus_history'),
                 briefing,
                 authority: marcusEntry.authority,
                 memory_targets: targetFilter
@@ -295,13 +301,14 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
                 existing_memory: mem.get('existing_memory'),
                 shared_context: mem.getSummary(),
                 sarah_extractions: mem.get('extractions') || [],
+                my_history: mem.get('marcus_history'),
                 briefing,
                 authority: marcusEntry.authority,
                 memory_targets: targetFilter
               },
               model
             )
-            await displayWorking(char, result.working_steps, result.log_summary)
+            await displayWorking(char, result.working_steps, result.log_summary, onStep)
           }
 
           steps.push(logStep(3, 'Delma', 'Marcus', result.log_summary || `wrote ${target}`, start))
@@ -349,12 +356,13 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
             existing_memory: mem.get('existing_memory'),
             shared_context: mem.getSummary(),
             proposed_updates: mem.get('updates') || [],
+            my_history: mem.get('james_history'),
             briefing,
             authority: jamesEntry.authority
           },
           model
         )
-        await displayWorking(char, result.working_steps, result.log_summary)
+        await displayWorking(char, result.working_steps, result.log_summary, onStep)
         steps.push(logStep(4, 'Delma', 'James', result.log_summary, start))
 
         mem.set('validation', result, 'james')
@@ -463,6 +471,30 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
     console.error('[extract] failed to log session:', e)
   }
 
+  // Write per-agent history — each agent's decisions persist across sessions
+  const timestamp = new Date().toISOString()
+  const agentHistories = {
+    sarah: steps.filter(s => s.to === 'Sarah').map(s => s.summary),
+    marcus: steps.filter(s => s.to === 'Marcus').map(s => s.summary),
+    james: steps.filter(s => s.to === 'James').map(s => s.summary)
+  }
+  for (const [agent, summaries] of Object.entries(agentHistories)) {
+    if (!summaries.length) continue
+    const entry = `\n## ${timestamp}\n${summaries.join('\n')}\n`
+    try {
+      const readRes = await fetch(`/api/memory/${agent}-history.md`)
+      const existing = readRes.ok ? (await readRes.json()).content || '' : ''
+      const res = await fetch(`/api/memory/${agent}-history.md`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: existing + entry })
+      })
+      if (!res.ok) throw new Error(`${res.status}`)
+    } catch (e) {
+      console.error(`[extract] failed to write ${agent} history:`, e)
+    }
+  }
+
   clearStages()
 
   const duration = Math.round((Date.now() - t0) / 1000)
@@ -481,14 +513,16 @@ export async function runExtraction(transcriptBatch, existingMemory, chars, opts
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-async function displayWorking(char, workingSteps, logSummary) {
+async function displayWorking(char, workingSteps, logSummary, onStep) {
   for (const step of workingSteps || []) {
     console.log(`  [ticker:${char.def.name}] ${step}`)
     setTicker(char.tickerEl, step, char.def.distanceOpacity)
+    if (onStep) onStep(char.def.name, step)
   }
   if (logSummary) {
     console.log(`  [ticker:${char.def.name}] ${logSummary}`)
     setTicker(char.tickerEl, logSummary, char.def.distanceOpacity)
+    if (onStep) onStep(char.def.name, logSummary)
   }
 }
 
