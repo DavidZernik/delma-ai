@@ -13,7 +13,7 @@
 import express from 'express'
 import { config } from 'dotenv'
 import { fileURLToPath } from 'url'
-import { dirname, join } from 'path'
+import { dirname, join, relative, resolve } from 'path'
 import { createServer } from 'http'
 import { WebSocketServer } from 'ws'
 import { spawn } from 'child_process'
@@ -140,9 +140,10 @@ app.post('/api/tools/file_read', async (req, res) => {
     const { path: filePath, projectDir: dir } = req.body
     if (!dir || !filePath) return res.status(400).json({ error: 'Missing path or projectDir' })
 
-    // Prevent path traversal — file must be within project dir
-    const resolved = join(dir, filePath)
-    if (!resolved.startsWith(dir)) return res.status(403).json({ error: 'Path traversal rejected' })
+    // Prevent path traversal — resolve and verify within project dir
+    const resolvedDir = resolve(dir)
+    const resolved = resolve(dir, filePath)
+    if (!resolved.startsWith(resolvedDir)) return res.status(403).json({ error: 'Path traversal rejected' })
     if (!existsSync(resolved)) return res.json({ content: '', exists: false })
 
     const content = await readFile(resolved, 'utf-8')
@@ -171,7 +172,7 @@ app.post('/api/tools/grep', async (req, res) => {
       const matches = output.split('\n').filter(Boolean).map(line => {
         const match = line.match(/^(.+?):(\d+):(.*)$/)
         if (!match) return { line }
-        return { file: match[1].replace(dir + '/', ''), lineNum: parseInt(match[2]), content: match[3].trim() }
+        return { file: relative(dir, match[1]), lineNum: parseInt(match[2]), content: match[3].trim() }
       })
       res.json({ matches })
     } catch (e) {
@@ -295,13 +296,16 @@ wss.on('connection', async (ws, req) => {
     return
   }
 
-  if (!existsSync(dir)) {
-    ws.send(JSON.stringify({ type: 'error', content: `Directory does not exist: ${dir}` }))
+  // Resolve to absolute path to prevent traversal
+  const resolvedDir = resolve(dir)
+
+  if (!existsSync(resolvedDir)) {
+    ws.send(JSON.stringify({ type: 'error', content: `Directory does not exist: ${resolvedDir}` }))
     ws.close()
     return
   }
 
-  projectDir = dir
+  projectDir = resolvedDir
   console.log(`[ws] Agent SDK session — project: ${dir}`)
 
   // Initialize .delma/ with empty memory files if they don't exist
