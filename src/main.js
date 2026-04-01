@@ -156,7 +156,10 @@ async function runAnalysis(query) {
   analysisStatus.textContent = 'Analyzing...'
   analysisBody.textContent = ''
 
-  const system = `You're analyzing whether a multi-agent team structure produced better output than a single model call. Don't just compare quality — explain WHY the team structure helped or didn't. What specific decision by which agent made the difference? Did the briefing shape the output? Did the team add overhead without value? Be specific: name the agent, the decision, and the effect. 2-3 sentences, plain English, no hedging.`
+  const system = `Did the multi-agent team produce better output than the single model? Answer in 2-3 bullet points, each one sentence max. Focus on: which agent decision made the difference, and why. Be blunt. Example format:
+- Delma's briefing caught X, which the single model missed
+- James added/didn't add value because Y
+- Net: team won/lost because Z`
   const user = `Request: "${query}"\n\nSingle model (one call, no team):\n${claudeText}\n\nDelma team output:\n${delmaDeliverable}`
 
   try {
