@@ -181,7 +181,8 @@ export async function runChain(query, chars, opts = {}) {
 
     // ── SARAH ───────────────────────────────────────────────────────────────
     if (agent === 'sarah') {
-      console.log(`[chain] step ${stepNum} — Sarah (${authority})`)
+      const marcusDownstream = pipeline.some(p => p.agent === 'marcus')
+      console.log(`[chain] step ${stepNum} — Sarah (${authority}), marcus_downstream: ${marcusDownstream}`)
       const result = await withWorking(char,
         ['reading the situation...', 'forming a position...'],
         P.SARAH_WORK,
@@ -190,7 +191,8 @@ export async function runChain(query, chars, opts = {}) {
           original_query: query,
           briefing,
           authority,
-          shared_context: searchContext
+          shared_context: searchContext,
+          marcus_downstream: marcusDownstream
         },
         model
       )
@@ -199,7 +201,7 @@ export async function runChain(query, chars, opts = {}) {
       steps.push(logStep(stepNum, 'Delma', 'Sarah', result.log_summary, stepStart))
 
       // Premise challenge — pause pipeline, surface to user
-      if (result.premise_challenge && opts.onCheckpoint) {
+      if (result.premise_challenge && result.premise_challenge !== 'null' && opts.onCheckpoint) {
         console.log('[chain] premise challenge:', result.premise_challenge)
         setStage({ text: 'Sarah is challenging the premise', color: AGENT_COLORS.sarah })
         await showLine(char.tickerEl, result.premise_challenge, 2000, char.def.distanceOpacity)
