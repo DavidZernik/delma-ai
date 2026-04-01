@@ -32,11 +32,13 @@ let projectDir = null
 
 // ── .delma/ memory file endpoints ────────────────────────────────────────────
 
+// Snapshot projectDir at call time — prevents race if it changes between async ops
 async function ensureDelmaDir() {
-  if (!projectDir) throw new Error('No project directory set')
-  const dir = join(projectDir, '.delma')
-  if (!existsSync(dir)) await mkdir(dir, { recursive: true })
-  return dir
+  const dir = projectDir
+  if (!dir) throw new Error('No project directory set')
+  const delmaPath = join(dir, '.delma')
+  if (!existsSync(delmaPath)) await mkdir(delmaPath, { recursive: true })
+  return delmaPath
 }
 
 // List all memory files
@@ -87,9 +89,14 @@ app.put('/api/memory/:file', async (req, res) => {
 })
 
 // Compose CLAUDE.md from all memory files and copy to project root
+// Uses projectDir captured at request time to avoid global state race
 app.post('/api/memory/compose', async (req, res) => {
   try {
-    const dir = await ensureDelmaDir()
+    const currentProjectDir = projectDir  // snapshot at request time
+    if (!currentProjectDir) throw new Error('No project directory set')
+    const dir = join(currentProjectDir, '.delma')
+    if (!existsSync(dir)) await mkdir(dir, { recursive: true })
+
     const memoryFiles = ['environment.md', 'logic.md', 'people.md']
     const sections = []
 
@@ -110,7 +117,7 @@ app.post('/api/memory/compose', async (req, res) => {
 
     // Copy to project root for Agent SDK to read
     if (composed) {
-      await writeFile(join(projectDir, 'CLAUDE.md'), composed, 'utf-8')
+      await writeFile(join(currentProjectDir, 'CLAUDE.md'), composed, 'utf-8')
     }
 
     res.json({ ok: true, length: composed.length })
