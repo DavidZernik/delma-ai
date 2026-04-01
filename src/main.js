@@ -216,13 +216,26 @@ function animate() {
 animate()
 input.focus()
 
-// ── Resize ────────────────────────────────────────────────────────────────
-window.addEventListener('resize', () => {
-  const w = Math.round(window.innerWidth * LEFT_FRAC)
-  const h = window.innerHeight
-  leftEl.style.width = w + 'px'
+// ── Resize — handles desktop (side-by-side) and mobile (stacked) ─────────
+function handleResize() {
+  const isMobile = window.innerWidth <= 768
+  let w, h
+
+  if (isMobile) {
+    w = window.innerWidth
+    h = leftEl.clientHeight
+    leftEl.style.width = ''  // let CSS handle it
+  } else {
+    w = Math.round(window.innerWidth * LEFT_FRAC)
+    h = window.innerHeight
+    leftEl.style.width = w + 'px'
+  }
+
   camera.aspect = w / h
   camera.updateProjectionMatrix()
   renderer.setSize(w, h)
   css2dRenderer.setSize(w, h)
-})
+}
+
+window.addEventListener('resize', handleResize)
+handleResize()  // run once on load to handle initial mobile state

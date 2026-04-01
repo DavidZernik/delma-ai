@@ -372,6 +372,95 @@
     #send-btn:hover:not(:disabled) { background: #4a6a9a; transform: scale(1.06); }
     #send-btn:disabled { background: #2a2a3e; cursor: not-allowed; }
 
+    /* ── Mobile: stacked layout ──────────────────── */
+    @media (max-width: 768px) {
+      body {
+        flex-direction: column;
+        overflow: auto;
+      }
+
+      #left {
+        width: 100% !important;
+        height: 40vh;
+        flex: 0 0 40vh;
+      }
+
+      #right-side {
+        flex: 1;
+        height: 60vh;
+      }
+
+      #panels-row {
+        flex-direction: column;
+      }
+
+      .output-panel {
+        border-left: none;
+        border-top: 1px solid #2a2a3e;
+      }
+
+      .panel-header {
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 12px 16px 10px;
+      }
+
+      .project-bar {
+        width: 100%;
+      }
+
+      #project-dir {
+        font-size: 12px;
+      }
+
+      .panel-body {
+        padding: 0 16px 12px;
+      }
+
+      .panel-footer {
+        padding: 8px 16px 12px;
+      }
+
+      #input-area {
+        padding: 8px 12px 12px;
+      }
+
+      .stage-item {
+        font-size: 13px;
+        padding: 7px 16px;
+      }
+
+      .ticker {
+        font-size: 11px;
+        max-width: 200px;
+      }
+
+      .char-name { font-size: 9px; }
+      .char-role { font-size: 8px; }
+    }
+
+    /* ── Small phones ────────────────────────────── */
+    @media (max-width: 480px) {
+      #left {
+        height: 30vh;
+        flex: 0 0 30vh;
+      }
+
+      #right-side {
+        height: 70vh;
+      }
+
+      .stage-item {
+        font-size: 11px;
+        padding: 5px 12px;
+      }
+
+      .ticker {
+        font-size: 10px;
+        max-width: 160px;
+      }
+    }
+
   </style>
 </head>
 <body>
