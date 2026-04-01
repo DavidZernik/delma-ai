@@ -390,6 +390,8 @@ wss.on('connection', async (ws, req) => {
   ws.on('close', () => {
     console.log('[ws] client disconnected')
     claude.kill()
+    // Clear projectDir so stale state doesn't affect next connection
+    if (projectDir === resolvedDir) projectDir = null
   })
 })
 

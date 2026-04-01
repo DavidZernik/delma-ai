@@ -117,14 +117,21 @@ async function handleTranscriptBatch(batch) {
     return
   }
 
-  // Step 2: Load existing memory
+  // Step 2: Verify we have a project directory
+  const dir = projectDirInput.value.trim()
+  if (!dir || !agentSDK.isConnected()) {
+    console.log('[main] skipping extraction — no project directory or not connected')
+    return
+  }
+
+  // Step 3: Load existing memory
   const existingMemory = await loadMemory()
 
-  // Step 3: Run full extraction chain
+  // Step 4: Run full extraction chain
   isExtracting = true
   try {
     const result = await runExtraction(batch, existingMemory, characters, {
-      projectDir: projectDirInput.value.trim()
+      projectDir: dir
     })
     console.log('[main] extraction complete:', result.updates.length, 'files updated')
   } catch (err) {
