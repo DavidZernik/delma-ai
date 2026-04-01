@@ -64,9 +64,9 @@ export async function runChain(query, chars, opts = {}) {
   const steps = []
   _onDocument = opts.onDocument || null
 
-  // Disk always knows who holds it
+  // Disk always knows who holds it — animation is fire-and-forget, doesn't block the pipeline
   let diskHolder = delma
-  const handoffTo = async (to) => { await handoff.send(diskHolder, to); diskHolder = to }
+  const handoffTo = (to) => { handoff.send(diskHolder, to); diskHolder = to }
 
   console.log('[chain] starting:', query)
 
@@ -164,7 +164,7 @@ export async function runChain(query, chars, opts = {}) {
       console.log(`  [ticker:Delma] briefing ${agent}:`, briefing)
       setTicker(delma.tickerEl, briefing, delma.def.distanceOpacity)
     }
-    await handoffTo(char)
+    handoffTo(char)
     delma.faceCamera(); delma.setLookTarget(CAMERA_POS)
     char.faceDesk()
 
@@ -337,7 +337,7 @@ export async function runChain(query, chars, opts = {}) {
 
         // Marcus revises
         setStage({ text: 'Marcus is revising', color: AGENT_COLORS.marcus })
-        await handoffTo(marcus)
+        handoffTo(marcus)
         marcus.startWorking()
         stepStart = Date.now()
         const revised = await withWorking(marcus,
@@ -355,7 +355,7 @@ export async function runChain(query, chars, opts = {}) {
 
         // James re-checks
         setStage({ text: 'James is re-checking', color: AGENT_COLORS.james })
-        await handoffTo(char)
+        handoffTo(char)
         stepStart = Date.now()
         const recheck = await withWorking(char,
           ['re-checking...'],
@@ -384,8 +384,8 @@ export async function runChain(query, chars, opts = {}) {
 
   // ── Deliver ───────────────────────────────────────────────────────────────
   setStage({ text: 'Delma is delivering', color: AGENT_COLORS.delma })
-  await handoffTo(delma)
-  await delma.walkTo(delma.def.homeX, delma.def.homeZ)
+  handoffTo(delma)
+  delma.walkTo(delma.def.homeX, delma.def.homeZ)
   delma.faceCamera()
   delma.setLookTarget(CAMERA_POS)
 

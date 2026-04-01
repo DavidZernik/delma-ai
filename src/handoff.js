@@ -41,8 +41,8 @@ export function createHandoffSystem(scene) {
       light.intensity = 0.6
       mesh.visible = true
 
-      const DURATION = 1400   // ms
-      const PEAK     = 0.45   // m above start/end Y
+      const DURATION = 650    // ms
+      const PEAK     = 0.35   // m above start/end Y
       const startTime = performance.now()
 
       function step() {
