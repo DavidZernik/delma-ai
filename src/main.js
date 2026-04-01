@@ -34,8 +34,13 @@ const sdkStatus      = document.getElementById('sdk-status')
 const sdkBody        = document.getElementById('sdk-body')
 const projectDirInput = document.getElementById('project-dir')
 const connectBtn     = document.getElementById('connect-btn')
+const memoryDrawer   = document.getElementById('memory-drawer')
+const memoryToggle   = document.getElementById('memory-toggle')
+const memoryContent  = document.getElementById('memory-content')
+const memoryTabs     = document.querySelectorAll('.memory-tab')
 
 let isExtracting = false
+let activeMemoryTab = 'environment.md'
 
 // ── Agent SDK client ─────────────────────────────────────────────────────
 const agentSDK = createAgentSDK({
@@ -94,6 +99,7 @@ function handleSDKStatus(status) {
     input.placeholder = 'Ask Claude...'
     sendBtn.disabled = false
     connectBtn.textContent = 'Disconnect'
+    refreshMemoryTab()  // load existing knowledge on connect
   } else if (status === 'disconnected') {
     input.disabled = false
     input.placeholder = 'Connect to start...'
@@ -133,12 +139,16 @@ async function handleTranscriptBatch(batch) {
     const result = await runExtraction(batch, existingMemory, characters, {
       projectDir: dir,
       onExtractionStep: (agent, text) => {
-        // Show extraction activity in the SDK panel so users see what Delma's team is doing
+        // Show extraction activity in the SDK panel
         const el = document.createElement('div')
         el.className = 'sdk-message sdk-extraction'
         el.textContent = `[${agent}] ${text}`
         sdkBody.appendChild(el)
         sdkBody.scrollTop = sdkBody.scrollHeight
+
+        // Pulse memory tab if a file was updated
+        const fileMatch = text.match(/Updated (\w+\.md)/)
+        if (fileMatch) notifyMemoryUpdate(fileMatch[1])
       }
     })
     console.log('[main] extraction complete:', result.updates.length, 'files updated')
@@ -214,6 +224,47 @@ input.addEventListener('input', () => {
   input.style.height = 'auto'
   input.style.height = Math.min(input.scrollHeight, 120) + 'px'
 })
+
+// ── Memory drawer ────────────────────────────────────────────────────────
+memoryToggle.addEventListener('click', () => {
+  memoryDrawer.classList.toggle('open')
+  const arrow = document.getElementById('memory-toggle-arrow')
+  arrow.textContent = memoryDrawer.classList.contains('open') ? '\u25BC' : '\u25B2'
+  if (memoryDrawer.classList.contains('open')) refreshMemoryTab()
+})
+
+memoryTabs.forEach(tab => {
+  tab.addEventListener('click', () => {
+    memoryTabs.forEach(t => t.classList.remove('active'))
+    tab.classList.add('active')
+    activeMemoryTab = tab.dataset.file
+    refreshMemoryTab()
+  })
+})
+
+async function refreshMemoryTab() {
+  try {
+    const res = await fetch(`/api/memory/${activeMemoryTab}`)
+    const data = await res.json()
+    memoryContent.textContent = data.content || 'Empty — no knowledge captured yet.'
+  } catch {
+    memoryContent.textContent = 'Unable to load memory file.'
+  }
+}
+
+// Pulse a memory tab when its file was updated
+function notifyMemoryUpdate(file) {
+  const tab = document.querySelector(`.memory-tab[data-file="${file}"]`)
+  if (tab) {
+    tab.classList.remove('updated')
+    void tab.offsetHeight  // force reflow for re-animation
+    tab.classList.add('updated')
+  }
+  // Refresh if this tab is currently visible
+  if (activeMemoryTab === file && memoryDrawer.classList.contains('open')) {
+    refreshMemoryTab()
+  }
+}
 
 // ── Auto-suggestion ──────────────────────────────────────────────────────
 setTimeout(() => {
