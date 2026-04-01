@@ -79,8 +79,11 @@ async function handleSubmit() {
   const compPromise = compareOn ? runComparison(query) : Promise.resolve()
 
   try {
-    const result = await runChain(query, characters)
+    const result = await runChain(query, characters, {
+      onDocument: (content) => renderDeliverable(content)
+    })
 
+    // Final render in case onDocument wasn't called or document changed after last call
     if (result.finalContent) renderDeliverable(result.finalContent)
     renderLog(result.steps, result.duration)
 

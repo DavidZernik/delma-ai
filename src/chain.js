@@ -1,5 +1,5 @@
 /**
- * chain.js — document-as-artifact agent chain.
+ * chain.js — document relay chain.
  *
  * The chain builds ONE document via relay — each agent contributes their
  * specialty, passing context forward to the next.
@@ -44,17 +44,11 @@ function setStage(entries) {
   el.classList.add('active')
 }
 
-// Cost mode: 'budget' routes agents to cheaper models by default.
-const COST_MODE = 'budget'
-const ROUTING_POLICY = {
-  budget:  'ROUTING POLICY: Default all agents to deepseek unless the task genuinely requires human-level judgment. Prefer cheaper models.',
-  quality: 'ROUTING POLICY: Prefer haiku for production tasks, sonnet for judgment-heavy tasks. Use deepseek for simple drafting.'
-}
-
 const MODEL_MAP = { deepseek: DEEPSEEK_V3, haiku: HAIKU, sonnet: SONNET }
 
 let handoff = null
 let _scene  = null
+let _onDocument = null  // callback for streaming document to UI
 
 export function initChain(scene) {
   _scene  = scene
@@ -68,6 +62,7 @@ export async function runChain(query, chars, opts = {}) {
   const agentChars = { sarah, marcus, james }
   const t0 = Date.now()
   const steps = []
+  _onDocument = opts.onDocument || null
 
   // Disk always knows who holds it
   let diskHolder = delma
@@ -85,10 +80,9 @@ export async function runChain(query, chars, opts = {}) {
 
   console.log('[chain] step 1 — Delma decompose')
   let stepStart = Date.now()
-  const delmaPrompt = ROUTING_POLICY[COST_MODE] + '\n\n' + P.DELMA_DECOMPOSE
   const s1 = await withWorking(delma,
-    ['scoping the request...', 'mapping the task...', 'deciding who works...'],
-    delmaPrompt, query, HAIKU
+    ['scoping the request...', 'deciding who works...'],
+    P.DELMA_DECOMPOSE, query, HAIKU
   )
   console.log('[chain] step 1 done — complexity:', s1.complexity, '|', s1.log_summary)
   await displayWorking(delma, s1.working_steps, s1.log_summary)
@@ -110,7 +104,7 @@ export async function runChain(query, chars, opts = {}) {
 
   // Show plan to user
   if (s1.plan_summary) {
-    await showLine(delma.tickerEl, s1.plan_summary, 1500, delma.def.distanceOpacity)
+    setTicker(delma.tickerEl, s1.plan_summary, delma.def.distanceOpacity)
   }
 
   // ── Step 1.5: Web search (if Delma flagged it) ────────────────────────────
@@ -119,28 +113,31 @@ export async function runChain(query, chars, opts = {}) {
     console.log('[chain] step 1.5 — web search:', s1.search_queries)
     setStage({ text: 'Delma is searching the web', color: AGENT_COLORS.delma })
     delma.startWorking()
-    await showLine(delma.tickerEl, 'searching the web...', 1200, delma.def.distanceOpacity)
+    setTicker(delma.tickerEl, 'searching the web...', delma.def.distanceOpacity)
 
-    const chunks = []
-    for (const q of s1.search_queries.slice(0, 3)) {
-      try {
-        const { context } = await callSearch(q, 5)
-        if (context) chunks.push(context)
-        console.log(`  [search] "${q}" → ${context?.length ?? 0} chars`)
-      } catch (e) {
-        console.warn(`  [search] "${q}" failed:`, e.message)
-      }
-    }
+    // Run all searches in parallel
+    const results = await Promise.all(
+      s1.search_queries.slice(0, 3).map(async q => {
+        try {
+          const { context } = await callSearch(q, 5)
+          console.log(`  [search] "${q}" → ${context?.length ?? 0} chars`)
+          return context || ''
+        } catch (e) {
+          console.warn(`  [search] "${q}" failed:`, e.message)
+          return ''
+        }
+      })
+    )
 
+    const chunks = results.filter(Boolean)
     if (chunks.length) {
       searchContext = chunks.join('\n\n')
-      await showLine(delma.tickerEl, `web: ${chunks.length} queries complete`, 1200, delma.def.distanceOpacity)
+      setTicker(delma.tickerEl, `web: ${chunks.length} queries complete`, delma.def.distanceOpacity)
     }
     delma.stopWorking()
   }
 
   // ── Execute pipeline ──────────────────────────────────────────────────────
-  // Stage stays active from Delma scoping → first agent picks it up in the loop
   setStage({ text: 'Delma is briefing the team', color: AGENT_COLORS.delma })
 
   let document = ''
@@ -154,7 +151,7 @@ export async function runChain(query, chars, opts = {}) {
     if (!char) { console.warn('[chain] unknown agent:', agent); continue }
 
     const capName = agent.charAt(0).toUpperCase() + agent.slice(1)
-    const model = MODEL_MAP[s1[`model_${agent}`]] ?? (agent === 'james' ? HAIKU : DEEPSEEK_V3)
+    const model = MODEL_MAP[s1[`model_${agent}`]] ?? HAIKU
     const briefing = briefings[agent] || ''
 
     // ── Handoff animation ─────────────────────────────────────────────────
@@ -165,7 +162,7 @@ export async function runChain(query, chars, opts = {}) {
 
     if (briefing) {
       console.log(`  [ticker:Delma] briefing ${agent}:`, briefing)
-      await showLine(delma.tickerEl, briefing, 1000, delma.def.distanceOpacity)
+      setTicker(delma.tickerEl, briefing, delma.def.distanceOpacity)
     }
     await handoffTo(char)
     delma.faceCamera(); delma.setLookTarget(CAMERA_POS)
@@ -206,6 +203,7 @@ export async function runChain(query, chars, opts = {}) {
       // If Sarah produced a solo document, capture it
       if (result.document) {
         document = result.document
+        if (_onDocument) _onDocument(document)
         deliveryLines = result.delivery_lines || []
       }
 
@@ -215,7 +213,6 @@ export async function runChain(query, chars, opts = {}) {
 
       if (sectionCount <= 1 || (sarahContext.subjects?.length || 0) <= 1) {
         // ── Solo / single section: Marcus produces the whole thing ──────────
-        const subjects = sarahContext.subjects?.length ? sarahContext.subjects : [s1.task_spec?.deliverable || 'response']
         const result = await withWorking(char,
           ['writing...'],
           P.MARCUS_WORK,
@@ -236,6 +233,7 @@ export async function runChain(query, chars, opts = {}) {
         await displayWorking(char, result.working_steps, result.log_summary)
         steps.push(logStep(stepNum, 'Delma', 'Marcus', result.log_summary, stepStart))
         document = result.document || ''
+        if (_onDocument) _onDocument(document)
         deliveryLines = result.delivery_lines || []
 
       } else {
@@ -292,7 +290,7 @@ export async function runChain(query, chars, opts = {}) {
 
           if (assemblyResult?.coherence_fixes?.length) {
             for (const fix of assemblyResult.coherence_fixes) {
-              await showLine(char.tickerEl, `↳ ${fix}`, 1000, char.def.distanceOpacity)
+              setTicker(char.tickerEl, `↳ ${fix}`, char.def.distanceOpacity)
             }
           }
         } else {
@@ -300,6 +298,7 @@ export async function runChain(query, chars, opts = {}) {
           document = validSections.map(s => `## ${s.section_title}\n\n${s.content}`).join('\n\n')
         }
 
+        if (_onDocument) _onDocument(document)
         await displayWorking(char, [], `${validSections.length} sections written`)
         steps.push(logStep(stepNum, 'Delma', 'Marcus', `${validSections.length} sections produced`, stepStart))
       }
@@ -327,8 +326,7 @@ export async function runChain(query, chars, opts = {}) {
       if (result.issues?.length) {
         for (const issue of result.issues) {
           console.log(`  [ticker:James] ⚠ ${issue}`)
-          await showLine(char.tickerEl, `⚠ ${issue}`, 2000, char.def.distanceOpacity)
-          await sleep(60)
+          setTicker(char.tickerEl, `⚠ ${issue}`, char.def.distanceOpacity)
         }
       }
       steps.push(logStep(stepNum, 'Delma', 'James', result.log_summary, stepStart))
@@ -346,10 +344,13 @@ export async function runChain(query, chars, opts = {}) {
           ['addressing feedback...'],
           P.MARCUS_REVISE,
           { document, issues: result.issues },
-          MODEL_MAP[s1.model_marcus] ?? DEEPSEEK_V3
+          MODEL_MAP[s1.model_marcus] ?? HAIKU
         )
         marcus.stopWorking()
-        if (revised?.document) document = revised.document
+        if (revised?.document) {
+          document = revised.document
+          if (_onDocument) _onDocument(document)
+        }
         steps.push(logStep(stepNum + 0.1, 'James', 'Marcus', revised?.log_summary || 'revised', stepStart))
 
         // James re-checks
@@ -366,18 +367,12 @@ export async function runChain(query, chars, opts = {}) {
         await displayWorking(char, recheck.working_steps, recheck.log_summary)
         steps.push(logStep(stepNum + 0.2, 'Marcus', 'James', recheck.log_summary, stepStart))
 
-        // Use recheck delivery lines if available
         if (recheck.delivery_lines?.length) deliveryLines = recheck.delivery_lines
-
-        // Attach notes if still not approved
         if (recheck.approved === false && recheck.issues?.length) {
           deliveryLines.push(`Note: ${recheck.issues.join('; ')}`)
         }
       } else {
-        // Approved or advisory — use James's delivery lines
         if (result.delivery_lines?.length) deliveryLines = result.delivery_lines
-
-        // Advisory notes
         if (authority === 'advisory' && result.issues?.length) {
           deliveryLines.push(`Note: ${result.issues.join('; ')}`)
         }
@@ -402,8 +397,7 @@ export async function runChain(query, chars, opts = {}) {
   delma.tickerEl.classList.add('delivery')
   for (const line of deliveryLines) {
     console.log(`  [ticker:Delma] DELIVER: ${line}`)
-    await showLine(delma.tickerEl, line, 2000, delma.def.distanceOpacity)
-    await sleep(80)
+    setTicker(delma.tickerEl, line, delma.def.distanceOpacity)
   }
   delma.tickerEl.classList.remove('delivery')
   setStage(null)
@@ -427,12 +421,11 @@ export async function runChain(query, chars, opts = {}) {
 async function displayWorking(char, workingSteps, logSummary) {
   for (const step of workingSteps || []) {
     console.log(`  [ticker:${char.def.name}] ${step}`)
-    await showLine(char.tickerEl, step, 900, char.def.distanceOpacity)
-    await sleep(60)
+    setTicker(char.tickerEl, step, char.def.distanceOpacity)
   }
   if (logSummary) {
     console.log(`  [ticker:${char.def.name}] ${logSummary}`)
-    await showLine(char.tickerEl, logSummary, 1300, char.def.distanceOpacity)
+    setTicker(char.tickerEl, logSummary, char.def.distanceOpacity)
   }
 }
 
@@ -448,8 +441,6 @@ function logStep(step, from, to, summary, startMs) {
 
 // ── withWorking ───────────────────────────────────────────────────────────────
 
-const MIN_WORKING_MS = 600
-
 async function withWorking(char, loadingMessages, systemPrompt, userMessage, model, maxTokens) {
   model = model || HAIKU
   console.log(`  [api] ${char.def.name} → ${model.split('-').slice(-2).join('-')}`)
@@ -458,14 +449,13 @@ async function withWorking(char, loadingMessages, systemPrompt, userMessage, mod
   const signal = { done: false }
   const tickerPromise = workingTicker(char.tickerEl, loadingMessages, char.def.distanceOpacity, signal)
 
-  const apiStart = Date.now()
   let result
 
   try {
     result = await callClaudeWithRetry(
       systemPrompt,
       userMessage,
-      () => showLine(char.tickerEl, 'retrying...', 2000, char.def.distanceOpacity),
+      () => setTicker(char.tickerEl, 'retrying...', char.def.distanceOpacity),
       model,
       maxTokens
     )
@@ -475,9 +465,6 @@ async function withWorking(char, loadingMessages, systemPrompt, userMessage, mod
     await tickerPromise
     throw err
   }
-
-  const elapsed = Date.now() - apiStart
-  if (elapsed < MIN_WORKING_MS) await sleep(MIN_WORKING_MS - elapsed)
 
   console.log(`  [api:response] ${char.def.name}`, result)
 
