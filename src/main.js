@@ -34,13 +34,14 @@ const sdkStatus      = document.getElementById('sdk-status')
 const sdkBody        = document.getElementById('sdk-body')
 const projectDirInput = document.getElementById('project-dir')
 const connectBtn     = document.getElementById('connect-btn')
-const memoryDrawer   = document.getElementById('memory-drawer')
-const memoryToggle   = document.getElementById('memory-toggle')
+const memoryOverlay  = document.getElementById('memory-overlay')
+const memoryToggleBtn = document.getElementById('memory-toggle-btn')
 const memoryContent  = document.getElementById('memory-content')
 const memoryTabs     = document.querySelectorAll('.memory-tab')
 
 let isExtracting = false
 let activeMemoryTab = 'environment.md'
+let previousMemoryContent = {}  // track previous content per file for diff
 
 // ── Agent SDK client ─────────────────────────────────────────────────────
 const agentSDK = createAgentSDK({
@@ -225,12 +226,11 @@ input.addEventListener('input', () => {
   input.style.height = Math.min(input.scrollHeight, 120) + 'px'
 })
 
-// ── Memory drawer ────────────────────────────────────────────────────────
-memoryToggle.addEventListener('click', () => {
-  memoryDrawer.classList.toggle('open')
-  const arrow = document.getElementById('memory-toggle-arrow')
-  arrow.textContent = memoryDrawer.classList.contains('open') ? '\u25BC' : '\u25B2'
-  if (memoryDrawer.classList.contains('open')) refreshMemoryTab()
+// ── Memory overlay ───────────────────────────────────────────────────────
+memoryToggleBtn.addEventListener('click', () => {
+  memoryOverlay.classList.toggle('open')
+  memoryToggleBtn.textContent = memoryOverlay.classList.contains('open') ? 'Hide Memory' : 'Memory'
+  if (memoryOverlay.classList.contains('open')) refreshMemoryTab()
 })
 
 memoryTabs.forEach(tab => {
@@ -242,27 +242,65 @@ memoryTabs.forEach(tab => {
   })
 })
 
-async function refreshMemoryTab() {
+async function refreshMemoryTab(showDiff = false) {
   try {
     const res = await fetch(`/api/memory/${activeMemoryTab}`)
     const data = await res.json()
-    memoryContent.textContent = data.content || 'Empty — no knowledge captured yet.'
+    const newContent = data.content || ''
+
+    if (!newContent) {
+      memoryContent.textContent = 'Empty — no knowledge captured yet.'
+      return
+    }
+
+    if (showDiff && previousMemoryContent[activeMemoryTab]) {
+      renderDiff(previousMemoryContent[activeMemoryTab], newContent)
+    } else {
+      memoryContent.textContent = newContent
+    }
+
+    previousMemoryContent[activeMemoryTab] = newContent
   } catch {
     memoryContent.textContent = 'Unable to load memory file.'
   }
 }
 
-// Pulse a memory tab when its file was updated
+function renderDiff(oldText, newText) {
+  const oldLines = oldText.split('\n')
+  const newLines = newText.split('\n')
+  const oldSet = new Set(oldLines)
+  const newSet = new Set(newLines)
+
+  memoryContent.textContent = ''
+  for (const line of newLines) {
+    const span = document.createElement('span')
+    if (!oldSet.has(line) && line.trim()) {
+      span.className = 'memory-line-added'
+    }
+    span.textContent = line
+    memoryContent.appendChild(span)
+    memoryContent.appendChild(document.createTextNode('\n'))
+  }
+  // Show removed lines at the bottom briefly
+  for (const line of oldLines) {
+    if (!newSet.has(line) && line.trim()) {
+      const span = document.createElement('span')
+      span.className = 'memory-line-removed'
+      span.textContent = line
+      memoryContent.appendChild(span)
+    }
+  }
+}
+
 function notifyMemoryUpdate(file) {
   const tab = document.querySelector(`.memory-tab[data-file="${file}"]`)
   if (tab) {
     tab.classList.remove('updated')
-    void tab.offsetHeight  // force reflow for re-animation
+    void tab.offsetHeight
     tab.classList.add('updated')
   }
-  // Refresh if this tab is currently visible
-  if (activeMemoryTab === file && memoryDrawer.classList.contains('open')) {
-    refreshMemoryTab()
+  if (activeMemoryTab === file && memoryOverlay.classList.contains('open')) {
+    refreshMemoryTab(true)  // show diff
   }
 }
 
