@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "delma": {
+      "command": "node",
+      "args": [
+        "/Users/davidzernik/Desktop/delma/server/mcp.js"
+      ]
+    }
+  }
+}

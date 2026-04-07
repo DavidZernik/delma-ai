@@ -5,673 +5,801 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Delma</title>
   <style>
-    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #f6f1e8;
+      --bg-strong: #e7dac7;
+      --panel: rgba(255, 252, 247, 0.94);
+      --panel-strong: #fffaf2;
+      --ink: #1f241f;
+      --muted: #6e746d;
+      --line: rgba(43, 53, 44, 0.12);
+      --accent: #1e5c4a;
+      --accent-soft: #d7ebe3;
+      --accent-strong: #13392f;
+      --warn: #8f5f15;
+      --shadow: 0 18px 60px rgba(32, 26, 18, 0.12);
+      --radius-xl: 28px;
+      --radius-lg: 20px;
+      --radius-md: 14px;
+      --mono: "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
+      --sans: "Instrument Sans", "Avenir Next", "Segoe UI", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background:
+        radial-gradient(circle at top left, rgba(244, 213, 174, 0.55), transparent 26%),
+        radial-gradient(circle at top right, rgba(163, 213, 191, 0.42), transparent 20%),
+        linear-gradient(180deg, #f9f4eb 0%, #f3ede3 100%);
+      color: var(--ink);
+      font-family: var(--sans);
+    }
 
     body {
-      overflow: hidden;
-      font-family: system-ui, -apple-system, sans-serif;
-      display: flex;
-      width: 100vw;
-      height: 100vh;
-      background: #0D1117;
-    }
-
-    /* ── Left panel — 3D office ─────────────────── */
-    #left {
-      flex: 0 0 auto;
-      position: relative;
-      height: 100vh;
-    }
-
-    #canvas-container {
-      position: relative;
-      width: 100%;
-      height: 100%;
-    }
-
-    #stage-bar {
-      position: absolute;
-      top: 40px;
-      left: 50%;
-      transform: translateX(-50%);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 6px;
-      pointer-events: none;
-      user-select: none;
-      z-index: 10;
-      opacity: 0;
-      transition: opacity 500ms ease;
-    }
-    #stage-bar.active { opacity: 1; }
-    .stage-item {
-      font-family: 'Courier New', Courier, monospace;
-      font-size: 16px;
-      font-weight: 600;
-      letter-spacing: 0.04em;
-      color: #ffffff;
-      padding: 10px 22px;
-      border-radius: 10px;
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
-      white-space: nowrap;
-    }
-    .stage-item.failed {
-      background: #991b1b !important;
-      animation: failPulse 1.5s ease-in-out;
-    }
-    @keyframes failPulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.6; }
-    }
-
-    /* ── CSS2D labels ────────────────────────────── */
-    .char-label {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 1px;
-      padding: 4px 10px;
-      border-radius: 10px;
-      font-family: 'Courier New', Courier, monospace;
-      pointer-events: none;
-      white-space: nowrap;
-      user-select: none;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-    }
-    .char-name { font-size: 11px; font-weight: 600; color: #ffffff; }
-    .char-role { font-size: 10px; color: rgba(255,255,255,0.7); }
-
-    .char-label-active {
-      box-shadow: 0 0 10px 3px rgba(255,255,255,0.25);
-    }
-
-    .ticker {
-      position: relative;
-      padding: 6px 12px;
-      border-radius: 10px;
-      font-family: 'Courier New', Courier, monospace;
-      font-size: 13px;
-      line-height: 1.42;
-      max-width: 280px;
-      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
-      white-space: normal;
-      word-break: break-word;
-      pointer-events: none;
-      transition: opacity 400ms ease;
-      user-select: none;
-    }
-
-    /* ── Right side ──────────────────────────────── */
-    #right-side {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
       height: 100vh;
       overflow: hidden;
     }
 
-    #panels-row {
-      flex: 1;
-      display: flex;
-      overflow: hidden;
+    button, input, textarea {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+      border: 0;
+      background: transparent;
+      color: inherit;
+    }
+
+    textarea, input {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.72);
+      color: var(--ink);
+      outline: none;
+      transition: border-color 160ms ease, box-shadow 160ms ease;
+    }
+
+    textarea:focus, input:focus {
+      border-color: rgba(30, 92, 74, 0.38);
+      box-shadow: 0 0 0 4px rgba(30, 92, 74, 0.08);
+    }
+
+    .app-shell {
+      display: grid;
+      grid-template-columns: 290px 1.35fr 420px;
+      gap: 18px;
+      height: 100vh;
+      padding: 18px;
+    }
+
+    .panel {
       min-height: 0;
+      border: 1px solid rgba(39, 48, 40, 0.09);
+      background: var(--panel);
+      backdrop-filter: blur(18px);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow);
     }
 
-    .output-panel {
-      flex: 1;
-      height: 100%;
-      background: #ffffff;
-      border-left: 1px solid #e5e7eb;
+    .sidebar {
       display: flex;
       flex-direction: column;
-      overflow: hidden;
+      padding: 18px;
+      gap: 18px;
     }
 
-    .panel-header {
-      padding: 16px 20px 14px;
-      border-bottom: 1px solid #f0f0f0;
-      flex-shrink: 0;
+    .brand {
+      padding: 6px 2px 0;
+    }
+
+    .eyebrow {
+      font-size: 11px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .title {
+      margin-top: 8px;
+      font-size: 30px;
+      line-height: 0.98;
+      letter-spacing: -0.05em;
+      font-weight: 700;
+    }
+
+    .subtitle {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .stack {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .label {
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .project-row {
+      display: flex;
+      gap: 10px;
+    }
+
+    .project-row input {
+      flex: 1;
+      padding: 12px 14px;
+      min-width: 0;
+    }
+
+    .primary-btn,
+    .secondary-btn {
+      border-radius: 14px;
+      padding: 12px 16px;
+      transition: transform 160ms ease, background 160ms ease, color 160ms ease;
+    }
+
+    .primary-btn {
+      background: linear-gradient(135deg, var(--accent) 0%, #2e7960 100%);
+      color: #f7fbf9;
+      box-shadow: 0 10px 24px rgba(30, 92, 74, 0.2);
+    }
+
+    .secondary-btn {
+      background: rgba(255, 255, 255, 0.74);
+      border: 1px solid var(--line);
+      color: var(--ink);
+    }
+
+    .primary-btn:hover,
+    .secondary-btn:hover {
+      transform: translateY(-1px);
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.7);
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 13px;
+      width: fit-content;
+    }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      background: #c79d3b;
+      box-shadow: 0 0 0 3px rgba(199, 157, 59, 0.12);
+    }
+
+    .dot.connected {
+      background: #28735d;
+      box-shadow: 0 0 0 3px rgba(40, 115, 93, 0.14);
+    }
+
+    .dot.error {
+      background: #b65044;
+      box-shadow: 0 0 0 3px rgba(182, 80, 68, 0.16);
+    }
+
+    .view-tabs {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .view-tab {
+      border-radius: 18px;
+      padding: 14px 15px;
+      text-align: left;
+      border: 1px solid transparent;
+      background: rgba(255, 255, 255, 0.46);
+      transition: border-color 160ms ease, transform 160ms ease, background 160ms ease;
+    }
+
+    .view-tab:hover {
+      transform: translateX(2px);
+      border-color: rgba(30, 92, 74, 0.14);
+    }
+
+    .view-tab.active {
+      background: linear-gradient(180deg, rgba(215, 235, 227, 0.94), rgba(255, 255, 255, 0.94));
+      border-color: rgba(30, 92, 74, 0.18);
+    }
+
+    .view-tab-title {
+      font-weight: 650;
+      font-size: 15px;
+      letter-spacing: -0.02em;
+    }
+
+    .view-tab-copy {
+      margin-top: 6px;
+      font-size: 12px;
+      line-height: 1.45;
+      color: var(--muted);
+    }
+
+    .history-list,
+    .memory-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-height: 0;
+      overflow: auto;
+      padding-right: 4px;
+    }
+
+    .history-item,
+    .memory-item {
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.56);
+      padding: 10px 12px;
+    }
+
+    .history-item {
+      font-family: var(--mono);
+      font-size: 11px;
+      line-height: 1.45;
+      color: var(--muted);
+    }
+
+    .memory-item h4 {
+      margin: 0 0 6px;
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .memory-item pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 12px;
+      line-height: 1.5;
+      color: #364038;
+      font-family: var(--mono);
+      max-height: 150px;
+      overflow: auto;
+    }
+
+    .workspace {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+      padding: 18px;
+    }
+
+    .workspace-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 18px;
+      margin-bottom: 14px;
+    }
+
+    .workspace-title {
+      font-size: 31px;
+      letter-spacing: -0.06em;
+      line-height: 1;
+      margin: 0;
+    }
+
+    .workspace-copy {
+      margin-top: 9px;
+      color: var(--muted);
+      max-width: 720px;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    .workspace-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .workspace-grid {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 14px;
+      min-height: 0;
+      flex: 1;
+    }
+
+    .view-meta {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 14px;
+    }
+
+    .meta-card {
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.56);
+      padding: 18px;
+    }
+
+    .meta-title {
+      margin: 0;
+      font-size: 21px;
+      letter-spacing: -0.04em;
+    }
+
+    .meta-copy {
+      margin-top: 9px;
+      color: var(--muted);
+      line-height: 1.55;
+      font-size: 14px;
+    }
+
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 14px;
+    }
+
+    .mini-stat {
+      padding: 12px 13px;
+      border-radius: 14px;
+      background: rgba(30, 92, 74, 0.06);
+      border: 1px solid rgba(30, 92, 74, 0.08);
+    }
+
+    .mini-stat-label {
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .mini-stat-value {
+      margin-top: 7px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .diagram-panel {
+      min-height: 0;
+      border-radius: 30px;
+      border: 1px solid rgba(40, 53, 45, 0.08);
+      background:
+        radial-gradient(circle at top, rgba(234, 224, 208, 0.62), transparent 34%),
+        linear-gradient(180deg, rgba(255, 252, 247, 0.98), rgba(249, 243, 235, 0.95));
+      overflow: hidden;
+      position: relative;
+    }
+
+    .diagram-toolbar {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-    }
-
-    .panel-header-text { flex: 1; min-width: 0; }
-
-    .panel-title {
-      font-size: 13px;
-      font-weight: 600;
-      color: #111827;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-    }
-
-    .panel-subtitle {
-      font-size: 12px;
-      color: #9ca3af;
-      margin-top: 2px;
-      letter-spacing: 0.02em;
-    }
-
-    .panel-status {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      font-size: 12px;
-      color: #9ca3af;
-      padding: 12px 24px 0;
-      flex-shrink: 0;
-      min-height: 34px;
-    }
-
-    .panel-body {
-      flex: 1;
-      overflow-y: auto;
-      padding: 0 24px 12px;
-      scrollbar-width: thin;
-      scrollbar-color: #e5e7eb transparent;
-    }
-
-    .panel-body::-webkit-scrollbar { width: 4px; }
-    .panel-body::-webkit-scrollbar-track { background: transparent; }
-    .panel-body::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 2px; }
-
-    .panel-footer {
-      padding: 10px 24px 14px;
-      border-top: 1px solid #f0f0f0;
-      flex-shrink: 0;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-
-    .panel-time {
-      font-size: 11px;
-      color: #9ca3af;
-      letter-spacing: 0.04em;
-    }
-
-    .panel-label {
-      font-size: 10px;
-      color: #d1d5db;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-    }
-
-    /* ── SDK panel (light theme) ──────────────────── */
-    #sdk-panel {
-      background: #ffffff;
-    }
-    #sdk-panel .panel-header {
-      background: #ffffff;
-      border-bottom-color: #e5e7eb;
-    }
-    #sdk-panel .panel-title { color: #111827; }
-    #sdk-panel .panel-subtitle { color: #9ca3af; }
-    #sdk-panel .panel-status { color: #9ca3af; background: #ffffff; }
-    #sdk-panel .panel-body { scrollbar-color: #e5e7eb transparent; }
-    #sdk-panel .panel-footer {
-      border-top-color: #e5e7eb;
-      background: #ffffff;
-    }
-    #sdk-panel .panel-time { color: #9ca3af; }
-    #sdk-panel .panel-label { color: #d1d5db; }
-
-    /* ── SDK messages ────────────────────────────── */
-    .sdk-message {
-      padding: 8px 0;
-      font-size: 13px;
-      line-height: 1.55;
-      font-family: 'Courier New', Courier, monospace;
-      white-space: pre-wrap;
-      word-break: break-word;
-      color: #374151;
-    }
-    .sdk-user {
-      color: #1a1a1a;
-      padding: 6px 12px;
-      background: #f3f4f6;
-      border-radius: 8px;
-      margin: 4px 0;
-    }
-    .sdk-assistant { color: #1a1a1a; }
-    .sdk-tool { color: #92400e; font-size: 11px; opacity: 0.7; }
-    .sdk-tool-result { color: #9ca3af; font-size: 11px; opacity: 0.6; }
-    .sdk-error { color: #dc2626; }
-    .sdk-status { color: #9ca3af; font-style: italic; }
-    .sdk-raw { color: #6b7280; }
-    .sdk-extraction {
-      color: #7c3aed;
-      font-size: 11px;
-      opacity: 0.8;
-      border-left: 2px solid #7c3aed;
-      padding-left: 8px;
-      margin: 2px 0;
-    }
-
-    /* ── Memory overlay (top of 3D scene) ──────── */
-    #memory-overlay {
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      z-index: 15;
-      pointer-events: none;
-      max-height: 0;
-      overflow: hidden;
-      transition: max-height 0.3s ease;
-    }
-    #memory-overlay.open {
-      max-height: 55%;
-      pointer-events: auto;
-    }
-
-    #memory-inner {
-      background: rgba(13, 17, 23, 0.88);
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
-      padding: 0;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-      max-height: 55vh;
-    }
-
-    #memory-tabs {
-      display: flex;
-      gap: 0;
-      border-bottom: 1px solid rgba(255,255,255,0.1);
-      padding: 0 12px;
-      flex-shrink: 0;
-    }
-
-    .memory-tab {
-      font-size: 11px;
-      font-family: 'Courier New', Courier, monospace;
-      color: rgba(255,255,255,0.4);
-      background: none;
-      border: none;
-      border-bottom: 2px solid transparent;
-      padding: 10px 14px 8px;
-      cursor: pointer;
-      pointer-events: auto;
-      transition: color 0.15s, border-color 0.15s;
-    }
-    .memory-tab:hover { color: rgba(255,255,255,0.7); }
-    .memory-tab.active {
-      color: rgba(255,255,255,0.9);
-      border-bottom-color: #3b82f6;
-    }
-    .memory-tab.updated {
-      animation: tabPulse 1.5s ease;
-    }
-    @keyframes tabPulse {
-      0%, 100% { color: rgba(255,255,255,0.9); }
-      50% { color: #22c55e; }
-    }
-
-    #memory-content {
       padding: 12px 16px;
-      overflow-y: auto;
-      flex: 1;
-      font-family: 'Courier New', Courier, monospace;
-      font-size: 11px;
-      line-height: 1.65;
-      color: rgba(255,255,255,0.7);
-      white-space: pre-wrap;
-      word-break: break-word;
-      scrollbar-width: thin;
-      scrollbar-color: rgba(255,255,255,0.1) transparent;
+      border-bottom: 1px solid rgba(40, 53, 45, 0.08);
+      background: rgba(255, 255, 255, 0.55);
     }
 
-    /* Diff lines */
-    .memory-line-added {
-      color: #22c55e;
-      background: rgba(34, 197, 94, 0.08);
-      display: block;
-      padding: 1px 4px;
-      border-radius: 2px;
-      animation: fadeInLine 0.5s ease;
-    }
-    .memory-line-removed {
-      color: #ef4444;
-      background: rgba(239, 68, 68, 0.08);
-      text-decoration: line-through;
-      display: block;
-      padding: 1px 4px;
-      border-radius: 2px;
-      animation: fadeOutLine 1.5s ease forwards;
-    }
-    @keyframes fadeInLine {
-      from { opacity: 0; transform: translateX(-4px); }
-      to { opacity: 1; transform: translateX(0); }
-    }
-    @keyframes fadeOutLine {
-      0% { opacity: 1; }
-      70% { opacity: 0.5; }
-      100% { opacity: 0; max-height: 0; padding: 0; margin: 0; }
+    .diagram-toolbar strong {
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
     }
 
-    #memory-toggle-btn {
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      font-size: 11px;
-      font-family: 'Courier New', Courier, monospace;
-      color: rgba(255,255,255,0.5);
-      background: rgba(13, 17, 23, 0.7);
-      border: 1px solid rgba(255,255,255,0.1);
-      border-radius: 8px;
-      padding: 5px 12px;
-      cursor: pointer;
-      z-index: 16;
-      pointer-events: auto;
-      transition: background 0.15s, color 0.15s;
-    }
-    #memory-toggle-btn:hover {
-      background: rgba(13, 17, 23, 0.9);
-      color: rgba(255,255,255,0.8);
-    }
-
-    /* ── Project dir + connect ────────────────────── */
-    .project-bar {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-    }
-
-    #project-dir {
-      flex: 1;
-      font-size: 11px;
-      font-family: 'Courier New', Courier, monospace;
-      color: #374151;
-      background: #f3f4f6;
-      border: 1px solid #e5e7eb;
-      border-radius: 6px;
-      padding: 5px 10px;
-      outline: none;
-    }
-    #project-dir::placeholder { color: #9ca3af; }
-
-    #connect-btn {
-      font-size: 11px;
-      font-family: inherit;
-      color: #ffffff;
-      background: #3b82f6;
-      border: none;
-      border-radius: 6px;
-      padding: 5px 14px;
-      cursor: pointer;
-      transition: background 0.15s;
-    }
-    #connect-btn:hover { background: #2563eb; }
-
-    /* ── Input area ──────────────────────────────── */
-    #input-area {
-      flex-shrink: 0;
-      padding: 10px 16px 16px;
-      background: #ffffff;
-      border-top: 1px solid #e5e7eb;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-
-    #suggestion {
+    .diagram-toolbar span {
+      color: var(--muted);
       font-size: 12px;
-      color: #9ca3af;
-      opacity: 0;
-      transition: opacity 0.8s;
-      cursor: pointer;
-      pointer-events: none;
-      padding: 0 6px;
     }
-    #suggestion:hover { color: #6b7280; }
 
-    #input-bar {
-      display: flex;
-      align-items: flex-end;
+    .diagram-stage {
+      height: 100%;
+      overflow: auto;
+      padding: 28px;
+    }
+
+    .diagram-card {
+      min-height: calc(100% - 2px);
+      border-radius: 24px;
+      border: 1px solid rgba(49, 57, 47, 0.08);
+      background: rgba(255, 255, 255, 0.92);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+      padding: 20px;
+    }
+
+    #diagram-output {
+      min-height: 560px;
+    }
+
+    #diagram-output svg {
       width: 100%;
-      background: #ffffff;
-      border: 1px solid #d1d5db;
-      border-radius: 16px;
-      padding: 8px 8px 8px 18px;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
-      transition: border-color 0.15s, box-shadow 0.15s;
-    }
-    #input-bar:focus-within {
-      border-color: #3b82f6;
-      box-shadow: 0 1px 8px rgba(59,130,246,0.12);
+      height: auto;
+      max-width: none;
     }
 
-    #input {
-      flex: 1;
-      border: none;
-      outline: none;
-      font-size: 14px;
-      line-height: 1.55;
-      color: #1a1a1a;
-      background: transparent;
-      font-family: inherit;
-      min-width: 0;
-      resize: none;
-      overflow-y: hidden;
-      min-height: 24px;
-      max-height: 120px;
-      padding: 3px 0;
-    }
-
-    #input::placeholder { color: #9ca3af; }
-    #input:disabled     { color: #d1d5db; }
-
-    #send-btn {
-      flex-shrink: 0;
-      width: 34px; height: 34px;
-      border-radius: 50%;
-      background: #1a1a1a;
-      border: none;
-      cursor: pointer;
+    .diagram-empty {
       display: flex;
       align-items: center;
       justify-content: center;
-      color: white;
-      font-size: 16px;
-      transition: background 0.15s, transform 0.1s;
-      margin-left: 6px;
-    }
-    #send-btn:hover:not(:disabled) { background: #333333; transform: scale(1.06); }
-    #send-btn:disabled { background: #d1d5db; cursor: not-allowed; }
-
-    /* ── Resizer handle between panels ──────────── */
-    #resizer {
-      flex: 0 0 5px;
-      background: #0D1117;
-      cursor: col-resize;
-      position: relative;
-      z-index: 20;
-      transition: background 0.15s;
-    }
-    #resizer:hover, #resizer.active {
-      background: #3b82f6;
-    }
-    #resizer::after {
-      content: '';
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      width: 3px;
-      height: 40px;
-      border-radius: 2px;
-      background: rgba(255,255,255,0.15);
-    }
-    #resizer:hover::after, #resizer.active::after {
-      background: rgba(255,255,255,0.5);
+      min-height: 360px;
+      color: var(--muted);
+      font-size: 14px;
+      text-align: center;
+      padding: 40px;
     }
 
-    /* ── Mobile: stacked layout ──────────────────── */
-    @media (max-width: 768px) {
+    .chat-panel {
+      display: grid;
+      grid-template-rows: auto auto 1fr auto auto;
+      min-height: 0;
+      padding: 18px;
+      gap: 12px;
+    }
+
+    .chat-heading {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+    }
+
+    .chat-title {
+      margin: 0;
+      font-size: 24px;
+      letter-spacing: -0.05em;
+    }
+
+    .chat-copy {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .activity-rail {
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.56);
+      border: 1px solid var(--line);
+      padding: 12px 14px;
+      font-size: 13px;
+      line-height: 1.5;
+      color: var(--muted);
+    }
+
+    .messages {
+      min-height: 0;
+      overflow: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding-right: 4px;
+    }
+
+    .message {
+      border-radius: 18px;
+      padding: 13px 15px;
+      line-height: 1.55;
+      font-size: 14px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      border: 1px solid transparent;
+      animation: rise 220ms ease;
+    }
+
+    .message.user {
+      background: linear-gradient(180deg, #18493b, #113228);
+      color: #f5faf7;
+      align-self: flex-end;
+      max-width: 92%;
+    }
+
+    .message.assistant {
+      background: rgba(255, 255, 255, 0.84);
+      border-color: var(--line);
+      color: var(--ink);
+    }
+
+    .message.tool,
+    .message.tool_result,
+    .message.raw,
+    .message.exit {
+      background: rgba(242, 238, 232, 0.92);
+      border-color: rgba(67, 75, 68, 0.08);
+      font-family: var(--mono);
+      font-size: 12px;
+      color: #5f665f;
+    }
+
+    .message.error {
+      background: rgba(190, 84, 67, 0.08);
+      border-color: rgba(190, 84, 67, 0.14);
+      color: #913f33;
+    }
+
+    .composer {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      border-radius: 20px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.68);
+      padding: 14px;
+    }
+
+    .composer textarea {
+      width: 100%;
+      min-height: 120px;
+      resize: vertical;
+      padding: 14px 15px;
+      line-height: 1.55;
+    }
+
+    .composer-actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .composer-hint {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .editor-panel {
+      display: grid;
+      grid-template-rows: auto auto 1fr auto auto;
+      min-height: 0;
+      gap: 12px;
+      padding: 18px;
+    }
+
+    .editor-field {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .editor-field input,
+    .editor-field textarea {
+      width: 100%;
+      padding: 12px 14px;
+    }
+
+    .editor-field textarea {
+      min-height: 110px;
+      resize: vertical;
+    }
+
+    #view-mermaid {
+      min-height: 290px;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .split-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .save-note {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    @keyframes rise {
+      from {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @media (max-width: 1360px) {
+      .app-shell {
+        grid-template-columns: 260px 1fr 380px;
+      }
+    }
+
+    @media (max-width: 1160px) {
       body {
-        flex-direction: column;
+        height: auto;
         overflow: auto;
       }
 
-      #resizer { display: none; }
-
-      #left {
-        width: 100% !important;
-        height: 40vh;
-        flex: 0 0 40vh;
+      .app-shell {
+        height: auto;
+        min-height: 100vh;
+        grid-template-columns: 1fr;
       }
-
-      #right-side {
-        flex: 1;
-        height: 60vh;
-      }
-
-      #panels-row {
-        flex-direction: column;
-      }
-
-      .output-panel {
-        border-left: none;
-        border-top: 1px solid #e5e7eb;
-      }
-
-      .panel-header {
-        flex-wrap: wrap;
-        gap: 8px;
-        padding: 12px 16px 10px;
-      }
-
-      .project-bar {
-        width: 100%;
-      }
-
-      #project-dir {
-        font-size: 12px;
-      }
-
-      .panel-body {
-        padding: 0 16px 12px;
-      }
-
-      .panel-footer {
-        padding: 8px 16px 12px;
-      }
-
-      #input-area {
-        padding: 8px 12px 12px;
-      }
-
-      .stage-item {
-        font-size: 13px;
-        padding: 7px 16px;
-      }
-
-      .ticker {
-        font-size: 11px;
-        max-width: 200px;
-      }
-
-      .char-name { font-size: 9px; }
-      .char-role { font-size: 8px; }
-
-      /* Memory overlay: collapsed by default on mobile, smaller when open */
-      #memory-overlay { max-height: 0; }
-      #memory-overlay.open { max-height: 70%; }
-      #memory-inner { max-height: 28vh; }
-      #memory-content { font-size: 10px; padding: 8px 12px; }
-      .memory-tab { font-size: 10px; padding: 8px 10px 6px; }
-      #memory-toggle-btn { font-size: 10px; padding: 4px 10px; }
     }
-
-    /* ── Small phones ────────────────────────────── */
-    @media (max-width: 480px) {
-      #left {
-        height: 30vh;
-        flex: 0 0 30vh;
-      }
-
-      #right-side {
-        height: 70vh;
-      }
-
-      .stage-item {
-        font-size: 11px;
-        padding: 5px 12px;
-      }
-
-      .ticker {
-        font-size: 10px;
-        max-width: 160px;
-      }
-
-      #memory-inner { max-height: 22vh; }
-      #memory-toggle-btn { font-size: 9px; padding: 3px 8px; }
-    }
-
   </style>
 </head>
 <body>
-
-  <!-- Left: 3D office + memory overlay -->
-  <div id="left">
-    <div id="canvas-container">
-      <div id="stage-bar"></div>
-      <button id="memory-toggle-btn">Hide Memory</button>
-      <div id="memory-overlay" class="open">
-        <div id="memory-inner">
-          <div id="memory-tabs">
-            <button class="memory-tab active" data-file="environment.md">Environment</button>
-            <button class="memory-tab" data-file="logic.md">Logic</button>
-            <button class="memory-tab" data-file="people.md">People</button>
-          </div>
-          <div id="memory-content">No memory yet — connect to a project to start.</div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Draggable resizer between 3D office and SDK panel -->
-  <div id="resizer"></div>
-
-  <div id="right-side">
-    <div id="panels-row">
-
-      <!-- Agent SDK chat -->
-      <div id="sdk-panel" class="output-panel">
-        <div class="panel-header">
-          <div class="panel-header-text">
-            <div class="panel-title">Agent SDK</div>
-            <div class="panel-subtitle">Claude Code with Delma memory</div>
-          </div>
-          <div class="project-bar">
-            <input id="project-dir" type="text" placeholder="/path/to/project" />
-            <button id="connect-btn">Connect</button>
-          </div>
-        </div>
-        <div id="sdk-status" class="panel-status">Not connected</div>
-        <div id="sdk-body" class="panel-body"></div>
-        <div class="panel-footer">
-          <span class="panel-time"></span>
-          <span class="panel-label">Memory-augmented</span>
-        </div>
+  <div class="app-shell">
+    <aside class="panel sidebar">
+      <div class="brand">
+        <div class="eyebrow">Delma V1</div>
+        <div class="title">Claude Code,<br/>but worth living in.</div>
+        <div class="subtitle">A cleaner wrapper for your SFMC work: better memory, better diagrams, same core Claude loop.</div>
       </div>
 
-    </div>
+      <section class="stack">
+        <div class="label">Project</div>
+        <div class="project-row">
+          <input id="project-dir" placeholder="/Users/you/project" />
+          <button id="connect-btn" class="primary-btn">Open Project</button>
+        </div>
+        <div class="status-pill">
+          <span id="status-dot" class="dot"></span>
+          <span id="sdk-status">Disconnected</span>
+        </div>
+      </section>
 
-    <!-- Input area -->
-    <div id="input-area">
-      <div id="suggestion">Connect to a project directory to start a session</div>
-      <div id="input-bar">
-        <textarea id="input" rows="1" placeholder="Connect to start..." autocomplete="off" spellcheck="false" disabled></textarea>
-        <button id="send-btn" disabled>&#8594;</button>
+      <section class="stack">
+        <div class="label">Diagram Tabs</div>
+        <div id="view-tabs" class="view-tabs"></div>
+      </section>
+
+      <section class="stack" style="min-height: 0; flex: 1;">
+        <div class="label">History</div>
+        <div id="history-list" class="history-list">
+          <div class="history-item">Connect a project to start versioning diagram states.</div>
+        </div>
+      </section>
+
+      <section class="stack">
+        <div class="label">Memory Files</div>
+        <div id="memory-list" class="memory-list">
+          <div class="memory-item"><h4>Waiting</h4><pre>Connect a project to load .delma memory files.</pre></div>
+        </div>
+      </section>
+    </aside>
+
+    <main class="panel workspace">
+      <div class="workspace-header">
+        <div>
+          <h1 id="workspace-title" class="workspace-title">Delma Workspace</h1>
+          <div id="workspace-copy" class="workspace-copy">Open a project, connect Claude, and keep your architecture visible while you work.</div>
+        </div>
+        <div class="workspace-actions">
+          <button id="save-workspace-btn" class="secondary-btn">Save Workspace</button>
+          <button id="compose-btn" class="primary-btn">Compose CLAUDE.md</button>
+        </div>
       </div>
-    </div>
 
+      <div class="workspace-grid">
+        <div class="view-meta">
+          <section class="meta-card">
+            <div class="label">Active View</div>
+            <h2 id="view-title" class="meta-title">Codebase</h2>
+            <div id="view-description" class="meta-copy"></div>
+            <div class="meta-grid">
+              <div class="mini-stat">
+                <div class="mini-stat-label">Summary</div>
+                <div id="view-summary" class="mini-stat-value"></div>
+              </div>
+              <div class="mini-stat">
+                <div class="mini-stat-label">Workspace Status</div>
+                <div id="workspace-status" class="mini-stat-value">Ready for local-first editing.</div>
+              </div>
+            </div>
+          </section>
+          <section class="meta-card">
+            <div class="label">Why This Matters</div>
+            <div class="meta-copy">Every tab should answer a different question fast. Keep each one beautiful, small enough to scan, and specific enough to trust.</div>
+            <div class="meta-grid">
+              <div class="mini-stat">
+                <div class="mini-stat-label">Project</div>
+                <div id="project-pill" class="mini-stat-value">No project connected</div>
+              </div>
+              <div class="mini-stat">
+                <div class="mini-stat-label">History</div>
+                <div id="history-pill" class="mini-stat-value">0 snapshots</div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <section class="diagram-panel">
+          <div class="diagram-toolbar">
+            <div>
+              <strong id="diagram-toolbar-title">Mermaid View</strong>
+              <span id="diagram-toolbar-subtitle">Rendered from Delma workspace state</span>
+            </div>
+            <div class="split-actions">
+              <button id="reset-example-btn" class="secondary-btn">Reset This View</button>
+            </div>
+          </div>
+          <div class="diagram-stage">
+            <div class="diagram-card">
+              <div id="diagram-output" class="diagram-empty">Connect a project to render Delma diagrams.</div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <section class="panel editor-panel">
+      <div class="chat-heading">
+        <div>
+          <h2 class="chat-title">Claude Code + Delma</h2>
+          <div class="chat-copy">Claude Code stays your main worker. This panel explains the sidecar workflow and records Delma actions.</div>
+        </div>
+      </div>
+
+      <div id="activity-rail" class="activity-rail">No project connected yet.</div>
+
+      <div id="sdk-body" class="messages"></div>
+
+      <div class="composer">
+        <textarea id="input" placeholder="Claude Code is now the main chat surface." disabled></textarea>
+        <div class="composer-actions">
+          <div class="composer-hint">Run `npm run start:mcp`, add Delma to Claude Code MCP config, and let Claude update this workspace while you work.</div>
+          <button id="send-btn" class="secondary-btn" disabled>Claude Lives In Claude Code</button>
+        </div>
+      </div>
+
+      <div class="chat-heading" style="padding-top: 4px;">
+        <div>
+          <h2 class="chat-title">View Editor</h2>
+          <div class="chat-copy">Edit the active diagram directly, keep a clean summary, and save snapshots as you refine your workspace.</div>
+        </div>
+      </div>
+
+      <div class="editor-field">
+        <label class="label" for="view-title-input">Title</label>
+        <input id="view-title-input" />
+      </div>
+
+      <div class="editor-field">
+        <label class="label" for="view-description-input">Description</label>
+        <textarea id="view-description-input"></textarea>
+      </div>
+
+      <div class="editor-field">
+        <label class="label" for="view-summary-input">Summary</label>
+        <textarea id="view-summary-input"></textarea>
+      </div>
+
+      <div class="editor-field" style="min-height: 0;">
+        <label class="label" for="view-mermaid">Mermaid</label>
+        <textarea id="view-mermaid"></textarea>
+      </div>
+
+      <div class="split-actions">
+        <button id="preview-btn" class="secondary-btn">Preview Changes</button>
+        <button id="save-view-btn" class="primary-btn">Save View</button>
+      </div>
+      <div id="save-note" class="save-note">Workspace snapshots are written into <code>.delma/history/</code> whenever you save.</div>
+    </section>
   </div>
 
   <script type="module" src="/src/main.js"></script>

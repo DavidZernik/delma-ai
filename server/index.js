@@ -1,15 +1,3 @@
-/**
- * server/index.js — Delma backend.
- *
- * Three responsibilities:
- * 1. WebSocket endpoint that spawns `claude --json` as a child process,
- *    piping stdin/stdout between the browser and the CLI.
- * 2. REST endpoints for .delma/ memory file management (read, write,
- *    compose CLAUDE.md, append session log).
- * 3. Proxy endpoint for LLM API calls (Anthropic, OpenAI, DeepSeek) —
- *    Delma routes agents to the best model per task.
- */
-
 import express from 'express'
 import { config } from 'dotenv'
 import { fileURLToPath } from 'url'
@@ -17,55 +5,67 @@ import { dirname, join, relative, resolve } from 'path'
 import { createServer } from 'http'
 import { WebSocketServer } from 'ws'
 import { spawn } from 'child_process'
-import { readdir, readFile, writeFile, mkdir } from 'fs/promises'
+import { readFile, writeFile } from 'fs/promises'
 import { existsSync } from 'fs'
+import {
+  ensureProjectState,
+  readWorkspace,
+  readGraph,
+  readMemoryMap,
+  listHistory,
+  writeWorkspace,
+  composeClaudeMd,
+  safeMemoryFile,
+  getDelmaPath,
+  getHistoryDir,
+  defaultWorkspace
+} from './delma-state.js'
 
 config()
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-
 const app = express()
-app.use(express.json({ limit: '2mb' }))
+const PORT = process.env.PORT || 3001
 
-// Track active project directory (set by first websocket connection)
+app.use(express.json({ limit: '4mb' }))
+
 let projectDir = null
 
-// ── .delma/ memory file endpoints ────────────────────────────────────────────
+app.get('/api/health', async (req, res) => {
+  res.json({ ok: true, projectDir })
+})
 
-// Snapshot projectDir at call time — prevents race if it changes between async ops
-async function ensureDelmaDir() {
-  const dir = projectDir
-  if (!dir) throw new Error('No project directory set')
-  const delmaPath = join(dir, '.delma')
-  if (!existsSync(delmaPath)) await mkdir(delmaPath, { recursive: true })
-  return delmaPath
-}
+app.post('/api/project/open', async (req, res) => {
+  try {
+    const dir = resolve(req.body.projectDir || '')
+    if (!existsSync(dir)) {
+      return res.status(400).json({ error: `Directory does not exist: ${dir}` })
+    }
+    projectDir = dir
+    await ensureProjectState(projectDir)
+    await composeClaudeMd(projectDir)
+    res.json({ ok: true, projectDir })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
 
-// List all memory files
 app.get('/api/memory', async (req, res) => {
   try {
-    const dir = await ensureDelmaDir()
-    const files = await readdir(dir)
+    await ensureProjectState()
+    const files = await readdir(getDelmaPath(projectDir))
     res.json({ files, projectDir })
   } catch (e) {
     res.status(500).json({ error: e.message })
   }
 })
 
-// Sanitize memory filenames — prevent path traversal
-function safeMemoryFile(filename) {
-  const base = filename.replace(/[^a-zA-Z0-9._-]/g, '')
-  if (!base || base.startsWith('.')) return null
-  return base
-}
-
-// Read a memory file
 app.get('/api/memory/:file', async (req, res) => {
   try {
     const safe = safeMemoryFile(req.params.file)
     if (!safe) return res.status(400).json({ error: 'Invalid filename' })
-    const dir = await ensureDelmaDir()
-    const filePath = join(dir, safe)
+    await ensureProjectState()
+    const filePath = join(getDelmaPath(projectDir), safe)
     if (!existsSync(filePath)) return res.json({ content: '', exists: false })
     const content = await readFile(filePath, 'utf-8')
     res.json({ content, exists: true })
@@ -74,88 +74,113 @@ app.get('/api/memory/:file', async (req, res) => {
   }
 })
 
-// Write a memory file
 app.put('/api/memory/:file', async (req, res) => {
   try {
     const safe = safeMemoryFile(req.params.file)
     if (!safe) return res.status(400).json({ error: 'Invalid filename' })
-    const dir = await ensureDelmaDir()
-    const filePath = join(dir, safe)
-    await writeFile(filePath, req.body.content, 'utf-8')
+    await ensureProjectState()
+    const filePath = join(getDelmaPath(projectDir), safe)
+    await writeFile(filePath, req.body.content ?? '', 'utf-8')
+    await composeClaudeMd(projectDir)
     res.json({ ok: true })
   } catch (e) {
     res.status(500).json({ error: e.message })
   }
 })
 
-// Compose CLAUDE.md from all memory files and copy to project root
-// Uses projectDir captured at request time to avoid global state race
 app.post('/api/memory/compose', async (req, res) => {
   try {
-    const currentProjectDir = projectDir  // snapshot at request time
-    if (!currentProjectDir) throw new Error('No project directory set')
-    const dir = join(currentProjectDir, '.delma')
-    if (!existsSync(dir)) await mkdir(dir, { recursive: true })
-
-    const memoryFiles = ['environment.md', 'logic.md', 'people.md']
-    const sections = []
-
-    for (const file of memoryFiles) {
-      const filePath = join(dir, file)
-      if (existsSync(filePath)) {
-        const content = await readFile(filePath, 'utf-8')
-        if (content.trim()) sections.push(content.trim())
-      }
-    }
-
-    const composed = sections.length
-      ? `# Composed by Delma — do not edit directly, changes will be overwritten\n\n${sections.join('\n\n---\n\n')}\n`
-      : ''
-
-    // Write to .delma/CLAUDE.md (source of truth)
-    await writeFile(join(dir, 'CLAUDE.md'), composed, 'utf-8')
-
-    // Copy to project root for Agent SDK to read
-    if (composed) {
-      await writeFile(join(currentProjectDir, 'CLAUDE.md'), composed, 'utf-8')
-    }
-
+    const composed = await composeClaudeMd(projectDir)
     res.json({ ok: true, length: composed.length })
   } catch (e) {
     res.status(500).json({ error: e.message })
   }
 })
 
-// Append to session log
 app.post('/api/memory/session-log', async (req, res) => {
   try {
-    const dir = await ensureDelmaDir()
-    const logPath = join(dir, 'session-log.md')
-    const existing = existsSync(logPath) ? await readFile(logPath, 'utf-8') : ''
-    const entry = `\n## ${new Date().toISOString()}\n${req.body.entry}\n`
-    await writeFile(logPath, existing + entry, 'utf-8')
+    await ensureProjectState()
+    const filePath = join(getDelmaPath(projectDir), 'session-log.md')
+    const existing = existsSync(filePath) ? await readFile(filePath, 'utf-8') : '# Session Log\n'
+    const entry = `\n## ${new Date().toISOString()}\n${req.body.entry ?? ''}\n`
+    await writeFile(filePath, existing + entry, 'utf-8')
     res.json({ ok: true })
   } catch (e) {
     res.status(500).json({ error: e.message })
   }
 })
 
-// ── Agent tools — scoped file access for extraction agents ───────────────────
+app.get('/api/delma/state', async (req, res) => {
+  try {
+    await ensureProjectState()
+    const [workspace, graph, memory, history] = await Promise.all([
+      readWorkspace(),
+      readGraph(),
+      readMemoryMap(),
+      listHistory()
+    ])
+    res.json({
+      projectDir,
+      workspace,
+      graph,
+      memory,
+      history: history.slice(0, 30)
+    })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.put('/api/delma/workspace', async (req, res) => {
+  try {
+    await ensureProjectState()
+    const result = await writeWorkspace(projectDir, req.body.workspace ?? defaultWorkspace(projectDir), req.body.reason ?? 'workspace-save')
+    res.json({ ok: true, ...result })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.get('/api/delma/history', async (req, res) => {
+  try {
+    await ensureProjectState()
+    const history = await listHistory()
+    res.json({ files: history })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.get('/api/delma/history/:file', async (req, res) => {
+  try {
+    await ensureProjectState()
+    const safe = safeMemoryFile(req.params.file)
+    if (!safe) return res.status(400).json({ error: 'Invalid filename' })
+    const filePath = join(getHistoryDir(projectDir), safe)
+    if (!existsSync(filePath)) return res.status(404).json({ error: 'Snapshot not found' })
+    const content = JSON.parse(await readFile(filePath, 'utf-8'))
+    res.json(content)
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
 
 app.post('/api/tools/file_read', async (req, res) => {
   try {
     const { path: filePath, projectDir: dir } = req.body
     if (!dir || !filePath) return res.status(400).json({ error: 'Missing path or projectDir' })
 
-    // Prevent path traversal — resolve and verify within project dir
     const resolvedDir = resolve(dir)
-    const resolved = resolve(dir, filePath)
-    if (!resolved.startsWith(resolvedDir)) return res.status(403).json({ error: 'Path traversal rejected' })
-    if (!existsSync(resolved)) return res.json({ content: '', exists: false })
+    const resolvedPath = resolve(dir, filePath)
+    if (!resolvedPath.startsWith(resolvedDir)) return res.status(403).json({ error: 'Path traversal rejected' })
+    if (!existsSync(resolvedPath)) return res.json({ content: '', exists: false })
 
-    const content = await readFile(resolved, 'utf-8')
-    // Cap at 10KB to prevent blowing up context windows
-    res.json({ content: content.slice(0, 10240), exists: true, truncated: content.length > 10240 })
+    const content = await readFile(resolvedPath, 'utf-8')
+    res.json({
+      content: content.slice(0, 10240),
+      exists: true,
+      truncated: content.length > 10240
+    })
   } catch (e) {
     res.status(500).json({ error: e.message })
   }
@@ -168,22 +193,22 @@ app.post('/api/tools/grep', async (req, res) => {
 
     const { execSync } = await import('child_process')
     const searchDir = subPath ? join(dir, subPath) : dir
-
-    // Prevent path traversal
     if (!searchDir.startsWith(dir)) return res.status(403).json({ error: 'Path traversal rejected' })
 
     try {
-      // Use grep with limited output — max 50 matches, skip binary files, skip node_modules
       const cmd = `grep -rn --include='*.{js,ts,json,md,py,jsx,tsx}' -m 50 '${pattern.replace(/'/g, "\\'")}' '${searchDir}' 2>/dev/null | head -50`
       const output = execSync(cmd, { timeout: 5000, maxBuffer: 1024 * 64 }).toString()
-      const matches = output.split('\n').filter(Boolean).map(line => {
+      const matches = output.split('\n').filter(Boolean).map((line) => {
         const match = line.match(/^(.+?):(\d+):(.*)$/)
         if (!match) return { line }
-        return { file: relative(dir, match[1]), lineNum: parseInt(match[2]), content: match[3].trim() }
+        return {
+          file: relative(dir, match[1]),
+          lineNum: parseInt(match[2], 10),
+          content: match[3].trim()
+        }
       })
       res.json({ matches })
     } catch (e) {
-      // grep returns exit code 1 when no matches — not an error
       if (e.status === 1) return res.json({ matches: [] })
       throw e
     }
@@ -192,9 +217,6 @@ app.post('/api/tools/grep', async (req, res) => {
   }
 })
 
-// ── LLM proxy — routes to Anthropic, OpenAI, or DeepSeek based on model name ─
-
-// OpenAI-compatible handler (shared by OpenAI and DeepSeek)
 async function callOpenAICompatible(apiUrl, apiKey, provider, model, system, user, max_tokens, res) {
   let response
   try {
@@ -202,7 +224,7 @@ async function callOpenAICompatible(apiUrl, apiKey, provider, model, system, use
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
+        Authorization: `Bearer ${apiKey}`
       },
       body: JSON.stringify({
         model,
@@ -216,10 +238,12 @@ async function callOpenAICompatible(apiUrl, apiKey, provider, model, system, use
   } catch (e) {
     return res.status(502).json({ error: `Failed to reach ${provider} API: ${e.message}` })
   }
+
   if (!response.ok) {
     const text = await response.text()
     return res.status(response.status).json({ error: `${provider} ${response.status}: ${text || '(empty body)'}` })
   }
+
   const data = await response.json()
   const text = data.choices?.[0]?.message?.content || ''
   return res.json({ content: [{ text }] })
@@ -229,19 +253,16 @@ app.post('/api/chat', async (req, res) => {
   const { system, user, max_tokens } = req.body
   const model = req.body.model || 'claude-sonnet-4-20250514'
 
-  // ── DeepSeek ──────────────────────────────────────────────────────────────
   if (model.startsWith('deepseek-')) {
     if (!process.env.DEEPSEEK_API_KEY) return res.status(500).json({ error: 'DEEPSEEK_API_KEY not set in .env' })
     return callOpenAICompatible('https://api.deepseek.com/v1/chat/completions', process.env.DEEPSEEK_API_KEY, 'DeepSeek', model, system, user, max_tokens, res)
   }
 
-  // ── OpenAI ────────────────────────────────────────────────────────────────
   if (model.startsWith('gpt-') || model.startsWith('o1') || model.startsWith('o3')) {
     if (!process.env.OPENAI_API_KEY) return res.status(500).json({ error: 'OPENAI_API_KEY not set in .env' })
     return callOpenAICompatible('https://api.openai.com/v1/chat/completions', process.env.OPENAI_API_KEY, 'OpenAI', model, system, user, max_tokens, res)
   }
 
-  // ── Anthropic (default) ───────────────────────────────────────────────────
   if (!process.env.ANTHROPIC_API_KEY) {
     return res.status(500).json({ error: 'ANTHROPIC_API_KEY not set in .env' })
   }
@@ -275,22 +296,13 @@ app.post('/api/chat', async (req, res) => {
   res.json(data)
 })
 
-// Serve Vite build in production
 if (process.env.NODE_ENV === 'production') {
   const dist = join(__dirname, '../dist')
   app.use(express.static(dist))
   app.get('*', (req, res) => res.sendFile(join(dist, 'index.html')))
 }
 
-// ── Start server with WebSocket ──────────────────────────────────────────────
-
-const PORT = process.env.PORT || 3001
 const server = createServer(app)
-
-// WebSocket: spawns claude CLI in the user's project directory.
-// Client sends { type: 'user_message', content: '...' } — we pipe to stdin.
-// Claude's stdout (JSON lines) is parsed and forwarded to the client.
-// On disconnect, the claude process is killed.
 const wss = new WebSocketServer({ server, path: '/ws/agent-sdk' })
 
 wss.on('connection', async (ws, req) => {
@@ -303,9 +315,7 @@ wss.on('connection', async (ws, req) => {
     return
   }
 
-  // Resolve to absolute path to prevent traversal
   const resolvedDir = resolve(dir)
-
   if (!existsSync(resolvedDir)) {
     ws.send(JSON.stringify({ type: 'error', content: `Directory does not exist: ${resolvedDir}` }))
     ws.close()
@@ -313,53 +323,11 @@ wss.on('connection', async (ws, req) => {
   }
 
   projectDir = resolvedDir
-  console.log(`[ws] Agent SDK session — project: ${dir}`)
+  await ensureProjectState(projectDir)
+  await composeClaudeMd(projectDir)
 
-  // Initialize .delma/ with empty memory files if they don't exist
-  const delmaDir = join(dir, '.delma')
-  if (!existsSync(delmaDir)) {
-    await mkdir(delmaDir, { recursive: true })
-    console.log(`[ws] created .delma/ directory`)
-  }
-  const defaultFiles = {
-    'environment.md': '# Environment\n\nTech stack, dependencies, infrastructure.\n',
-    'logic.md': '# Logic\n\nBusiness logic, patterns, architectural decisions.\n',
-    'people.md': '# People\n\nTeam, roles, preferences, org context.\n',
-    'session-log.md': '# Session Log\n',
-    'sarah-history.md': '# Sarah — Extraction History\n',
-    'marcus-history.md': '# Marcus — Extraction History\n',
-    'james-history.md': '# James — Extraction History\n'
-  }
-  for (const [file, content] of Object.entries(defaultFiles)) {
-    const filePath = join(delmaDir, file)
-    if (!existsSync(filePath)) {
-      await writeFile(filePath, content, 'utf-8')
-      console.log(`[ws] initialized ${file}`)
-    }
-  }
-
-  // Compose CLAUDE.md BEFORE spawning claude — so the CLI reads it on startup
-  const memoryFiles = ['environment.md', 'logic.md', 'people.md']
-  const sections = []
-  for (const file of memoryFiles) {
-    const filePath = join(delmaDir, file)
-    if (existsSync(filePath)) {
-      const content = await readFile(filePath, 'utf-8')
-      if (content.trim() && content.trim() !== `# ${file.replace('.md', '').charAt(0).toUpperCase() + file.replace('.md', '').slice(1)}`) {
-        sections.push(content.trim())
-      }
-    }
-  }
-  if (sections.length) {
-    const composed = `# Composed by Delma — do not edit directly, changes will be overwritten\n\n${sections.join('\n\n---\n\n')}\n`
-    await writeFile(join(delmaDir, 'CLAUDE.md'), composed, 'utf-8')
-    await writeFile(join(resolvedDir, 'CLAUDE.md'), composed, 'utf-8')
-    console.log(`[ws] CLAUDE.md composed before session (${composed.length} chars)`)
-  }
-
-  // Spawn claude CLI in the project directory — it reads CLAUDE.md natively
   const claude = spawn('claude', ['--json'], {
-    cwd: dir,
+    cwd: resolvedDir,
     env: { ...process.env, TERM: 'dumb' },
     stdio: ['pipe', 'pipe', 'pipe']
   })
@@ -368,58 +336,52 @@ wss.on('connection', async (ws, req) => {
 
   claude.stdout.on('data', (data) => {
     stdoutBuf += data.toString()
-    // Claude --json outputs one JSON object per line
     const lines = stdoutBuf.split('\n')
-    stdoutBuf = lines.pop() // keep incomplete line in buffer
+    stdoutBuf = lines.pop()
     for (const line of lines) {
       if (!line.trim()) continue
       try {
-        const parsed = JSON.parse(line)
-        ws.send(JSON.stringify(parsed))
+        ws.send(JSON.stringify(JSON.parse(line)))
       } catch {
-        // Not JSON — send as raw text
         ws.send(JSON.stringify({ type: 'raw', content: line }))
       }
     }
   })
 
   claude.on('error', (err) => {
-    console.error(`[ws] failed to spawn claude:`, err.message)
     ws.send(JSON.stringify({ type: 'error', content: `Failed to start claude: ${err.message}. Is claude CLI installed?` }))
     ws.close()
   })
 
   claude.stderr.on('data', (data) => {
-    const text = data.toString()
-    console.error(`[claude stderr] ${text}`)
-    ws.send(JSON.stringify({ type: 'error', content: text }))
+    ws.send(JSON.stringify({ type: 'error', content: data.toString() }))
   })
 
   claude.on('close', (code) => {
-    console.log(`[ws] claude process exited with code ${code}`)
     if (ws.readyState === ws.OPEN) {
       ws.send(JSON.stringify({ type: 'exit', code }))
       ws.close()
     }
   })
 
-  ws.on('message', (msg) => {
+  ws.on('message', async (msg) => {
     const text = msg.toString()
     try {
       const parsed = JSON.parse(text)
       if (parsed.type === 'user_message') {
         claude.stdin.write(parsed.content + '\n')
+        const logPath = join(getDelmaPath(projectDir), 'session-log.md')
+        const existing = existsSync(logPath) ? await readFile(logPath, 'utf-8') : '# Session Log\n'
+        const stamp = new Date().toISOString()
+        await writeFile(logPath, `${existing}\n- ${stamp} USER: ${parsed.content}\n`, 'utf-8')
       }
     } catch {
-      // Raw text — send directly to claude stdin
       claude.stdin.write(text + '\n')
     }
   })
 
   ws.on('close', () => {
-    console.log('[ws] client disconnected')
     claude.kill()
-    // Clear projectDir so stale state doesn't affect next connection
     if (projectDir === resolvedDir) projectDir = null
   })
 })
