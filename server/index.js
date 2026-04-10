@@ -3,9 +3,10 @@ import { config } from 'dotenv'
 import { fileURLToPath } from 'url'
 import { dirname, join, relative, resolve } from 'path'
 import { createServer } from 'http'
+import { createHash, randomBytes, timingSafeEqual } from 'crypto'
 import { WebSocketServer } from 'ws'
 import { spawn } from 'child_process'
-import { readFile, writeFile } from 'fs/promises'
+import { readFile, readdir, writeFile } from 'fs/promises'
 import { existsSync } from 'fs'
 import {
   ensureProjectState,
@@ -26,14 +27,129 @@ config()
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = express()
 const PORT = process.env.PORT || 3001
+const AUTH_COOKIE = 'delma_session'
+const AUTH_USERNAME = process.env.DELMA_USERNAME || 'david'
+const AUTH_PASSWORD = process.env.DELMA_PASSWORD || ''
+const AUTH_SECRET = process.env.DELMA_SESSION_SECRET || process.env.DELMA_PASSWORD || 'delma-dev-secret'
+const authEnabled = Boolean(AUTH_PASSWORD)
+const activeSessions = new Map()
 
 app.use(express.json({ limit: '4mb' }))
 
 let projectDir = null
 
-app.get('/api/health', async (req, res) => {
-  res.json({ ok: true, projectDir })
+function parseCookies(header = '') {
+  return Object.fromEntries(
+    header
+      .split(';')
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .map((part) => {
+        const index = part.indexOf('=')
+        if (index === -1) return [part, '']
+        return [part.slice(0, index), decodeURIComponent(part.slice(index + 1))]
+      })
+  )
+}
+
+function hashToken(token) {
+  return createHash('sha256').update(`${AUTH_SECRET}:${token}`).digest('hex')
+}
+
+function safeEqual(left, right) {
+  const a = Buffer.from(String(left))
+  const b = Buffer.from(String(right))
+  if (a.length !== b.length) return false
+  return timingSafeEqual(a, b)
+}
+
+function createSession() {
+  const token = randomBytes(32).toString('hex')
+  const sessionId = hashToken(token)
+  activeSessions.set(sessionId, { createdAt: Date.now() })
+  return token
+}
+
+function clearExpiredSessions() {
+  const maxAge = 1000 * 60 * 60 * 24 * 30
+  const now = Date.now()
+  for (const [sessionId, session] of activeSessions.entries()) {
+    if (now - session.createdAt > maxAge) {
+      activeSessions.delete(sessionId)
+    }
+  }
+}
+
+function isAuthenticatedRequest(req) {
+  if (!authEnabled) return true
+  clearExpiredSessions()
+  const cookies = parseCookies(req.headers.cookie || '')
+  const token = cookies[AUTH_COOKIE]
+  if (!token) return false
+  return activeSessions.has(hashToken(token))
+}
+
+function requireAuth(req, res, next) {
+  if (isAuthenticatedRequest(req)) return next()
+  return res.status(401).json({ error: 'Authentication required', authEnabled: true })
+}
+
+function writeSessionCookie(res, token) {
+  const pieces = [
+    `${AUTH_COOKIE}=${encodeURIComponent(token)}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    `Max-Age=${60 * 60 * 24 * 30}`
+  ]
+  if (process.env.NODE_ENV === 'production') {
+    pieces.push('Secure')
+  }
+  res.setHeader('Set-Cookie', pieces.join('; '))
+}
+
+function clearSessionCookie(res) {
+  res.setHeader('Set-Cookie', `${AUTH_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`)
+}
+
+app.get('/api/auth/status', (req, res) => {
+  res.json({
+    authEnabled,
+    authenticated: isAuthenticatedRequest(req),
+    username: authEnabled ? AUTH_USERNAME : null
+  })
 })
+
+app.post('/api/auth/login', (req, res) => {
+  if (!authEnabled) {
+    return res.json({ ok: true, authEnabled: false })
+  }
+
+  const { username = '', password = '' } = req.body || {}
+  if (!safeEqual(username, AUTH_USERNAME) || !safeEqual(password, AUTH_PASSWORD)) {
+    return res.status(401).json({ error: 'Invalid login' })
+  }
+
+  const token = createSession()
+  writeSessionCookie(res, token)
+  return res.json({ ok: true, authenticated: true, username: AUTH_USERNAME })
+})
+
+app.post('/api/auth/logout', (req, res) => {
+  const cookies = parseCookies(req.headers.cookie || '')
+  const token = cookies[AUTH_COOKIE]
+  if (token) {
+    activeSessions.delete(hashToken(token))
+  }
+  clearSessionCookie(res)
+  res.json({ ok: true })
+})
+
+app.get('/api/health', async (req, res) => {
+  res.json({ ok: true, projectDir, authEnabled })
+})
+
+app.use('/api', requireAuth)
 
 app.post('/api/project/open', async (req, res) => {
   try {
@@ -306,6 +422,12 @@ const server = createServer(app)
 const wss = new WebSocketServer({ server, path: '/ws/agent-sdk' })
 
 wss.on('connection', async (ws, req) => {
+  if (!isAuthenticatedRequest(req)) {
+    ws.send(JSON.stringify({ type: 'error', content: 'Authentication required' }))
+    ws.close()
+    return
+  }
+
   const url = new URL(req.url, `http://localhost:${PORT}`)
   const dir = url.searchParams.get('dir')
 

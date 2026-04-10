@@ -506,6 +506,78 @@
       display: none;
     }
 
+    .auth-overlay {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: rgba(246, 243, 244, 0.94);
+      backdrop-filter: blur(8px);
+      z-index: 20;
+    }
+
+    .auth-overlay.visible {
+      display: flex;
+    }
+
+    .auth-card {
+      width: min(420px, 100%);
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      padding: 28px;
+      box-shadow: var(--shadow);
+    }
+
+    .auth-title {
+      margin: 0;
+      font-size: 28px;
+      letter-spacing: -0.04em;
+    }
+
+    .auth-copy {
+      margin: 10px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .auth-form {
+      display: grid;
+      gap: 12px;
+      margin-top: 20px;
+    }
+
+    .auth-input {
+      width: 100%;
+      padding: 13px 15px;
+      border-radius: 16px;
+    }
+
+    .auth-actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 4px;
+    }
+
+    .auth-error {
+      min-height: 20px;
+      color: #8a294f;
+      font-size: 12px;
+    }
+
+    .logout-btn {
+      display: none;
+    }
+
+    .logout-btn.visible {
+      display: inline-flex;
+    }
+
     @media (max-width: 1100px) {
       body {
         height: auto;
@@ -610,6 +682,7 @@
         <div class="chat-status">
           <span class="dot connected"></span>
           <span>Preview</span>
+          <button id="logout-btn" class="secondary-btn logout-btn" type="button">Log out</button>
         </div>
       </div>
 
@@ -634,6 +707,21 @@
         <div class="composer-hint">Run Delma locally with `npm run dev` and `npm run start:mcp`, then let Claude Code update the map while it works.</div>
       </div>
     </section>
+  </div>
+
+  <div id="auth-overlay" class="auth-overlay" aria-hidden="true">
+    <div class="auth-card">
+      <h2 class="auth-title">Sign in to Delma</h2>
+      <p id="auth-copy" class="auth-copy">Use your personal Delma login to open the workspace.</p>
+      <form id="auth-form" class="auth-form">
+        <input id="auth-username" class="auth-input" type="text" autocomplete="username" placeholder="Username" />
+        <input id="auth-password" class="auth-input" type="password" autocomplete="current-password" placeholder="Password" />
+        <div class="auth-actions">
+          <div id="auth-error" class="auth-error"></div>
+          <button id="auth-submit" class="primary-btn" type="submit">Enter Delma</button>
+        </div>
+      </form>
+    </div>
   </div>
 
   <div class="hidden-ui" aria-hidden="true">

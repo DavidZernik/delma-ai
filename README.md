@@ -49,3 +49,17 @@ npm run start:mcp
 ```
 
 Then point Claude Code at the Delma MCP server and let it update Delma as it learns about the project.
+
+## Personal login
+
+Delma now supports a simple personal username/password gate for single-user use.
+
+Add these to your `.env`:
+
+```bash
+DELMA_USERNAME=david
+DELMA_PASSWORD=choose_a_password
+DELMA_SESSION_SECRET=choose_a_long_random_secret
+```
+
+If `DELMA_PASSWORD` is set, the app requires login both locally and on the hosted deployment. If it is not set, auth stays off.

@@ -12,6 +12,9 @@ mermaid.initialize({
 })
 
 const state = {
+  authEnabled: false,
+  authenticated: false,
+  username: '',
   projectDir: '',
   workspace: null,
   graph: null,
@@ -32,6 +35,7 @@ const els = {
   sdkBody: document.getElementById('sdk-body'),
   input: document.getElementById('input'),
   sendBtn: document.getElementById('send-btn'),
+  logoutBtn: document.getElementById('logout-btn'),
   composeBtn: document.getElementById('compose-btn'),
   saveWorkspaceBtn: document.getElementById('save-workspace-btn'),
   saveViewBtn: document.getElementById('save-view-btn'),
@@ -55,7 +59,13 @@ const els = {
   viewDescriptionInput: document.getElementById('view-description-input'),
   viewSummaryInput: document.getElementById('view-summary-input'),
   viewMermaid: document.getElementById('view-mermaid'),
-  saveNote: document.getElementById('save-note')
+  saveNote: document.getElementById('save-note'),
+  authOverlay: document.getElementById('auth-overlay'),
+  authForm: document.getElementById('auth-form'),
+  authUsername: document.getElementById('auth-username'),
+  authPassword: document.getElementById('auth-password'),
+  authError: document.getElementById('auth-error'),
+  authCopy: document.getElementById('auth-copy')
 }
 
 const starterTemplates = defaultViewTemplates()
@@ -73,6 +83,60 @@ function setActivity(text) {
 
 function setWorkspaceStatus(text) {
   els.workspaceStatus.textContent = text
+}
+
+function setAuthUi(authenticated) {
+  state.authenticated = authenticated
+  els.authOverlay.classList.toggle('visible', state.authEnabled && !authenticated)
+  els.authOverlay.setAttribute('aria-hidden', String(!(state.authEnabled && !authenticated)))
+  els.logoutBtn.classList.toggle('visible', state.authEnabled && authenticated)
+}
+
+async function apiFetch(url, options = {}) {
+  const response = await fetch(url, options)
+  if (response.status === 401) {
+    state.authenticated = false
+    setAuthUi(false)
+    throw new Error('Please sign in to Delma.')
+  }
+  return response
+}
+
+async function checkAuth() {
+  const response = await fetch('/api/auth/status')
+  const data = await response.json()
+  state.authEnabled = Boolean(data.authEnabled)
+  state.authenticated = Boolean(data.authenticated)
+  state.username = data.username || ''
+  if (state.authEnabled) {
+    els.authUsername.value = state.username || ''
+    els.authCopy.textContent = state.username
+      ? `Use the Delma login for ${state.username}.`
+      : 'Use your personal Delma login to open the workspace.'
+  }
+  setAuthUi(state.authenticated)
+}
+
+async function login(username, password) {
+  const response = await fetch('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password })
+  })
+  const data = await response.json()
+  if (!response.ok) throw new Error(data.error || 'Unable to sign in')
+  state.authEnabled = Boolean(data.authEnabled ?? state.authEnabled)
+  state.authenticated = true
+  state.username = data.username || username
+  els.authError.textContent = ''
+  els.authPassword.value = ''
+  setAuthUi(true)
+}
+
+async function logout() {
+  await fetch('/api/auth/logout', { method: 'POST' })
+  state.authenticated = false
+  setAuthUi(false)
 }
 
 function setOpenState(isOpen) {
@@ -223,7 +287,7 @@ function renderWorkspace() {
 
 async function refreshWorkspace() {
   if (!state.projectDir) return
-  const response = await fetch('/api/delma/state')
+  const response = await apiFetch('/api/delma/state')
   const data = await response.json()
   if (!response.ok) throw new Error(data.error || 'Unable to load Delma state')
 
@@ -243,7 +307,7 @@ async function refreshWorkspace() {
 
 async function saveWorkspace(reason = 'workspace-save') {
   if (!state.workspace) return
-  const response = await fetch('/api/delma/workspace', {
+  const response = await apiFetch('/api/delma/workspace', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -292,7 +356,7 @@ async function openProject() {
 
   state.projectDir = dir
   setActivity('Opening the local Delma workspace and recomposing CLAUDE.md...')
-  const response = await fetch('/api/project/open', {
+  const response = await apiFetch('/api/project/open', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ projectDir: dir })
@@ -316,7 +380,7 @@ async function openProject() {
 }
 
 async function composeClaudeMd() {
-  const response = await fetch('/api/memory/compose', { method: 'POST' })
+  const response = await apiFetch('/api/memory/compose', { method: 'POST' })
   const data = await response.json()
   if (!response.ok) throw new Error(data.error || 'Unable to compose CLAUDE.md')
   setWorkspaceStatus(`Composed CLAUDE.md (${data.length} chars)`)
@@ -477,34 +541,61 @@ els.resetExampleBtn.addEventListener('click', () => {
   resetActiveView()
 })
 
-setOpenState(false)
-els.input.value = 'Claude Code is now the primary chat surface. Delma runs beside it as a workspace + MCP server.'
-renderWorkspace()
-appendLog(
-  'Delma Is The Sidecar Now',
-  [
-    'Claude Code should stay your main coding surface.',
-    'Delma keeps the diagrams, memory files, history, and CLAUDE.md in sync.',
-    'Run the Delma MCP server with `npm run start:mcp` and point Claude Code at it.'
-  ].join('\n')
-)
+els.authForm.addEventListener('submit', (event) => {
+  event.preventDefault()
+  const username = els.authUsername.value.trim()
+  const password = els.authPassword.value
+  void login(username, password)
+    .then(() => {
+      setWorkspaceStatus('Signed in to Delma.')
+      appendLog('Signed In', 'Delma unlocked. Your workspace and memory tools are now available.')
+    })
+    .catch((error) => {
+      els.authError.textContent = error.message
+    })
+})
 
-if (hostedPreviewMode) {
-  state.workspace = {
-    projectName: 'Delma',
-    updatedAt: new Date().toISOString(),
-    views: starterTemplates.map((view) => ({ ...view }))
-  }
-  state.memory = {
-    'environment.md': '# Environment\n\nHosted preview for Delma V1.\n',
-    'logic.md': '# Logic\n\nClaude Code is the main worker. Delma is the visual memory sidecar.\n',
-    'people.md': '# People\n\nBuilt first around David’s SFMC workflow.\n',
-    'session-log.md': '# Session Log\n\nHosted preview loaded.\n'
-  }
-  state.history = ['preview-snapshot--delma-v1.json']
-  state.activeViewId = state.workspace.views[0].id
-  state.previewMermaid = state.workspace.views[0].mermaid
-  setActivity('Hosted preview mode: Delma is deployed here as a shareable workspace shell. The real sidecar behavior runs locally with Claude Code.')
-  setWorkspaceStatus('Hosted preview ready.')
+els.logoutBtn.addEventListener('click', () => {
+  void logout().then(() => {
+    setWorkspaceStatus('Signed out.')
+    appendLog('Signed Out', 'This Delma workspace is locked until you sign in again.')
+  })
+})
+
+async function init() {
+  setOpenState(false)
+  els.input.value = 'Claude Code is now the primary chat surface. Delma runs beside it as a workspace + MCP server.'
   renderWorkspace()
+  appendLog(
+    'Delma Is The Sidecar Now',
+    [
+      'Claude Code should stay your main coding surface.',
+      'Delma keeps the diagrams, memory files, history, and CLAUDE.md in sync.',
+      'Run the Delma MCP server with `npm run start:mcp` and point Claude Code at it.'
+    ].join('\n')
+  )
+
+  await checkAuth()
+
+  if (hostedPreviewMode) {
+    state.workspace = {
+      projectName: 'Delma',
+      updatedAt: new Date().toISOString(),
+      views: starterTemplates.map((view) => ({ ...view }))
+    }
+    state.memory = {
+      'environment.md': '# Environment\n\nHosted preview for Delma V1.\n',
+      'logic.md': '# Logic\n\nClaude Code is the main worker. Delma is the visual memory sidecar.\n',
+      'people.md': '# People\n\nBuilt first around David’s SFMC workflow.\n',
+      'session-log.md': '# Session Log\n\nHosted preview loaded.\n'
+    }
+    state.history = ['preview-snapshot--delma-v1.json']
+    state.activeViewId = state.workspace.views[0].id
+    state.previewMermaid = state.workspace.views[0].mermaid
+    setActivity('Hosted preview mode: Delma is deployed here as a shareable workspace shell. The real sidecar behavior runs locally with Claude Code.')
+    setWorkspaceStatus(state.authEnabled && !state.authenticated ? 'Sign in to open this Delma preview.' : 'Hosted preview ready.')
+    renderWorkspace()
+  }
 }
+
+void init()
