@@ -157,7 +157,7 @@ async function logout() {
 
 function setOpenState(isOpen) {
   els.sdkStatus.textContent = hostedPreviewMode
-    ? 'Hosted Preview'
+    ? 'Workspace Ready'
     : isOpen
       ? 'Workspace Open'
       : 'Waiting For Workspace'
@@ -351,12 +351,12 @@ function updateActiveViewFromEditor() {
 
 async function openProject() {
   if (hostedPreviewMode) {
-    setWorkspaceStatus('This hosted build is a Delma preview. The full sidecar workflow can attach local assets and live Salesforce connections.')
-    setActivity('Hosted preview mode: Delma is deployed here as a shareable shell. Run it locally for MCP, optional local files, and live CLAUDE.md updates.')
+    setWorkspaceStatus('This Delma workspace is available here. Local runtime adds MCP, optional local assets, and live Salesforce connections.')
+    setActivity('Delma is available here as the shared workspace shell. Run it locally for MCP, optional local files, and live CLAUDE.md updates.')
     appendLog(
-      'Hosted Preview',
+      'Delma Workspace',
       [
-        'This Vercel deployment is a shareable Delma preview.',
+        'This Delma deployment is the shared workspace shell.',
         'The real Delma sidecar still runs locally on your machine.',
         'Use Delma as a shared SFMC and Salesforce workspace, with optional local files when you need them.',
         'For full Delma: run `npm run dev` and `npm run start:mcp` locally.'
@@ -413,7 +413,7 @@ function resetActiveView() {
   Object.assign(view, template)
   state.previewMermaid = view.mermaid
   renderWorkspace()
-  setWorkspaceStatus(`Reset ${view.title} to the Delma starter layout.`)
+  setWorkspaceStatus(`Restored ${view.title} to the saved Delma baseline.`)
 }
 
 function defaultViewTemplates() {
@@ -545,16 +545,16 @@ async function init() {
       views: starterTemplates.map((view) => ({ ...view }))
     }
     state.memory = {
-      'environment.md': '# Environment\n\nHosted preview for Delma V1. Optional local assets, SFMC, and Salesforce CRM.\n',
+      'environment.md': '# Environment\n\nDelma workspace for SFMC, Salesforce CRM, and optional local assets.\n',
       'logic.md': '# Logic\n\nClaude Code is the main worker. Delma is the shared operational memory sidecar.\n',
       'people.md': '# People\n\nBuilt first around David’s SFMC workflow and shared stakeholder visibility.\n',
-      'session-log.md': '# Session Log\n\nHosted preview loaded.\n'
+      'session-log.md': '# Session Log\n\nWorkspace loaded.\n'
     }
     state.history = ['preview-snapshot--delma-v1.json']
     state.activeViewId = state.workspace.views[0].id
     state.previewMermaid = state.workspace.views[0].mermaid
-    setActivity('Hosted preview mode: Delma is deployed here as a shareable workspace shell. The real sidecar behavior runs locally with Claude Code.')
-    setWorkspaceStatus(state.authEnabled && !state.authenticated ? 'Sign in to open this Delma preview.' : 'Hosted preview ready.')
+    setActivity('Delma is available here as the shared workspace shell. The full sidecar behavior runs locally with Claude Code.')
+    setWorkspaceStatus(state.authEnabled && !state.authenticated ? 'Sign in to open this Delma workspace.' : 'Workspace ready.')
     renderWorkspace()
   }
 }
