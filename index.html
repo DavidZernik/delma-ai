@@ -172,6 +172,7 @@
 
     .project-input {
       width: 220px;
+      min-width: 0;
       padding: 10px 12px;
       border-radius: 999px;
       background: #fff;
@@ -200,9 +201,14 @@
       display: flex;
       gap: 8px;
       overflow-x: auto;
+      scrollbar-width: none;
       padding: 12px 20px;
       border-bottom: 1px solid var(--line);
       background: var(--panel-soft);
+    }
+
+    .tab-bar::-webkit-scrollbar {
+      display: none;
     }
 
     .view-tab {
@@ -314,6 +320,7 @@
       align-items: center;
       gap: 10px;
       min-width: 0;
+      flex-wrap: wrap;
       color: var(--muted);
       font-size: 13px;
     }
@@ -374,6 +381,7 @@
       display: inline-flex;
       align-items: center;
       gap: 8px;
+      flex-wrap: wrap;
       padding: 8px 12px;
       border: 1px solid var(--line);
       border-radius: 999px;
@@ -471,6 +479,7 @@
       display: flex;
       align-items: center;
       gap: 14px;
+      flex-wrap: wrap;
       color: var(--muted);
       font-size: 12px;
     }
@@ -609,6 +618,236 @@
 
       .project-input {
         width: 100%;
+      }
+
+      .workspace-panel,
+      .chat-panel {
+        min-height: auto;
+      }
+
+      #diagram-output {
+        min-height: 420px;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .workspace-header,
+      .tab-bar,
+      .diagram-meta,
+      .diagram-stage,
+      .workspace-footer,
+      .chat-header,
+      .messages,
+      .composer {
+        padding-left: 14px;
+        padding-right: 14px;
+      }
+
+      .workspace-header,
+      .chat-header {
+        padding-top: 14px;
+        padding-bottom: 12px;
+      }
+
+      .workspace-copy,
+      .meta-copy,
+      .chat-copy,
+      .composer-hint {
+        max-width: none;
+      }
+
+      .workspace-title,
+      .chat-title {
+        font-size: 15px;
+      }
+
+      .tab-bar {
+        gap: 6px;
+        padding-top: 10px;
+        padding-bottom: 10px;
+      }
+
+      .view-tab {
+        padding: 7px 10px;
+      }
+
+      .diagram-meta {
+        gap: 10px;
+      }
+
+      .diagram-stage {
+        padding-top: 6px;
+        padding-bottom: 14px;
+      }
+
+      .diagram-shell {
+        border-radius: 16px;
+        padding: 12px;
+      }
+
+      #diagram-output {
+        min-height: 320px;
+      }
+
+      .diagram-empty {
+        min-height: 260px;
+        padding: 20px;
+        font-size: 13px;
+      }
+
+      .workspace-footer {
+        gap: 12px;
+        padding-top: 10px;
+        padding-bottom: 14px;
+      }
+
+      .status-strip {
+        font-size: 12px;
+        gap: 8px;
+      }
+
+      .footer-actions {
+        width: 100%;
+        justify-content: stretch;
+      }
+
+      .footer-actions .secondary-btn,
+      .footer-actions .primary-btn {
+        flex: 1 1 100%;
+        justify-content: center;
+        text-align: center;
+      }
+
+      .messages {
+        gap: 16px;
+        padding-top: 18px;
+        padding-bottom: 10px;
+      }
+
+      .message {
+        font-size: 13px;
+        line-height: 1.58;
+      }
+
+      .composer {
+        padding-top: 12px;
+        padding-bottom: 14px;
+      }
+
+      .composer-shell {
+        border-radius: 16px;
+        padding: 14px 14px 10px;
+      }
+
+      .composer textarea {
+        min-height: 88px;
+        font-size: 14px;
+      }
+
+      .composer-actions {
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      .composer-toolbar {
+        width: 100%;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .composer-model {
+        font-size: 12px;
+      }
+
+      .chat-status {
+        width: 100%;
+        justify-content: space-between;
+      }
+
+      .auth-overlay {
+        padding: 14px;
+      }
+
+      .auth-card {
+        border-radius: 22px;
+        padding: 20px;
+      }
+
+      .auth-title {
+        font-size: 24px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .workspace-header,
+      .tab-bar,
+      .diagram-meta,
+      .diagram-stage,
+      .workspace-footer,
+      .chat-header,
+      .messages,
+      .composer {
+        padding-left: 12px;
+        padding-right: 12px;
+      }
+
+      .eyebrow,
+      .meta-label {
+        font-size: 10px;
+      }
+
+      .workspace-title,
+      .chat-title {
+        font-size: 14px;
+      }
+
+      .project-input,
+      .secondary-btn,
+      .primary-btn {
+        width: 100%;
+      }
+
+      .controls {
+        width: 100%;
+      }
+
+      .controls .secondary-btn {
+        text-align: center;
+      }
+
+      .tab-bar {
+        padding-top: 8px;
+        padding-bottom: 8px;
+      }
+
+      .view-tab-title {
+        font-size: 10px;
+      }
+
+      .diagram-shell {
+        padding: 10px;
+      }
+
+      #diagram-output {
+        min-height: 260px;
+      }
+
+      .composer-shell {
+        padding: 12px 12px 10px;
+      }
+
+      .composer-link,
+      .composer-model,
+      .composer-hint,
+      .chat-copy,
+      .workspace-copy,
+      .meta-copy {
+        font-size: 11px;
+      }
+
+      .send-pill {
+        width: 34px;
+        height: 34px;
       }
     }
   </style>
