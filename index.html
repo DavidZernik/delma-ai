@@ -6,15 +6,15 @@
   <title>Delma</title>
   <style>
     :root {
-      --bg: #f7f7f5;
+      --bg: #f6f3f4;
       --panel: #ffffff;
-      --panel-soft: #fbfbf9;
+      --panel-soft: #faf7f8;
       --ink: #171717;
-      --muted: #6b6b66;
-      --line: rgba(0, 0, 0, 0.08);
-      --accent: #005234;
-      --accent-soft: #dce9e2;
-      --accent-ink: #f7fbf9;
+      --muted: #6f6168;
+      --line: rgba(67, 0, 46, 0.1);
+      --accent: #43002e;
+      --accent-soft: #eadce4;
+      --accent-ink: #fffafc;
       --shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
       --radius-xl: 18px;
       --radius-lg: 14px;
@@ -59,8 +59,8 @@
     }
 
     input:focus, textarea:focus {
-      border-color: rgba(0, 82, 52, 0.3);
-      box-shadow: 0 0 0 4px rgba(0, 82, 52, 0.08);
+      border-color: rgba(67, 0, 46, 0.28);
+      box-shadow: 0 0 0 4px rgba(67, 0, 46, 0.08);
     }
 
     .app-shell {
@@ -86,7 +86,7 @@
       gap: 14px;
       padding: 18px 0 14px;
       border-right: 1px solid var(--line);
-      background: #f4f3f0;
+      background: #f1edef;
     }
 
     .rail-spacer {
@@ -114,7 +114,7 @@
     }
 
     .rail-avatar {
-      background: #2c2c2a;
+      background: var(--accent);
       color: #fff;
       font-size: 18px;
       font-weight: 600;
@@ -127,7 +127,7 @@
       min-height: 0;
       overflow: hidden;
       border-right: 1px solid var(--line);
-      background: #fbfaf7;
+      background: var(--panel-soft);
     }
 
     .workspace-header {
@@ -137,7 +137,7 @@
       gap: 12px;
       padding: 18px 20px 14px;
       border-bottom: 1px solid var(--line);
-      background: #fbfaf7;
+      background: var(--panel-soft);
     }
 
     .eyebrow {
@@ -202,7 +202,7 @@
       overflow-x: auto;
       padding: 12px 20px;
       border-bottom: 1px solid var(--line);
-      background: #fbfaf7;
+      background: var(--panel-soft);
     }
 
     .view-tab {
@@ -216,9 +216,9 @@
     }
 
     .view-tab.active {
-      background: #eef4f1;
+      background: var(--accent-soft);
       color: var(--accent);
-      border-color: rgba(0, 82, 52, 0.14);
+      border-color: rgba(67, 0, 46, 0.16);
     }
 
     .view-tab-title {
@@ -306,7 +306,7 @@
       gap: 14px;
       padding: 12px 20px 18px;
       border-top: 1px solid var(--line);
-      background: #fbfaf7;
+      background: var(--panel-soft);
     }
 
     .status-strip {
@@ -329,7 +329,7 @@
 
     .dot.connected {
       background: var(--accent);
-      box-shadow: 0 0 0 3px rgba(0, 82, 52, 0.14);
+      box-shadow: 0 0 0 3px rgba(67, 0, 46, 0.14);
     }
 
     .footer-actions {
@@ -344,7 +344,7 @@
       grid-template-rows: auto 1fr auto;
       min-height: 0;
       overflow: hidden;
-      background: #f8f7f4;
+      background: #f7f3f5;
     }
 
     .chat-header {
@@ -354,7 +354,7 @@
       gap: 12px;
       padding: 18px 22px 14px;
       border-bottom: 1px solid var(--line);
-      background: #f8f7f4;
+      background: #f7f3f5;
     }
 
     .chat-title {
@@ -427,7 +427,7 @@
     .composer {
       border-top: 1px solid var(--line);
       padding: 16px 22px 18px;
-      background: #f8f7f4;
+      background: #f7f3f5;
     }
 
     .composer-shell {
