@@ -17,17 +17,17 @@ export const DEFAULT_MEMORY_FILES = {
 }
 
 export function defaultWorkspace(dir = '') {
-  const projectName = dir ? dir.split('/').filter(Boolean).pop() : 'Project'
+  const projectName = dir ? dir.split('/').filter(Boolean).pop() : 'Workspace'
   return {
     projectName,
     updatedAt: new Date().toISOString(),
     views: [
       {
-        id: 'codebase',
-        title: 'Codebase',
+        id: 'workspace',
+        title: 'Workspace',
         kind: 'architecture',
-        description: 'Core app surfaces, runtime layers, and memory pipeline.',
-        summary: 'The local app wraps Claude, persists project memory, and renders diagrams from Delma workspace state.',
+        description: 'Shared map of the client, org context, systems, and current operational surface area.',
+        summary: 'This is the top-level Delma map for SFMC, Salesforce CRM, stakeholder context, and any optional local assets.',
         mermaid: `---
 config:
   look: neo
@@ -35,12 +35,33 @@ config:
   layout: elk
 ---
 flowchart LR
-  Claude["Claude Code"] --> MCP["Delma MCP Server"]
-  MCP --> Workspace["workspace.json"]
-  MCP --> History[".delma/history"]
-  MCP --> Compose["CLAUDE.md"]
-  Workspace --> Views["Tabbed Mermaid Views"]
-  Views --> UI["Delma UI"]
+  PM["PM / Stakeholder"] --> Delma["Delma Workspace"]
+  Architect["SFMC Architect"] --> Delma
+  Claude["Claude Code"] --> Delma
+  Delma --> SFMC["SFMC"]
+  Delma --> CRM["Salesforce CRM"]
+  Delma --> Memory["Memory + Diagrams + CLAUDE.md"]
+`
+      },
+      {
+        id: 'connections',
+        title: 'Connections',
+        kind: 'infrastructure',
+        description: 'Credentials, API surfaces, business units, and environment context.',
+        summary: 'Keep the operational keys in one visible place so Delma can safely connect to SFMC and Salesforce when needed.',
+        mermaid: `---
+config:
+  look: neo
+  theme: neo
+  layout: elk
+---
+flowchart TD
+  Workspace["Delma Workspace"] --> SFMCCreds["SFMC Credentials"]
+  Workspace --> CRMCreds["Salesforce CRM Credentials"]
+  Workspace --> APIs["API Keys / Secrets"]
+  SFMCCreds --> BU["Business Units / MIDs"]
+  CRMCreds --> Sandbox["Sandbox / Prod Orgs"]
+  APIs --> Health["Connection Status / Last Test"]
 `
       },
       {
@@ -68,8 +89,8 @@ flowchart TD
         id: 'data-flows',
         title: 'Data Flows',
         kind: 'data',
-        description: 'How information moves through SFMC systems and local tooling.',
-        summary: 'Use this for journeys, data extensions, APIs, and any operational flow you need to reason about quickly.',
+        description: 'How information moves through SFMC, Salesforce CRM, and any connected systems.',
+        summary: 'Use this for journeys, data extensions, CRM objects, APIs, and any operational flow you need to reason about quickly.',
         mermaid: `---
 config:
   look: neo
@@ -109,7 +130,7 @@ flowchart TD
         title: 'Current Work',
         kind: 'focus',
         description: 'A focused working map for the task in front of you right now.',
-        summary: 'Keep this intentionally small. It should answer what matters in the current coding session.',
+        summary: 'Keep this intentionally small. It should answer what matters in the current change, whether that change lives in SFMC, CRM, or local assets.',
         mermaid: `---
 config:
   look: neo

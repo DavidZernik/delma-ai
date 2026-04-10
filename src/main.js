@@ -159,14 +159,14 @@ function setOpenState(isOpen) {
   els.sdkStatus.textContent = hostedPreviewMode
     ? 'Hosted Preview'
     : isOpen
-      ? 'Project Open'
-      : 'Waiting For Project'
+      ? 'Workspace Open'
+      : 'Waiting For Workspace'
   els.statusDot.className = `dot${isOpen || hostedPreviewMode ? ' connected' : ''}`
   els.connectBtn.textContent = hostedPreviewMode
     ? 'Runs Locally'
     : isOpen
-      ? 'Reload Project'
-      : 'Open Project'
+      ? 'Reload Workspace'
+      : 'Open Workspace'
   els.input.disabled = true
   els.sendBtn.disabled = true
 }
@@ -278,7 +278,7 @@ function renderWorkspace() {
   const view = getActiveView()
   if (!view) {
     els.workspaceTitle.textContent = 'Delma Workspace'
-    els.workspaceCopy.textContent = 'Open a project to load Delma memory and diagram tabs.'
+    els.workspaceCopy.textContent = 'Open a workspace to load Delma memory, connections, and diagram tabs.'
     els.viewTitle.textContent = 'No active view'
     els.viewDescription.textContent = ''
     els.viewSummary.textContent = ''
@@ -288,11 +288,11 @@ function renderWorkspace() {
   }
 
   els.workspaceTitle.textContent = state.workspace?.projectName ? `${state.workspace.projectName} Workspace` : 'Delma Workspace'
-  els.workspaceCopy.textContent = 'Claude Code is the worker. Delma is the visual memory sidecar that Claude can update while it works.'
+  els.workspaceCopy.textContent = 'Claude Code is the worker. Delma is the shared operational memory sidecar for SFMC and Salesforce.'
   els.viewTitle.textContent = view.title
   els.viewDescription.textContent = view.description || 'No description yet.'
   els.viewSummary.textContent = view.summary || 'No summary yet.'
-  els.projectPill.textContent = state.projectDir || 'No project connected'
+  els.projectPill.textContent = state.projectDir || 'No local path attached'
   els.historyPill.textContent = `${state.history.length} snapshots`
   els.diagramToolbarTitle.textContent = view.title
   els.diagramToolbarSubtitle.textContent = view.kind ? `${view.kind} view` : 'Mermaid view'
@@ -351,13 +351,14 @@ function updateActiveViewFromEditor() {
 
 async function openProject() {
   if (hostedPreviewMode) {
-    setWorkspaceStatus('This hosted build is a Delma preview. The full sidecar workflow runs locally beside Claude Code.')
-    setActivity('Hosted preview mode: Delma is deployed here as a shareable shell. Run it locally for MCP, project files, and live CLAUDE.md updates.')
+    setWorkspaceStatus('This hosted build is a Delma preview. The full sidecar workflow can attach local assets and live Salesforce connections.')
+    setActivity('Hosted preview mode: Delma is deployed here as a shareable shell. Run it locally for MCP, optional local files, and live CLAUDE.md updates.')
     appendLog(
       'Hosted Preview',
       [
         'This Vercel deployment is a shareable Delma preview.',
         'The real Delma sidecar still runs locally on your machine.',
+        'Use Delma as a shared SFMC and Salesforce workspace, with optional local files when you need them.',
         'For full Delma: run `npm run dev` and `npm run start:mcp` locally.'
       ].join('\n')
     )
@@ -371,26 +372,26 @@ async function openProject() {
   }
 
   state.projectDir = dir
-  setActivity('Opening the local Delma workspace and recomposing CLAUDE.md...')
+  setActivity('Opening the Delma workspace and recomposing CLAUDE.md...')
   const response = await apiFetch('/api/project/open', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ projectDir: dir })
   })
   const data = await response.json()
-  if (!response.ok) throw new Error(data.error || 'Unable to open project')
+  if (!response.ok) throw new Error(data.error || 'Unable to open workspace')
 
   setOpenState(true)
   await refreshWorkspace()
-  setWorkspaceStatus('Project opened locally. Claude Code can now connect to Delma via MCP.')
-  setActivity('Delma is ready. Run the MCP server and let Claude Code call it while you work.')
+  setWorkspaceStatus('Workspace opened. Claude Code can now connect to Delma via MCP.')
+  setActivity('Delma is ready. Attach local assets when needed, and let Claude Code call it while you work.')
   appendLog(
     'How Delma Fits',
     [
       '1. Keep working in Claude Code.',
       '2. Run `npm run start:mcp` in this repo.',
       '3. Add the Delma server from `.mcp.json.example` to your Claude Code MCP config.',
-      '4. Claude can now read and update these diagram tabs plus CLAUDE.md.'
+      '4. Use Delma as the shared memory for SFMC, Salesforce CRM, and optional local assets.'
     ].join('\n')
   )
 }
@@ -418,10 +419,10 @@ function resetActiveView() {
 function defaultViewTemplates() {
   return [
     {
-      id: 'codebase',
-      title: 'Codebase',
-      description: 'Core app surfaces, runtime layers, and memory pipeline.',
-      summary: 'The local app wraps Claude, persists project memory, and renders diagrams from Delma workspace state.',
+      id: 'workspace',
+      title: 'Workspace',
+      description: 'Shared map of the client, org context, systems, and current operational surface area.',
+      summary: 'This is the top-level Delma map for SFMC, Salesforce CRM, stakeholder context, and any optional local assets.',
       mermaid: `---
 config:
   look: neo
@@ -429,12 +430,32 @@ config:
   layout: elk
 ---
 flowchart LR
-  Claude["Claude Code"] --> MCP["Delma MCP Server"]
-  MCP --> Workspace["workspace.json"]
-  MCP --> History[".delma/history"]
-  MCP --> Compose["CLAUDE.md"]
-  Workspace --> Views["Tabbed Mermaid Views"]
-  Views --> UI["Delma UI"]
+  PM["PM / Stakeholder"] --> Delma["Delma Workspace"]
+  Architect["SFMC Architect"] --> Delma
+  Claude["Claude Code"] --> Delma
+  Delma --> SFMC["SFMC"]
+  Delma --> CRM["Salesforce CRM"]
+  Delma --> Memory["Memory + Diagrams + CLAUDE.md"]
+`
+    },
+    {
+      id: 'connections',
+      title: 'Connections',
+      description: 'Credentials, API surfaces, business units, and environment context.',
+      summary: 'Keep the operational keys in one visible place so Delma can safely connect to SFMC and Salesforce when needed.',
+      mermaid: `---
+config:
+  look: neo
+  theme: neo
+  layout: elk
+---
+flowchart TD
+  Workspace["Delma Workspace"] --> SFMCCreds["SFMC Credentials"]
+  Workspace --> CRMCreds["Salesforce CRM Credentials"]
+  Workspace --> APIs["API Keys / Secrets"]
+  SFMCCreds --> BU["Business Units / MIDs"]
+  CRMCreds --> Sandbox["Sandbox / Prod Orgs"]
+  APIs --> Health["Connection Status / Last Test"]
 `
     },
     {
@@ -460,8 +481,8 @@ flowchart TD
     {
       id: 'data-flows',
       title: 'Data Flows',
-      description: 'How information moves through SFMC systems and local tooling.',
-      summary: 'Use this for journeys, data extensions, APIs, and any operational flow you need to reason about quickly.',
+      description: 'How information moves through SFMC, Salesforce CRM, and any connected systems.',
+      summary: 'Use this for journeys, data extensions, CRM objects, APIs, and any operational flow you need to reason about quickly.',
       mermaid: `---
 config:
   look: neo
@@ -499,7 +520,7 @@ flowchart TD
       id: 'current-work',
       title: 'Current Work',
       description: 'A focused working map for the task in front of you right now.',
-      summary: 'Keep this intentionally small. It should answer what matters in the current coding session.',
+      summary: 'Keep this intentionally small. It should answer what matters in the current change, whether that change lives in SFMC, CRM, or local assets.',
       mermaid: `---
 config:
   look: neo
@@ -520,7 +541,7 @@ flowchart LR
 els.connectBtn.addEventListener('click', () => {
   void openProject().catch((error) => {
     setWorkspaceStatus(error.message)
-    appendLog('Open Project Failed', error.message, 'error')
+    appendLog('Open Workspace Failed', error.message, 'error')
   })
 })
 
@@ -586,7 +607,7 @@ async function init() {
     'Delma Is The Sidecar Now',
     [
       'Claude Code should stay your main coding surface.',
-      'Delma keeps the diagrams, memory files, history, and CLAUDE.md in sync.',
+      'Delma keeps the diagrams, memory files, history, credentials context, and CLAUDE.md in sync.',
       'Run the Delma MCP server with `npm run start:mcp` and point Claude Code at it.'
     ].join('\n')
   )
@@ -600,9 +621,9 @@ async function init() {
       views: starterTemplates.map((view) => ({ ...view }))
     }
     state.memory = {
-      'environment.md': '# Environment\n\nHosted preview for Delma V1.\n',
-      'logic.md': '# Logic\n\nClaude Code is the main worker. Delma is the visual memory sidecar.\n',
-      'people.md': '# People\n\nBuilt first around David’s SFMC workflow.\n',
+      'environment.md': '# Environment\n\nHosted preview for Delma V1. Optional local assets, SFMC, and Salesforce CRM.\n',
+      'logic.md': '# Logic\n\nClaude Code is the main worker. Delma is the shared operational memory sidecar.\n',
+      'people.md': '# People\n\nBuilt first around David’s SFMC workflow and shared stakeholder visibility.\n',
       'session-log.md': '# Session Log\n\nHosted preview loaded.\n'
     }
     state.history = ['preview-snapshot--delma-v1.json']

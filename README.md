@@ -1,12 +1,12 @@
 # Delma
 
-Delma is now a local sidecar for Claude Code, not a Claude wrapper.
+Delma is now a shared SFMC and Salesforce workspace sidecar for Claude Code, not a Claude wrapper.
 
-Claude Code stays the main coding surface. Delma maintains project memory, versioned Mermaid views, and `CLAUDE.md` beside your repo so Claude can read and update that shared context while it works.
+Claude Code stays the main coding surface. Delma maintains shared operational memory, versioned Mermaid views, connections context, and `CLAUDE.md` so Claude can read and update that context while it works.
 
 ## What Delma owns
 
-- `.delma/workspace.json` for diagram tabs like `Codebase`, `Org`, `Data Flows`, `Automations`, and `Current Work`
+- `.delma/workspace.json` for diagram tabs like `Workspace`, `Connections`, `Org`, `Data Flows`, `Automations`, and `Current Work`
 - `.delma/history/` snapshots every time a view is saved
 - `.delma/*.md` memory files
 - project-root `CLAUDE.md`, composed from the Delma workspace and memory files
@@ -15,7 +15,7 @@ Claude Code stays the main coding surface. Delma maintains project memory, versi
 
 - `npm run dev`
   - Runs the local Delma UI and API server
-  - Open a project, edit Mermaid views, inspect memory, and save snapshots
+  - Open a workspace, edit Mermaid views, inspect memory, and save snapshots
 
 - `npm run start:mcp`
   - Runs the Delma MCP server over stdio
@@ -27,7 +27,7 @@ Copy `.mcp.json.example` into your Claude Code MCP config and adjust the path if
 
 Delma exposes tools for:
 
-- opening a project
+- opening a workspace
 - reading Delma state
 - listing and reading diagram views
 - saving a diagram view
@@ -48,7 +48,7 @@ In another terminal:
 npm run start:mcp
 ```
 
-Then point Claude Code at the Delma MCP server and let it update Delma as it learns about the project.
+Then point Claude Code at the Delma MCP server and let it update Delma as it learns about the client workspace, SFMC, Salesforce CRM, and any optional local assets.
 
 ## Personal login
 

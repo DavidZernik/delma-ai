@@ -630,11 +630,11 @@
         <div>
           <div class="eyebrow">Delma</div>
           <h1 id="workspace-title" class="workspace-title">System Map</h1>
-          <div id="workspace-copy" class="workspace-copy">Keep the project map beside Claude while you work.</div>
+          <div id="workspace-copy" class="workspace-copy">Keep the shared SFMC and Salesforce map beside Claude while you work.</div>
         </div>
         <div class="controls">
-          <input id="project-dir" class="project-input" placeholder="/Users/you/project" />
-          <button id="connect-btn" class="secondary-btn">Open Project</button>
+          <input id="project-dir" class="project-input" placeholder="Workspace name or optional local path" />
+          <button id="connect-btn" class="secondary-btn">Open Workspace</button>
         </div>
       </div>
 
@@ -643,7 +643,7 @@
       <div class="diagram-meta">
         <div class="meta-block">
           <div class="meta-label">Active View</div>
-          <div id="view-title" class="meta-title">Codebase</div>
+          <div id="view-title" class="meta-title">Workspace</div>
           <div id="view-description" class="meta-copy"></div>
         </div>
         <div class="meta-block" style="text-align:right;">
@@ -654,14 +654,14 @@
 
       <div class="diagram-stage">
         <div class="diagram-shell">
-          <div id="diagram-output" class="diagram-empty">Connect a project to render the Delma diagram workspace.</div>
+          <div id="diagram-output" class="diagram-empty">Open a workspace to load Delma memory, connections, and diagrams.</div>
         </div>
       </div>
 
       <div class="workspace-footer">
         <div class="status-strip">
           <span id="status-dot" class="dot"></span>
-          <span id="sdk-status">Waiting For Project</span>
+          <span id="sdk-status">Waiting For Workspace</span>
           <span>•</span>
           <span id="workspace-status">Hosted preview ready.</span>
         </div>
@@ -686,7 +686,7 @@
         </div>
       </div>
 
-      <div id="activity-rail" class="activity-rail">Hosted preview mode: this deployment shows the Delma workspace shape. The full sidecar still runs locally beside Claude Code.</div>
+      <div id="activity-rail" class="activity-rail">Hosted preview mode: this deployment shows the Delma workspace shape. The full sidecar can attach local assets, SFMC, and Salesforce connections when needed.</div>
 
       <div id="sdk-body" class="messages"></div>
 
@@ -712,7 +712,7 @@
   <div id="auth-overlay" class="auth-overlay" aria-hidden="true">
     <div class="auth-card">
       <h2 class="auth-title">Sign in to Delma</h2>
-      <p id="auth-copy" class="auth-copy">Use your personal Delma login to open the workspace.</p>
+      <p id="auth-copy" class="auth-copy">Use your personal Delma login to open the shared workspace.</p>
       <form id="auth-form" class="auth-form">
         <input id="auth-username" class="auth-input" type="text" autocomplete="username" placeholder="Username" />
         <input id="auth-password" class="auth-input" type="password" autocomplete="current-password" placeholder="Password" />
