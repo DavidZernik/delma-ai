@@ -103,7 +103,23 @@ async function apiFetch(url, options = {}) {
 }
 
 async function checkAuth() {
-  const response = await fetch('/api/auth/status')
+  let response
+  try {
+    response = await fetch('/api/auth/status')
+  } catch {
+    state.authEnabled = false
+    state.authenticated = true
+    setAuthUi(true)
+    return
+  }
+
+  if (!response.ok) {
+    state.authEnabled = false
+    state.authenticated = true
+    setAuthUi(true)
+    return
+  }
+
   const data = await response.json()
   state.authEnabled = Boolean(data.authEnabled)
   state.authenticated = Boolean(data.authenticated)
