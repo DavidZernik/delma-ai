@@ -54,7 +54,15 @@ Then point Claude Code at the Delma MCP server and let it update Delma as it lea
 
 Delma now supports a simple personal username/password gate for single-user use.
 
-Add these to your `.env`:
+Current local login:
+
+```bash
+DELMA_USERNAME=david
+```
+
+The active password and session secret are stored in your local untracked `.env` file on this machine.
+
+Base shape:
 
 ```bash
 DELMA_USERNAME=david
