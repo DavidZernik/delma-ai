@@ -7,28 +7,23 @@
   <style>
     :root {
       --bg: #f3f5f3;
-      --bg-strong: #e6ebe8;
-      --panel: rgba(255, 255, 255, 0.94);
-      --panel-strong: #ffffff;
+      --panel: #ffffff;
+      --panel-soft: #f7faf8;
       --ink: #0b0d0c;
-      --muted: #58615c;
+      --muted: #5b645f;
       --line: rgba(0, 0, 0, 0.1);
       --accent: #005234;
-      --accent-soft: #d9e8e1;
-      --accent-strong: #003220;
+      --accent-soft: #dce9e2;
       --accent-ink: #f7fbf9;
-      --warn: #8a5d12;
-      --shadow: 0 18px 60px rgba(0, 0, 0, 0.08);
-      --radius-xl: 28px;
-      --radius-lg: 20px;
+      --shadow: 0 20px 60px rgba(0, 0, 0, 0.08);
+      --radius-xl: 24px;
+      --radius-lg: 18px;
       --radius-md: 14px;
-      --mono: "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
+      --mono: "SFMono-Regular", "SF Mono", Consolas, Menlo, monospace;
       --sans: "Instrument Sans", "Avenir Next", "Segoe UI", sans-serif;
     }
 
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
     html, body {
       margin: 0;
@@ -48,270 +43,81 @@
     }
 
     button {
-      cursor: pointer;
       border: 0;
+      cursor: pointer;
       background: transparent;
       color: inherit;
     }
 
-    textarea, input {
+    input, textarea {
       border: 1px solid var(--line);
-      border-radius: 14px;
-      background: rgba(255, 255, 255, 0.72);
+      border-radius: var(--radius-md);
+      background: #fff;
       color: var(--ink);
       outline: none;
       transition: border-color 160ms ease, box-shadow 160ms ease;
     }
 
-    textarea:focus, input:focus {
-      border-color: rgba(0, 82, 52, 0.34);
+    input:focus, textarea:focus {
+      border-color: rgba(0, 82, 52, 0.3);
       box-shadow: 0 0 0 4px rgba(0, 82, 52, 0.08);
     }
 
     .app-shell {
       display: grid;
-      grid-template-columns: 290px 1.35fr 420px;
-      gap: 18px;
+      grid-template-columns: minmax(0, 1.08fr) minmax(360px, 0.92fr);
+      gap: 16px;
       height: 100vh;
-      padding: 18px;
+      padding: 16px;
     }
 
     .panel {
       min-height: 0;
-      border: 1px solid rgba(39, 48, 40, 0.09);
       background: var(--panel);
-      backdrop-filter: blur(18px);
+      border: 1px solid var(--line);
       border-radius: var(--radius-xl);
       box-shadow: var(--shadow);
     }
 
-    .sidebar {
-      display: flex;
-      flex-direction: column;
-      padding: 18px;
-      gap: 18px;
-    }
-
-    .brand {
-      padding: 6px 2px 0;
-    }
-
-    .eyebrow {
-      font-size: 11px;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      color: var(--muted);
-    }
-
-    .title {
-      margin-top: 8px;
-      font-size: 30px;
-      line-height: 0.98;
-      letter-spacing: -0.05em;
-      font-weight: 700;
-    }
-
-    .subtitle {
-      margin-top: 10px;
-      color: var(--muted);
-      font-size: 14px;
-      line-height: 1.5;
-    }
-
-    .stack {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-
-    .label {
-      font-size: 11px;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      color: var(--muted);
-    }
-
-    .project-row {
-      display: flex;
-      gap: 10px;
-    }
-
-    .project-row input {
-      flex: 1;
-      padding: 12px 14px;
-      min-width: 0;
-    }
-
-    .primary-btn,
-    .secondary-btn {
-      border-radius: 14px;
-      padding: 12px 16px;
-      transition: transform 160ms ease, background 160ms ease, color 160ms ease;
-    }
-
-    .primary-btn {
-      background: var(--accent);
-      color: var(--accent-ink);
-      box-shadow: 0 10px 24px rgba(0, 82, 52, 0.14);
-    }
-
-    .secondary-btn {
-      background: #ffffff;
-      border: 1px solid var(--line);
-      color: var(--ink);
-    }
-
-    .primary-btn:hover,
-    .secondary-btn:hover {
-      transform: translateY(-1px);
-    }
-
-    .status-pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 12px;
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.7);
-      border: 1px solid var(--line);
-      color: var(--muted);
-      font-size: 13px;
-      width: fit-content;
-    }
-
-    .dot {
-      width: 9px;
-      height: 9px;
-      border-radius: 999px;
-      background: #c79d3b;
-      box-shadow: 0 0 0 3px rgba(199, 157, 59, 0.12);
-    }
-
-    .dot.connected {
-      background: var(--accent);
-      box-shadow: 0 0 0 3px rgba(0, 82, 52, 0.14);
-    }
-
-    .dot.error {
-      background: #b65044;
-      box-shadow: 0 0 0 3px rgba(182, 80, 68, 0.16);
-    }
-
-    .view-tabs {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-
-    .view-tab {
-      border-radius: 18px;
-      padding: 14px 15px;
-      text-align: left;
-      border: 1px solid transparent;
-      background: rgba(255, 255, 255, 0.46);
-      transition: border-color 160ms ease, transform 160ms ease, background 160ms ease;
-    }
-
-    .view-tab:hover {
-      transform: translateX(2px);
-      border-color: rgba(0, 82, 52, 0.14);
-    }
-
-    .view-tab.active {
-      background: var(--accent-soft);
-      border-color: rgba(0, 82, 52, 0.22);
-    }
-
-    .view-tab-title {
-      font-weight: 650;
-      font-size: 15px;
-      letter-spacing: -0.02em;
-    }
-
-    .view-tab-copy {
-      margin-top: 6px;
-      font-size: 12px;
-      line-height: 1.45;
-      color: var(--muted);
-    }
-
-    .history-list,
-    .memory-list {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      min-height: 0;
-      overflow: auto;
-      padding-right: 4px;
-    }
-
-    .history-item,
-    .memory-item {
-      border-radius: 14px;
-      border: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.56);
-      padding: 10px 12px;
-    }
-
-    .history-item {
-      font-family: var(--mono);
-      font-size: 11px;
-      line-height: 1.45;
-      color: var(--muted);
-    }
-
-    .memory-item h4 {
-      margin: 0 0 6px;
-      font-size: 12px;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--muted);
-    }
-
-    .memory-item pre {
-      margin: 0;
-      white-space: pre-wrap;
-      word-break: break-word;
-      font-size: 12px;
-      line-height: 1.5;
-      color: #364038;
-      font-family: var(--mono);
-      max-height: 150px;
-      overflow: auto;
-    }
-
-    .workspace {
-      display: flex;
-      flex-direction: column;
+    .workspace-panel {
+      display: grid;
+      grid-template-rows: auto auto 1fr auto;
       min-height: 0;
       overflow: hidden;
-      padding: 18px;
     }
 
     .workspace-header {
       display: flex;
-      justify-content: space-between;
       align-items: flex-start;
-      gap: 18px;
-      margin-bottom: 14px;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .eyebrow {
+      font-size: 11px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--muted);
     }
 
     .workspace-title {
-      font-size: 31px;
-      letter-spacing: -0.06em;
+      margin: 6px 0 0;
+      font-size: 30px;
       line-height: 1;
-      margin: 0;
+      letter-spacing: -0.05em;
     }
 
     .workspace-copy {
-      margin-top: 9px;
+      margin-top: 8px;
+      max-width: 620px;
       color: var(--muted);
-      max-width: 720px;
       font-size: 14px;
-      line-height: 1.55;
+      line-height: 1.5;
     }
 
-    .workspace-actions {
+    .controls {
       display: flex;
       align-items: center;
       gap: 10px;
@@ -319,114 +125,112 @@
       justify-content: flex-end;
     }
 
-    .workspace-grid {
-      display: grid;
-      grid-template-rows: auto 1fr auto;
-      gap: 14px;
-      min-height: 0;
-      flex: 1;
+    .project-input {
+      width: 240px;
+      padding: 11px 13px;
     }
 
-    .view-meta {
-      display: grid;
-      grid-template-columns: 1.15fr 0.85fr;
-      gap: 14px;
+    .primary-btn,
+    .secondary-btn {
+      border-radius: var(--radius-md);
+      padding: 11px 14px;
+      white-space: nowrap;
     }
 
-    .meta-card {
-      border-radius: var(--radius-lg);
+    .primary-btn {
+      background: var(--accent);
+      color: var(--accent-ink);
+    }
+
+    .secondary-btn {
+      background: #fff;
       border: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.56);
-      padding: 18px;
+      color: var(--ink);
+    }
+
+    .tab-bar {
+      display: flex;
+      gap: 10px;
+      overflow-x: auto;
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel-soft);
+    }
+
+    .view-tab {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 999px;
+      padding: 10px 14px;
+      text-align: left;
+      min-width: max-content;
+      transition: background 160ms ease, border-color 160ms ease;
+    }
+
+    .view-tab.active {
+      background: var(--accent);
+      color: var(--accent-ink);
+      border-color: var(--accent);
+    }
+
+    .view-tab-title {
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .view-tab-copy {
+      display: none;
+    }
+
+    .diagram-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 14px 20px 8px;
+    }
+
+    .meta-block {
+      min-width: 0;
+    }
+
+    .meta-label {
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--muted);
     }
 
     .meta-title {
-      margin: 0;
-      font-size: 21px;
+      margin-top: 5px;
+      font-size: 22px;
       letter-spacing: -0.04em;
     }
 
     .meta-copy {
-      margin-top: 9px;
+      margin-top: 6px;
       color: var(--muted);
-      line-height: 1.55;
       font-size: 14px;
-    }
-
-    .meta-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
-      margin-top: 14px;
-    }
-
-    .mini-stat {
-      padding: 12px 13px;
-      border-radius: 14px;
-      background: rgba(0, 82, 52, 0.05);
-      border: 1px solid rgba(0, 82, 52, 0.08);
-    }
-
-    .mini-stat-label {
-      font-size: 11px;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: var(--muted);
-    }
-
-    .mini-stat-value {
-      margin-top: 7px;
-      font-size: 13px;
       line-height: 1.5;
-    }
-
-    .diagram-panel {
-      min-height: 0;
-      border-radius: 30px;
-      border: 1px solid rgba(40, 53, 45, 0.08);
-      background: #eef3f0;
-      overflow: hidden;
-      position: relative;
-    }
-
-    .diagram-toolbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 12px 16px;
-      border-bottom: 1px solid rgba(40, 53, 45, 0.08);
-      background: rgba(255, 255, 255, 0.55);
-    }
-
-    .diagram-toolbar strong {
-      font-size: 13px;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-
-    .diagram-toolbar span {
-      color: var(--muted);
-      font-size: 12px;
+      max-width: 680px;
     }
 
     .diagram-stage {
-      height: 100%;
+      min-height: 0;
       overflow: auto;
-      padding: 28px;
+      padding: 10px 20px 20px;
     }
 
-    .diagram-card {
-      min-height: calc(100% - 2px);
-      border-radius: 24px;
-      border: 1px solid rgba(49, 57, 47, 0.08);
-      background: #ffffff;
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
-      padding: 20px;
+    .diagram-shell {
+      min-height: 100%;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: #fff;
+      padding: 18px;
     }
 
     #diagram-output {
-      min-height: 560px;
+      min-height: 620px;
     }
 
     #diagram-output svg {
@@ -439,26 +243,65 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      min-height: 360px;
+      min-height: 420px;
       color: var(--muted);
-      font-size: 14px;
       text-align: center;
-      padding: 40px;
+      font-size: 14px;
+      line-height: 1.5;
+      padding: 32px;
+    }
+
+    .workspace-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 14px 20px 18px;
+      border-top: 1px solid var(--line);
+      background: var(--panel-soft);
+    }
+
+    .status-strip {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 999px;
+      background: #b58b2d;
+      box-shadow: 0 0 0 3px rgba(181, 139, 45, 0.12);
+      flex: 0 0 auto;
+    }
+
+    .dot.connected {
+      background: var(--accent);
+      box-shadow: 0 0 0 3px rgba(0, 82, 52, 0.14);
+    }
+
+    .footer-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
     }
 
     .chat-panel {
       display: grid;
-      grid-template-rows: auto auto 1fr auto auto;
+      grid-template-rows: auto auto 1fr auto;
       min-height: 0;
-      padding: 18px;
-      gap: 12px;
+      overflow: hidden;
+      background: #ffffff;
     }
 
-    .chat-heading {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      align-items: flex-start;
+    .chat-header {
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid var(--line);
     }
 
     .chat-title {
@@ -475,13 +318,14 @@
     }
 
     .activity-rail {
-      border-radius: 18px;
-      background: rgba(255, 255, 255, 0.56);
+      margin: 14px 20px 0;
       border: 1px solid var(--line);
+      border-radius: 14px;
       padding: 12px 14px;
       font-size: 13px;
       line-height: 1.5;
       color: var(--muted);
+      background: var(--panel-soft);
     }
 
     .messages {
@@ -490,7 +334,7 @@
       display: flex;
       flex-direction: column;
       gap: 10px;
-      padding-right: 4px;
+      padding: 16px 20px;
     }
 
     .message {
@@ -500,302 +344,181 @@
       font-size: 14px;
       white-space: pre-wrap;
       word-break: break-word;
-      border: 1px solid transparent;
-      animation: rise 220ms ease;
-    }
-
-    .message.user {
-      background: var(--accent);
-      color: var(--accent-ink);
-      align-self: flex-end;
-      max-width: 92%;
+      border: 1px solid var(--line);
     }
 
     .message.assistant {
-      background: rgba(255, 255, 255, 0.84);
-      border-color: var(--line);
-      color: var(--ink);
-    }
-
-    .message.tool,
-    .message.tool_result,
-    .message.raw,
-    .message.exit {
-      background: rgba(242, 238, 232, 0.92);
-      border-color: rgba(67, 75, 68, 0.08);
-      font-family: var(--mono);
-      font-size: 12px;
-      color: #5f665f;
+      background: #fff;
     }
 
     .message.error {
-      background: rgba(190, 84, 67, 0.08);
-      border-color: rgba(190, 84, 67, 0.14);
-      color: #913f33;
+      border-color: rgba(180, 70, 60, 0.18);
+      background: rgba(180, 70, 60, 0.06);
+      color: #8e3a31;
     }
 
     .composer {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      border-radius: 20px;
+      border-top: 1px solid var(--line);
+      padding: 16px 20px 20px;
+      background: #fff;
+    }
+
+    .composer-shell {
       border: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.68);
+      border-radius: 18px;
       padding: 14px;
+      background: var(--panel-soft);
     }
 
     .composer textarea {
       width: 100%;
       min-height: 120px;
-      resize: vertical;
-      padding: 14px 15px;
-      line-height: 1.55;
+      resize: none;
+      border: 0;
+      background: transparent;
+      padding: 0;
+      box-shadow: none;
+    }
+
+    .composer textarea:focus {
+      box-shadow: none;
     }
 
     .composer-actions {
       display: flex;
-      justify-content: space-between;
       align-items: center;
+      justify-content: space-between;
       gap: 12px;
+      margin-top: 12px;
     }
 
     .composer-hint {
       font-size: 12px;
       color: var(--muted);
+      line-height: 1.45;
+      max-width: 360px;
     }
 
-    .editor-panel {
-      display: grid;
-      grid-template-rows: auto auto 1fr auto auto;
-      min-height: 0;
-      gap: 12px;
-      padding: 18px;
+    .hidden-ui {
+      display: none;
     }
 
-    .editor-field {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-
-    .editor-field input,
-    .editor-field textarea {
-      width: 100%;
-      padding: 12px 14px;
-    }
-
-    .editor-field textarea {
-      min-height: 110px;
-      resize: vertical;
-    }
-
-    #view-mermaid {
-      min-height: 290px;
-      font-family: var(--mono);
-      font-size: 12px;
-      line-height: 1.6;
-    }
-
-    .split-actions {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-
-    .save-note {
-      font-size: 12px;
-      color: var(--muted);
-    }
-
-    @keyframes rise {
-      from {
-        opacity: 0;
-        transform: translateY(8px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-
-    @media (max-width: 1360px) {
-      .app-shell {
-        grid-template-columns: 260px 1fr 380px;
-      }
-    }
-
-    @media (max-width: 1160px) {
+    @media (max-width: 1100px) {
       body {
         height: auto;
         overflow: auto;
       }
 
       .app-shell {
+        grid-template-columns: 1fr;
         height: auto;
         min-height: 100vh;
-        grid-template-columns: 1fr;
+      }
+
+      .controls {
+        justify-content: flex-start;
+      }
+
+      .workspace-header,
+      .workspace-footer,
+      .composer-actions,
+      .diagram-meta {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .project-input {
+        width: 100%;
       }
     }
   </style>
 </head>
 <body>
   <div class="app-shell">
-    <aside class="panel sidebar">
-      <div class="brand">
-        <div class="eyebrow">Delma V1</div>
-        <div class="title">Claude Code,<br/>but worth living in.</div>
-        <div class="subtitle">A cleaner wrapper for your SFMC work: better memory, better diagrams, same core Claude loop.</div>
-      </div>
-
-      <section class="stack">
-        <div class="label">Project</div>
-        <div class="project-row">
-          <input id="project-dir" placeholder="/Users/you/project" />
-          <button id="connect-btn" class="primary-btn">Open Project</button>
-        </div>
-        <div class="status-pill">
-          <span id="status-dot" class="dot"></span>
-          <span id="sdk-status">Disconnected</span>
-        </div>
-      </section>
-
-      <section class="stack">
-        <div class="label">Diagram Tabs</div>
-        <div id="view-tabs" class="view-tabs"></div>
-      </section>
-
-      <section class="stack" style="min-height: 0; flex: 1;">
-        <div class="label">History</div>
-        <div id="history-list" class="history-list">
-          <div class="history-item">Connect a project to start versioning diagram states.</div>
-        </div>
-      </section>
-
-      <section class="stack">
-        <div class="label">Memory Files</div>
-        <div id="memory-list" class="memory-list">
-          <div class="memory-item"><h4>Waiting</h4><pre>Connect a project to load .delma memory files.</pre></div>
-        </div>
-      </section>
-    </aside>
-
-    <main class="panel workspace">
+    <main class="panel workspace-panel">
       <div class="workspace-header">
         <div>
-          <h1 id="workspace-title" class="workspace-title">Delma Workspace</h1>
-          <div id="workspace-copy" class="workspace-copy">Open a project, connect Claude, and keep your architecture visible while you work.</div>
+          <div class="eyebrow">Delma</div>
+          <h1 id="workspace-title" class="workspace-title">Visual Memory For Claude Code</h1>
+          <div id="workspace-copy" class="workspace-copy">Left side stays focused on the live system map. Keep the diagram open while Claude works.</div>
         </div>
-        <div class="workspace-actions">
-          <button id="save-workspace-btn" class="secondary-btn">Save Workspace</button>
-          <button id="compose-btn" class="primary-btn">Compose CLAUDE.md</button>
+        <div class="controls">
+          <input id="project-dir" class="project-input" placeholder="/Users/you/project" />
+          <button id="connect-btn" class="secondary-btn">Open Project</button>
         </div>
       </div>
 
-      <div class="workspace-grid">
-        <div class="view-meta">
-          <section class="meta-card">
-            <div class="label">Active View</div>
-            <h2 id="view-title" class="meta-title">Codebase</h2>
-            <div id="view-description" class="meta-copy"></div>
-            <div class="meta-grid">
-              <div class="mini-stat">
-                <div class="mini-stat-label">Summary</div>
-                <div id="view-summary" class="mini-stat-value"></div>
-              </div>
-              <div class="mini-stat">
-                <div class="mini-stat-label">Workspace Status</div>
-                <div id="workspace-status" class="mini-stat-value">Ready for local-first editing.</div>
-              </div>
-            </div>
-          </section>
-          <section class="meta-card">
-            <div class="label">Why This Matters</div>
-            <div class="meta-copy">Every tab should answer a different question fast. Keep each one beautiful, small enough to scan, and specific enough to trust.</div>
-            <div class="meta-grid">
-              <div class="mini-stat">
-                <div class="mini-stat-label">Project</div>
-                <div id="project-pill" class="mini-stat-value">No project connected</div>
-              </div>
-              <div class="mini-stat">
-                <div class="mini-stat-label">History</div>
-                <div id="history-pill" class="mini-stat-value">0 snapshots</div>
-              </div>
-            </div>
-          </section>
-        </div>
+      <div id="view-tabs" class="tab-bar"></div>
 
-        <section class="diagram-panel">
-          <div class="diagram-toolbar">
-            <div>
-              <strong id="diagram-toolbar-title">Mermaid View</strong>
-              <span id="diagram-toolbar-subtitle">Rendered from Delma workspace state</span>
-            </div>
-            <div class="split-actions">
-              <button id="reset-example-btn" class="secondary-btn">Reset This View</button>
-            </div>
-          </div>
-          <div class="diagram-stage">
-            <div class="diagram-card">
-              <div id="diagram-output" class="diagram-empty">Connect a project to render Delma diagrams.</div>
-            </div>
-          </div>
-        </section>
+      <div class="diagram-meta">
+        <div class="meta-block">
+          <div class="meta-label">Active View</div>
+          <div id="view-title" class="meta-title">Codebase</div>
+          <div id="view-description" class="meta-copy"></div>
+        </div>
+        <div class="meta-block" style="text-align:right;">
+          <div class="meta-label">Summary</div>
+          <div id="view-summary" class="meta-copy" style="max-width: 320px;"></div>
+        </div>
+      </div>
+
+      <div class="diagram-stage">
+        <div class="diagram-shell">
+          <div id="diagram-output" class="diagram-empty">Connect a project to render the Delma diagram workspace.</div>
+        </div>
+      </div>
+
+      <div class="workspace-footer">
+        <div class="status-strip">
+          <span id="status-dot" class="dot"></span>
+          <span id="sdk-status">Waiting For Project</span>
+          <span>•</span>
+          <span id="workspace-status">Hosted preview ready.</span>
+        </div>
+        <div class="footer-actions">
+          <button id="reset-example-btn" class="secondary-btn">Reset View</button>
+          <button id="save-workspace-btn" class="secondary-btn">Save Workspace</button>
+          <button id="compose-btn" class="primary-btn">Update CLAUDE.md</button>
+        </div>
       </div>
     </main>
 
-    <section class="panel editor-panel">
-      <div class="chat-heading">
-        <div>
-          <h2 class="chat-title">Claude Code + Delma</h2>
-          <div class="chat-copy">Claude Code stays your main worker. This panel explains the sidecar workflow and records Delma actions.</div>
-        </div>
+    <section class="panel chat-panel">
+      <div class="chat-header">
+        <h2 class="chat-title">Claude Code</h2>
+        <div class="chat-copy">Keep the right side as simple chat. Delma sits beside it and updates the diagram, memory, and `CLAUDE.md` while Claude works.</div>
       </div>
 
-      <div id="activity-rail" class="activity-rail">No project connected yet.</div>
+      <div id="activity-rail" class="activity-rail">Hosted preview mode: this deployment shows the Delma workspace shape. The full sidecar still runs locally beside Claude Code.</div>
 
       <div id="sdk-body" class="messages"></div>
 
       <div class="composer">
-        <textarea id="input" placeholder="Claude Code is now the main chat surface." disabled></textarea>
-        <div class="composer-actions">
-          <div class="composer-hint">Run `npm run start:mcp`, add Delma to Claude Code MCP config, and let Claude update this workspace while you work.</div>
-          <button id="send-btn" class="secondary-btn" disabled>Claude Lives In Claude Code</button>
+        <div class="composer-shell">
+          <textarea id="input" placeholder="Claude Code remains the main chat surface." disabled></textarea>
+          <div class="composer-actions">
+            <div class="composer-hint">Run Delma locally with `npm run dev` and `npm run start:mcp`, then let Claude Code call Delma while it works.</div>
+            <button id="send-btn" class="secondary-btn" disabled>Chat Lives In Claude Code</button>
+          </div>
         </div>
       </div>
-
-      <div class="chat-heading" style="padding-top: 4px;">
-        <div>
-          <h2 class="chat-title">View Editor</h2>
-          <div class="chat-copy">Edit the active diagram directly, keep a clean summary, and save snapshots as you refine your workspace.</div>
-        </div>
-      </div>
-
-      <div class="editor-field">
-        <label class="label" for="view-title-input">Title</label>
-        <input id="view-title-input" />
-      </div>
-
-      <div class="editor-field">
-        <label class="label" for="view-description-input">Description</label>
-        <textarea id="view-description-input"></textarea>
-      </div>
-
-      <div class="editor-field">
-        <label class="label" for="view-summary-input">Summary</label>
-        <textarea id="view-summary-input"></textarea>
-      </div>
-
-      <div class="editor-field" style="min-height: 0;">
-        <label class="label" for="view-mermaid">Mermaid</label>
-        <textarea id="view-mermaid"></textarea>
-      </div>
-
-      <div class="split-actions">
-        <button id="preview-btn" class="secondary-btn">Preview Changes</button>
-        <button id="save-view-btn" class="primary-btn">Save View</button>
-      </div>
-      <div id="save-note" class="save-note">Workspace snapshots are written into <code>.delma/history/</code> whenever you save.</div>
     </section>
+  </div>
+
+  <div class="hidden-ui" aria-hidden="true">
+    <div id="history-list"></div>
+    <div id="memory-list"></div>
+    <div id="project-pill"></div>
+    <div id="history-pill"></div>
+    <div id="diagram-toolbar-title"></div>
+    <div id="diagram-toolbar-subtitle"></div>
+    <input id="view-title-input" />
+    <textarea id="view-description-input"></textarea>
+    <textarea id="view-summary-input"></textarea>
+    <textarea id="view-mermaid"></textarea>
+    <button id="preview-btn"></button>
+    <button id="save-view-btn"></button>
+    <div id="save-note"></div>
   </div>
 
   <script type="module" src="/src/main.js"></script>
