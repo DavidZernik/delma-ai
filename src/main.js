@@ -400,8 +400,8 @@ async function composeClaudeMd() {
   const response = await apiFetch('/api/memory/compose', { method: 'POST' })
   const data = await response.json()
   if (!response.ok) throw new Error(data.error || 'Unable to compose CLAUDE.md')
-  setWorkspaceStatus(`Composed CLAUDE.md (${data.length} chars)`)
-  appendLog('CLAUDE.md Updated', `Regenerated from the Delma workspace and memory files. Length: ${data.length} chars.`)
+  setWorkspaceStatus(`Refreshed workspace brief (${data.length} chars)`)
+  appendLog('Workspace Brief Refreshed', `Regenerated the shared brief from Delma memory and diagrams. Length: ${data.length} chars.`)
 }
 
 function resetActiveView() {

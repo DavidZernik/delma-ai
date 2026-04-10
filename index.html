@@ -197,14 +197,23 @@
       color: var(--ink);
     }
 
-    .tab-bar {
+    .tab-row {
       display: flex;
-      gap: 8px;
-      overflow-x: auto;
-      scrollbar-width: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
       padding: 12px 20px;
       border-bottom: 1px solid var(--line);
       background: var(--panel-soft);
+    }
+
+    .tab-bar {
+      display: flex;
+      gap: 8px;
+      flex: 1 1 auto;
+      overflow-x: auto;
+      scrollbar-width: none;
+      min-width: 0;
     }
 
     .tab-bar::-webkit-scrollbar {
@@ -234,6 +243,10 @@
 
     .view-tab-copy {
       display: none;
+    }
+
+    .tab-action {
+      flex: 0 0 auto;
     }
 
     .diagram-meta {
@@ -632,7 +645,7 @@
 
     @media (max-width: 720px) {
       .workspace-header,
-      .tab-bar,
+      .tab-row,
       .diagram-meta,
       .diagram-stage,
       .workspace-footer,
@@ -641,6 +654,12 @@
       .composer {
         padding-left: 14px;
         padding-right: 14px;
+      }
+
+      .tab-row {
+        gap: 10px;
+        padding-top: 10px;
+        padding-bottom: 10px;
       }
 
       .workspace-header,
@@ -663,12 +682,14 @@
 
       .tab-bar {
         gap: 6px;
-        padding-top: 10px;
-        padding-bottom: 10px;
       }
 
       .view-tab {
         padding: 7px 10px;
+      }
+
+      .tab-action {
+        width: auto;
       }
 
       .diagram-meta {
@@ -780,15 +801,15 @@
 
     @media (max-width: 480px) {
       .workspace-header,
-      .tab-bar,
+      .tab-row,
       .diagram-meta,
       .diagram-stage,
       .workspace-footer,
       .chat-header,
       .messages,
       .composer {
-        padding-left: 12px;
-        padding-right: 12px;
+        padding-left: 14px;
+        padding-right: 14px;
       }
 
       .eyebrow,
@@ -815,13 +836,24 @@
         text-align: center;
       }
 
-      .tab-bar {
+      .tab-row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
         padding-top: 8px;
         padding-bottom: 8px;
       }
 
+      .tab-bar {
+        width: 100%;
+      }
+
       .view-tab-title {
         font-size: 10px;
+      }
+
+      .tab-action {
+        width: 100%;
       }
 
       .diagram-shell {
@@ -877,7 +909,10 @@
         </div>
       </div>
 
-      <div id="view-tabs" class="tab-bar"></div>
+      <div class="tab-row">
+        <div id="view-tabs" class="tab-bar"></div>
+        <button id="compose-btn" class="primary-btn tab-action">Refresh Brief</button>
+      </div>
 
       <div class="diagram-meta">
         <div class="meta-block">
@@ -907,7 +942,6 @@
         <div class="footer-actions">
           <button id="reset-example-btn" class="secondary-btn">Restore View</button>
           <button id="save-workspace-btn" class="secondary-btn">Save Workspace</button>
-          <button id="compose-btn" class="primary-btn">Update CLAUDE.md</button>
         </div>
       </div>
     </main>
