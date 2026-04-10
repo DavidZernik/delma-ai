@@ -419,10 +419,10 @@ function resetActiveView() {
 function defaultViewTemplates() {
   return [
     {
-      id: 'workspace',
-      title: 'Workspace',
-      description: 'Shared map of the client, org context, systems, and current operational surface area.',
-      summary: 'This is the top-level Delma map for SFMC, Salesforce CRM, stakeholder context, and any optional local assets.',
+      id: 'architecture',
+      title: 'Architecture',
+      description: 'How the systems, code assets, integrations, and automation surfaces work together.',
+      summary: 'Use this to explain how the technical pieces fit together across SFMC, Salesforce CRM, integrations, and any supporting code.',
       mermaid: `---
 config:
   look: neo
@@ -430,39 +430,20 @@ config:
   layout: elk
 ---
 flowchart LR
-  PM["PM / Stakeholder"] --> Delma["Delma Workspace"]
-  Architect["SFMC Architect"] --> Delma
-  Claude["Claude Code"] --> Delma
-  Delma --> SFMC["SFMC"]
-  Delma --> CRM["Salesforce CRM"]
-  Delma --> Memory["Memory + Diagrams + CLAUDE.md"]
-`
-    },
-    {
-      id: 'connections',
-      title: 'Connections',
-      description: 'Credentials, API surfaces, business units, and environment context.',
-      summary: 'Keep the operational keys in one visible place so Delma can safely connect to SFMC and Salesforce when needed.',
-      mermaid: `---
-config:
-  look: neo
-  theme: neo
-  layout: elk
----
-flowchart TD
-  Workspace["Delma Workspace"] --> SFMCCreds["SFMC Credentials"]
-  Workspace --> CRMCreds["Salesforce CRM Credentials"]
-  Workspace --> APIs["API Keys / Secrets"]
-  SFMCCreds --> BU["Business Units / MIDs"]
-  CRMCreds --> Sandbox["Sandbox / Prod Orgs"]
-  APIs --> Health["Connection Status / Last Test"]
+  CRM["Salesforce CRM"] --> Sync["Integration Layer"]
+  SFMC["SFMC"] --> Sync
+  Sync --> Journeys["Journeys / Automations"]
+  Sync --> Data["Data Extensions / Objects"]
+  Code["Optional Local Code"] --> Sync
+  Delma["Delma Memory"] --> Claude["Claude Code"]
+  Claude --> Sync
 `
     },
     {
       id: 'org',
       title: 'Org',
-      description: 'People, ownership, stakeholders, and trust boundaries.',
-      summary: 'Capture who owns what, which business stakeholders matter, and where decisions come from.',
+      description: 'The human org of the company: stakeholders, owners, decision-makers, and trust boundaries.',
+      summary: 'Capture who owns what, who approves changes, who to ask, and where human context shapes the work.',
       mermaid: `---
 config:
   look: neo
@@ -470,69 +451,12 @@ config:
   layout: elk
 ---
 flowchart TD
-  You["You"] --> Claude["Claude Code"]
-  Claude --> Delma["Delma"]
-  Delma --> Memory["Project Memory"]
-  Memory --> Owners["Owners & Stakeholders"]
-  Memory --> Constraints["Known Constraints"]
-  Owners --> Decisions["Decision Context"]
-`
-    },
-    {
-      id: 'data-flows',
-      title: 'Data Flows',
-      description: 'How information moves through SFMC, Salesforce CRM, and any connected systems.',
-      summary: 'Use this for journeys, data extensions, CRM objects, APIs, and any operational flow you need to reason about quickly.',
-      mermaid: `---
-config:
-  look: neo
-  theme: neo
-  layout: elk
----
-flowchart LR
-  Source["External Source"] --> Ingest["Ingest / API"]
-  Ingest --> SFMC["SFMC"]
-  SFMC --> Journey["Journey / Automation"]
-  Journey --> Output["Customer Output"]
-  SFMC --> Reporting["Reporting / Audit"]
-`
-    },
-    {
-      id: 'automations',
-      title: 'Automations',
-      description: 'Scheduled jobs, triggers, and operational dependencies.',
-      summary: 'Track what runs, what it depends on, and where failure or manual intervention can happen.',
-      mermaid: `---
-config:
-  look: neo
-  theme: neo
-  layout: elk
----
-flowchart TD
-  Trigger["Trigger"] --> Job["Automation"]
-  Job --> Script["Script / Query"]
-  Script --> Data["Data Extension"]
-  Data --> Journey["Journey Update"]
-  Job --> Alert["Alert / Review"]
-`
-    },
-    {
-      id: 'current-work',
-      title: 'Current Work',
-      description: 'A focused working map for the task in front of you right now.',
-      summary: 'Keep this intentionally small. It should answer what matters in the current change, whether that change lives in SFMC, CRM, or local assets.',
-      mermaid: `---
-config:
-  look: neo
-  theme: neo
-  layout: elk
----
-flowchart LR
-  Task["Current Task"] --> Files["Files / Assets"]
-  Task --> Systems["Systems Touched"]
-  Task --> Risks["Open Risks"]
-  Files --> Outcome["Planned Outcome"]
-  Systems --> Outcome
+  Architect["SFMC Architect"] --> PM["Product / PM"]
+  Architect --> Marketing["Marketing Ops"]
+  Architect --> SalesOps["Sales Ops / CRM"]
+  PM --> Stakeholders["Stakeholders"]
+  Marketing --> Approvals["Approvals / Signoff"]
+  SalesOps --> Approvals
 `
     }
   ]

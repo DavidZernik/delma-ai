@@ -6,7 +6,7 @@ Claude Code stays the main coding surface. Delma maintains shared operational me
 
 ## What Delma owns
 
-- `.delma/workspace.json` for diagram tabs like `Workspace`, `Connections`, `Org`, `Data Flows`, `Automations`, and `Current Work`
+- `.delma/workspace.json` for the two core diagram tabs: `Architecture` and `Org`
 - `.delma/history/` snapshots every time a view is saved
 - `.delma/*.md` memory files
 - project-root `CLAUDE.md`, composed from the Delma workspace and memory files
