@@ -1,6 +1,7 @@
-import { join } from 'path'
-import { mkdir, readdir, readFile, writeFile } from 'fs/promises'
-import { existsSync } from 'fs'
+// Delma state management — Supabase backend
+// All workspace, diagram, memory, and history operations go through Supabase.
+
+import { supabase } from './lib/supabase.js'
 
 export const MEMORY_FILES = [
   'environment.md',
@@ -9,26 +10,29 @@ export const MEMORY_FILES = [
   'session-log.md'
 ]
 
-export const DEFAULT_MEMORY_FILES = {
+const VISIBILITY_RULES = {
+  'environment.md': 'shared',
+  'logic.md': 'shared',
+  'people.md': 'shared',
+  'session-log.md': 'private'
+}
+
+const DEFAULT_MEMORY_CONTENT = {
   'environment.md': '# Environment\n\nTech stack, dependencies, infrastructure, and repo setup.\n',
   'logic.md': '# Logic\n\nBusiness logic, architecture decisions, and implementation details.\n',
   'people.md': '# People\n\nOwnership, stakeholders, preferences, and tribal knowledge.\n',
   'session-log.md': '# Session Log\n'
 }
 
-export function defaultWorkspace(dir = '') {
-  const projectName = dir ? dir.split('/').filter(Boolean).pop() : 'Workspace'
-  return {
-    projectName,
-    updatedAt: new Date().toISOString(),
-    views: [
-      {
-        id: 'architecture',
-        title: 'Architecture',
-        kind: 'architecture',
-        description: 'How the systems, code assets, integrations, and automation surfaces work together.',
-        summary: 'Use this to explain how the technical pieces fit together across SFMC, Salesforce CRM, integrations, and any supporting code.',
-        mermaid: `---
+const DEFAULT_VIEWS = [
+  {
+    view_key: 'architecture',
+    title: 'Architecture',
+    kind: 'architecture',
+    description: 'How the systems, code assets, integrations, and automation surfaces work together.',
+    summary: 'Use this to explain how the technical pieces fit together.',
+    visibility: 'shared',
+    mermaid: `---
 config:
   look: neo
   theme: neo
@@ -43,14 +47,15 @@ flowchart LR
   Delma["Delma Memory"] --> Claude["Claude Code"]
   Claude --> Sync
 `
-      },
-      {
-        id: 'org',
-        title: 'Org Chart',
-        kind: 'people',
-        description: 'The human org of the company: stakeholders, owners, decision-makers, and trust boundaries.',
-        summary: 'Capture who owns what, who approves changes, who to ask, and where human context shapes the work.',
-        mermaid: `---
+  },
+  {
+    view_key: 'org',
+    title: 'Org Chart',
+    kind: 'people',
+    description: 'The human org of the company: stakeholders, owners, decision-makers, and trust boundaries.',
+    summary: 'Capture who owns what, who approves changes, and where human context shapes the work.',
+    visibility: 'shared',
+    mermaid: `---
 config:
   look: neo
   theme: neo
@@ -64,107 +69,259 @@ flowchart TD
   Marketing --> Approvals["Approvals / Signoff"]
   SalesOps --> Approvals
 `
-      }
-    ]
   }
-}
+]
 
-export function defaultGraph() {
-  return {
-    nodes: [],
-    edges: [],
-    updatedAt: new Date().toISOString()
-  }
-}
+// ── Workspaces ───────────────────────────────────────────────────────────────
 
-export function safeMemoryFile(filename) {
-  const base = filename.replace(/[^a-zA-Z0-9._-]/g, '')
-  if (!base || base.startsWith('.')) return null
-  return base
-}
+export async function createWorkspace(name, userId) {
+  const { data: workspace, error } = await supabase
+    .from('workspaces')
+    .insert({ name, created_by: userId })
+    .select()
+    .single()
+  if (error) throw new Error(`Failed to create workspace: ${error.message}`)
 
-export function getDelmaPath(dir) {
-  return join(dir, '.delma')
-}
+  // Add creator as owner
+  await supabase.from('workspace_members').insert({
+    workspace_id: workspace.id,
+    user_id: userId,
+    role: 'owner'
+  })
 
-export function getWorkspacePath(dir) {
-  return join(getDelmaPath(dir), 'workspace.json')
-}
-
-export function getHistoryDir(dir) {
-  return join(getDelmaPath(dir), 'history')
-}
-
-export function getGraphPath(dir) {
-  return join(getDelmaPath(dir), 'graph.json')
-}
-
-export async function ensureProjectState(dir) {
-  if (!dir) throw new Error('No project directory set')
-  const delmaDir = getDelmaPath(dir)
-  const historyDir = getHistoryDir(dir)
-
-  if (!existsSync(delmaDir)) await mkdir(delmaDir, { recursive: true })
-  if (!existsSync(historyDir)) await mkdir(historyDir, { recursive: true })
-
-  for (const [file, content] of Object.entries(DEFAULT_MEMORY_FILES)) {
-    const filePath = join(delmaDir, file)
-    if (!existsSync(filePath)) await writeFile(filePath, content, 'utf-8')
-  }
-
-  const workspacePath = getWorkspacePath(dir)
-  if (!existsSync(workspacePath)) {
-    await writeFile(workspacePath, JSON.stringify(defaultWorkspace(dir), null, 2), 'utf-8')
-  }
-
-  const graphPath = getGraphPath(dir)
-  if (!existsSync(graphPath)) {
-    await writeFile(graphPath, JSON.stringify(defaultGraph(), null, 2), 'utf-8')
-  }
-
-  return { delmaDir, historyDir, workspacePath, graphPath }
-}
-
-export async function readWorkspace(dir) {
-  await ensureProjectState(dir)
-  return JSON.parse(await readFile(getWorkspacePath(dir), 'utf-8'))
-}
-
-export async function readGraph(dir) {
-  await ensureProjectState(dir)
-  return JSON.parse(await readFile(getGraphPath(dir), 'utf-8'))
-}
-
-export async function readMemoryMap(dir) {
-  await ensureProjectState(dir)
-  const entries = await Promise.all(
-    MEMORY_FILES.map(async (file) => {
-      const filePath = join(getDelmaPath(dir), file)
-      const content = existsSync(filePath) ? await readFile(filePath, 'utf-8') : ''
-      return [file, content]
+  // Seed default diagram views
+  for (const view of DEFAULT_VIEWS) {
+    await supabase.from('diagram_views').insert({
+      workspace_id: workspace.id,
+      owner_id: userId,
+      ...view
     })
-  )
-  return Object.fromEntries(entries)
-}
-
-export async function listHistory(dir) {
-  await ensureProjectState(dir)
-  return (await readdir(getHistoryDir(dir))).filter((name) => name.endsWith('.json')).sort().reverse()
-}
-
-export async function writeHistorySnapshot(dir, workspace, reason = 'workspace-save') {
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-  const file = `${stamp}--${reason}.json`
-  const payload = {
-    reason,
-    snapshotAt: new Date().toISOString(),
-    workspace
   }
-  await writeFile(join(getHistoryDir(dir), file), JSON.stringify(payload, null, 2), 'utf-8')
-  return file
+
+  // Seed default memory notes
+  for (const [filename, content] of Object.entries(DEFAULT_MEMORY_CONTENT)) {
+    const visibility = VISIBILITY_RULES[filename] || 'shared'
+    await supabase.from('memory_notes').insert({
+      workspace_id: workspace.id,
+      filename,
+      content,
+      visibility,
+      owner_id: userId
+    })
+  }
+
+  return workspace
 }
 
-export function buildClaudeFromWorkspace(workspace, memoryMap) {
+export async function listWorkspaces(userId) {
+  const { data, error } = await supabase
+    .from('workspace_members')
+    .select('workspace_id, role, workspaces(id, name, created_at)')
+    .eq('user_id', userId)
+  if (error) throw new Error(`Failed to list workspaces: ${error.message}`)
+  return data.map(row => ({ ...row.workspaces, role: row.role }))
+}
+
+export async function getWorkspace(workspaceId) {
+  const { data, error } = await supabase
+    .from('workspaces')
+    .select('*')
+    .eq('id', workspaceId)
+    .single()
+  if (error) throw new Error(`Workspace not found: ${error.message}`)
+  return data
+}
+
+// ── Diagram Views ────────────────────────────────────────────────────────────
+
+export async function readDiagramViews(workspaceId, userId) {
+  const { data, error } = await supabase
+    .from('diagram_views')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .or(`visibility.eq.shared,owner_id.eq.${userId}`)
+    .order('view_key')
+  if (error) throw new Error(`Failed to read views: ${error.message}`)
+  return data
+}
+
+export async function getDiagramView(workspaceId, viewKey, userId) {
+  const { data, error } = await supabase
+    .from('diagram_views')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .eq('view_key', viewKey)
+    .or(`visibility.eq.shared,owner_id.eq.${userId}`)
+    .single()
+  if (error) throw new Error(`View not found: ${error.message}`)
+  return data
+}
+
+export async function saveDiagramView(workspaceId, viewKey, updates, userId, reason) {
+  // Find existing view
+  const { data: existing } = await supabase
+    .from('diagram_views')
+    .select('id')
+    .eq('workspace_id', workspaceId)
+    .eq('view_key', viewKey)
+    .or(`visibility.eq.shared,owner_id.eq.${userId}`)
+    .single()
+
+  const payload = {
+    workspace_id: workspaceId,
+    view_key: viewKey,
+    owner_id: userId,
+    ...updates
+  }
+
+  let view
+  if (existing) {
+    const { data, error } = await supabase
+      .from('diagram_views')
+      .update(payload)
+      .eq('id', existing.id)
+      .select()
+      .single()
+    if (error) throw new Error(`Failed to update view: ${error.message}`)
+    view = data
+  } else {
+    const { data, error } = await supabase
+      .from('diagram_views')
+      .insert(payload)
+      .select()
+      .single()
+    if (error) throw new Error(`Failed to create view: ${error.message}`)
+    view = data
+  }
+
+  // Write history snapshot
+  await writeHistorySnapshot(workspaceId, userId, reason || `save-${viewKey}`)
+
+  return view
+}
+
+// ── Memory Notes ─────────────────────────────────────────────────────────────
+
+export async function readMemoryMap(workspaceId, userId) {
+  const { data, error } = await supabase
+    .from('memory_notes')
+    .select('*')
+    .eq('workspace_id', workspaceId)
+    .or(`visibility.eq.shared,owner_id.eq.${userId}`)
+  if (error) throw new Error(`Failed to read memory: ${error.message}`)
+
+  const map = {}
+  for (const row of data) {
+    map[row.filename] = row.content
+  }
+  return map
+}
+
+export async function appendMemoryNote(workspaceId, filename, note, heading, userId) {
+  const visibility = VISIBILITY_RULES[filename] || 'shared'
+
+  // Find existing note
+  const { data: existing } = await supabase
+    .from('memory_notes')
+    .select('id, content')
+    .eq('workspace_id', workspaceId)
+    .eq('filename', filename)
+    .or(`visibility.eq.shared,owner_id.eq.${userId}`)
+    .single()
+
+  const prefix = heading ? `\n## ${heading}\n` : '\n'
+  const newContent = (existing?.content || '') + `${prefix}${note.trim()}\n`
+
+  if (existing) {
+    await supabase
+      .from('memory_notes')
+      .update({ content: newContent })
+      .eq('id', existing.id)
+  } else {
+    await supabase
+      .from('memory_notes')
+      .insert({
+        workspace_id: workspaceId,
+        filename,
+        content: newContent,
+        visibility,
+        owner_id: userId
+      })
+  }
+
+  return newContent
+}
+
+export async function updateMemoryNote(workspaceId, filename, content, userId) {
+  const visibility = VISIBILITY_RULES[filename] || 'shared'
+
+  const { data: existing } = await supabase
+    .from('memory_notes')
+    .select('id')
+    .eq('workspace_id', workspaceId)
+    .eq('filename', filename)
+    .or(`visibility.eq.shared,owner_id.eq.${userId}`)
+    .single()
+
+  if (existing) {
+    await supabase
+      .from('memory_notes')
+      .update({ content })
+      .eq('id', existing.id)
+  } else {
+    await supabase
+      .from('memory_notes')
+      .insert({ workspace_id: workspaceId, filename, content, visibility, owner_id: userId })
+  }
+}
+
+// ── History ──────────────────────────────────────────────────────────────────
+
+export async function writeHistorySnapshot(workspaceId, userId, reason) {
+  // Capture current state as snapshot
+  const views = await readDiagramViews(workspaceId, userId)
+  const memory = await readMemoryMap(workspaceId, userId)
+
+  await supabase.from('history_snapshots').insert({
+    workspace_id: workspaceId,
+    reason,
+    snapshot: { views, memory },
+    created_by: userId
+  })
+}
+
+export async function listHistory(workspaceId) {
+  const { data, error } = await supabase
+    .from('history_snapshots')
+    .select('id, reason, created_at, created_by')
+    .eq('workspace_id', workspaceId)
+    .order('created_at', { ascending: false })
+    .limit(30)
+  if (error) throw new Error(`Failed to list history: ${error.message}`)
+  return data
+}
+
+// ── MCP Call Logging ─────────────────────────────────────────────────────────
+
+export async function logMcpCall({ workspaceId, userId, tool, input, durationMs, success, error }) {
+  try {
+    await supabase.from('mcp_call_logs').insert({
+      workspace_id: workspaceId || null,
+      user_id: userId || null,
+      tool,
+      input,
+      duration_ms: durationMs,
+      success,
+      error: error || null
+    })
+  } catch {
+    // best-effort logging
+  }
+}
+
+// ── CLAUDE.md Generation ─────────────────────────────────────────────────────
+
+export function buildClaudeMd(views, memoryMap) {
   const sections = [
     '# Delma Workspace Memory',
     '',
@@ -176,7 +333,7 @@ export function buildClaudeFromWorkspace(workspace, memoryMap) {
     '',
     '- **`append_memory_note`** — when the user confirms a fact about a person, role, ownership, or decision',
     '- **`save_diagram_view`** — when a structural relationship changes (new person, new system, new connection, reporting change)',
-    '- **`get_delma_state`** — call at the start of each conversation to load current workspace context',
+    '- **`get_workspace_state`** — call at the start of each conversation to load current workspace context',
     '',
     'Rules:',
     '- Only write what the user has explicitly stated or confirmed. Never write inferences.',
@@ -185,22 +342,23 @@ export function buildClaudeFromWorkspace(workspace, memoryMap) {
     '- Use `logic.md` for business rules, routing decisions, architecture choices.',
     '- Use `environment.md` for IDs, keys, URLs, credentials context.',
     '- Use `session-log.md` for status, what was done this session, what remains.',
-    '- Update the Org Chart diagram (`save_diagram_view` viewId `org`) when reporting structure changes.',
+    '- Update the Org Chart diagram (`save_diagram_view` viewKey `org`) when reporting structure changes.',
+    '',
+    '## Diagram Views',
     ''
   ]
 
-  sections.push('## Diagram Views', '')
-  for (const view of workspace.views || []) {
+  for (const view of views || []) {
     sections.push(`### ${view.title}`)
     if (view.description) sections.push(view.description)
     if (view.summary) sections.push('', view.summary)
     sections.push('', '```mermaid', view.mermaid?.trim() || 'flowchart TD\n  A[Empty]', '```', '')
   }
 
-  const memoryEntries = Object.entries(memoryMap).filter(([, value]) => value && value.trim())
-  if (memoryEntries.length) {
+  const memEntries = Object.entries(memoryMap || {}).filter(([, v]) => v?.trim())
+  if (memEntries.length) {
     sections.push('## Reference Notes', '')
-    for (const [file, content] of memoryEntries) {
+    for (const [file, content] of memEntries) {
       sections.push(`### ${file}`, '', content.trim(), '')
     }
   }
@@ -208,25 +366,8 @@ export function buildClaudeFromWorkspace(workspace, memoryMap) {
   return sections.join('\n').trim() + '\n'
 }
 
-export async function composeClaudeMd(dir) {
-  await ensureProjectState(dir)
-  const [workspace, memoryMap] = await Promise.all([readWorkspace(dir), readMemoryMap(dir)])
-  const composed = buildClaudeFromWorkspace(workspace, memoryMap)
-
-  await writeFile(join(getDelmaPath(dir), 'CLAUDE.md'), composed, 'utf-8')
-  await writeFile(join(dir, 'CLAUDE.md'), composed, 'utf-8')
-
-  return composed
-}
-
-export async function writeWorkspace(dir, workspace, reason = 'workspace-save') {
-  await ensureProjectState(dir)
-  const next = {
-    ...workspace,
-    updatedAt: new Date().toISOString()
-  }
-  await writeFile(getWorkspacePath(dir), JSON.stringify(next, null, 2), 'utf-8')
-  const snapshotFile = await writeHistorySnapshot(dir, next, reason)
-  await composeClaudeMd(dir)
-  return { workspace: next, snapshotFile }
+export async function composeClaudeMd(workspaceId, userId) {
+  const views = await readDiagramViews(workspaceId, userId)
+  const memory = await readMemoryMap(workspaceId, userId)
+  return buildClaudeMd(views, memory)
 }

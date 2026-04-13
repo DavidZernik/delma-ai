@@ -4,7 +4,11 @@
       "command": "node",
       "args": [
         "/Users/davidzernik/Desktop/delma/server/mcp.js"
-      ]
+      ],
+      "env": {
+        "DELMA_WORKSPACE_ID": "your-workspace-uuid",
+        "DELMA_USER_ID": "your-user-uuid"
+      }
     }
   }
 }

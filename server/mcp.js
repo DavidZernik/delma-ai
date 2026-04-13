@@ -1,46 +1,33 @@
-import { resolve, join } from 'path'
-import { existsSync } from 'fs'
-import { readFile, writeFile, appendFile } from 'fs/promises'
+// Delma MCP Server — Supabase backend
+// Runs via stdio transport. Claude Code connects to this.
+// Env: DELMA_WORKSPACE_ID, DELMA_USER_ID (set in .mcp.json)
+
+import { config } from 'dotenv'
+config()
+
 import { z } from 'zod'
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import {
-  ensureProjectState,
-  readWorkspace,
-  readGraph,
+  createWorkspace,
+  listWorkspaces,
+  getWorkspace,
+  readDiagramViews,
+  getDiagramView,
+  saveDiagramView,
   readMemoryMap,
+  appendMemoryNote,
   listHistory,
-  writeWorkspace,
-  composeClaudeMd,
-  getDelmaPath
+  logMcpCall,
+  composeClaudeMd
 } from './delma-state.js'
 
-const server = new McpServer({
-  name: 'delma',
-  version: '1.0.0'
-})
+const server = new McpServer({ name: 'delma', version: '2.0.0' })
 
-let activeProjectDir = process.env.DELMA_PROJECT_DIR ? resolve(process.env.DELMA_PROJECT_DIR) : null
+let activeWorkspaceId = process.env.DELMA_WORKSPACE_ID || null
+let activeUserId = process.env.DELMA_USER_ID || null
 
-// ── MCP Call Logger ──────────────────────────────────────────────────────────
-// Writes to .delma/mcp-calls.jsonl — one JSON line per tool call.
-// Used by the analyzer app to understand when and why Claude calls MCP tools.
-async function logMcpCall({ tool, input, durationMs, error }) {
-  if (!activeProjectDir) return
-  const entry = JSON.stringify({
-    timestamp: new Date().toISOString(),
-    tool,
-    input,
-    durationMs,
-    success: !error,
-    error: error?.message || null
-  }) + '\n'
-  try {
-    await appendFile(join(activeProjectDir, '.delma', 'mcp-calls.jsonl'), entry, 'utf-8')
-  } catch {
-    // best-effort — never crash on logging failure
-  }
-}
+// ── Logging wrapper ──────────────────────────────────────────────────────────
 
 function withLogging(toolName, handler) {
   return async (args) => {
@@ -52,86 +39,81 @@ function withLogging(toolName, handler) {
       caughtError = e
       throw e
     } finally {
-      void logMcpCall({ tool: toolName, input: args, durationMs: Date.now() - start, error: caughtError })
+      void logMcpCall({
+        workspaceId: activeWorkspaceId,
+        userId: activeUserId,
+        tool: toolName,
+        input: args,
+        durationMs: Date.now() - start,
+        success: !caughtError,
+        error: caughtError?.message
+      })
     }
   }
 }
 
-async function requireProjectDir(projectDir) {
-  const dir = resolve(projectDir || activeProjectDir || process.cwd())
-  if (!existsSync(dir)) {
-    throw new Error(`Project directory does not exist: ${dir}`)
-  }
-  activeProjectDir = dir
-  await ensureProjectState(dir)
-  return dir
+function requireContext() {
+  if (!activeWorkspaceId) throw new Error('No workspace set. Call open_workspace first or set DELMA_WORKSPACE_ID env var.')
+  if (!activeUserId) throw new Error('No user set. Set DELMA_USER_ID env var.')
+  return { workspaceId: activeWorkspaceId, userId: activeUserId }
 }
 
-async function loadState(dir) {
-  const [workspace, graph, memory, history] = await Promise.all([
-    readWorkspace(dir),
-    readGraph(dir),
-    readMemoryMap(dir),
-    listHistory(dir)
-  ])
-
-  return {
-    projectDir: dir,
-    workspace,
-    graph,
-    memory,
-    history
-  }
-}
+// ── Tools ────────────────────────────────────────────────────────────────────
 
 server.registerTool(
-  'open_project',
+  'open_workspace',
   {
-    title: 'Open Delma Project',
-    description: 'Set the active project directory for Delma and initialize .delma state there.',
+    title: 'Open Delma Workspace',
+    description: 'Set the active workspace by name or ID. Creates it if it does not exist.',
     inputSchema: {
-      projectDir: z.string().describe('Absolute or relative path to the project directory.')
+      name: z.string().optional().describe('Workspace name. Used to find or create.'),
+      workspaceId: z.string().optional().describe('Workspace UUID. Takes precedence over name.'),
+      userId: z.string().optional().describe('User UUID. Overrides DELMA_USER_ID env var.')
     }
   },
-  withLogging('open_project', async ({ projectDir }) => {
-    const dir = await requireProjectDir(projectDir)
-    const state = await loadState(dir)
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify({
-            ok: true,
-            projectDir: dir,
-            views: state.workspace.views.map(({ id, title }) => ({ id, title })),
-            historyCount: state.history.length
-          }, null, 2)
-        }
-      ]
+  withLogging('open_workspace', async ({ name, workspaceId, userId }) => {
+    if (userId) activeUserId = userId
+    if (!activeUserId) throw new Error('No user ID. Set DELMA_USER_ID env var or pass userId.')
+
+    if (workspaceId) {
+      activeWorkspaceId = workspaceId
+      const ws = await getWorkspace(workspaceId)
+      return text({ ok: true, workspace: { id: ws.id, name: ws.name } })
     }
+
+    if (name) {
+      // Find by name
+      const all = await listWorkspaces(activeUserId)
+      const found = all.find(w => w.name.toLowerCase() === name.toLowerCase())
+      if (found) {
+        activeWorkspaceId = found.id
+        return text({ ok: true, workspace: { id: found.id, name: found.name } })
+      }
+      // Create
+      const ws = await createWorkspace(name, activeUserId)
+      activeWorkspaceId = ws.id
+      return text({ ok: true, created: true, workspace: { id: ws.id, name: ws.name } })
+    }
+
+    throw new Error('Provide name or workspaceId.')
   })
 )
 
 server.registerTool(
-  'get_delma_state',
+  'get_workspace_state',
   {
-    title: 'Get Delma State',
-    description: 'Read the current Delma workspace, memory files, graph, and snapshot history for the active project.',
-    inputSchema: {
-      projectDir: z.string().optional()
-    }
+    title: 'Get Workspace State',
+    description: 'Read the full Delma workspace: diagram views, memory notes, and history.',
+    inputSchema: {}
   },
-  withLogging('get_delma_state', async ({ projectDir }) => {
-    const dir = await requireProjectDir(projectDir)
-    const state = await loadState(dir)
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(state, null, 2)
-        }
-      ]
-    }
+  withLogging('get_workspace_state', async () => {
+    const { workspaceId, userId } = requireContext()
+    const [views, memory, history] = await Promise.all([
+      readDiagramViews(workspaceId, userId),
+      readMemoryMap(workspaceId, userId),
+      listHistory(workspaceId)
+    ])
+    return text({ workspaceId, views, memory, history })
   })
 )
 
@@ -139,32 +121,15 @@ server.registerTool(
   'list_diagram_views',
   {
     title: 'List Diagram Views',
-    description: 'List the available Delma Mermaid views for the active project.',
-    inputSchema: {
-      projectDir: z.string().optional()
-    }
+    description: 'List available Mermaid diagram views in the workspace.',
+    inputSchema: {}
   },
-  withLogging('list_diagram_views', async ({ projectDir }) => {
-    const dir = await requireProjectDir(projectDir)
-    const workspace = await readWorkspace(dir)
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(
-            workspace.views.map(({ id, title, kind, description, summary }) => ({
-              id,
-              title,
-              kind,
-              description,
-              summary
-            })),
-            null,
-            2
-          )
-        }
-      ]
-    }
+  withLogging('list_diagram_views', async () => {
+    const { workspaceId, userId } = requireContext()
+    const views = await readDiagramViews(workspaceId, userId)
+    return text(views.map(({ view_key, title, kind, description, summary, visibility }) => ({
+      view_key, title, kind, description, summary, visibility
+    })))
   })
 )
 
@@ -172,25 +137,15 @@ server.registerTool(
   'get_diagram_view',
   {
     title: 'Get Diagram View',
-    description: 'Read one Delma Mermaid view by id.',
+    description: 'Read one Mermaid diagram view by key.',
     inputSchema: {
-      viewId: z.string(),
-      projectDir: z.string().optional()
+      viewKey: z.string().describe('View key (e.g. "architecture", "org")')
     }
   },
-  withLogging('get_diagram_view', async ({ viewId, projectDir }) => {
-    const dir = await requireProjectDir(projectDir)
-    const workspace = await readWorkspace(dir)
-    const view = workspace.views.find((entry) => entry.id === viewId)
-    if (!view) throw new Error(`Unknown view: ${viewId}`)
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(view, null, 2)
-        }
-      ]
-    }
+  withLogging('get_diagram_view', async ({ viewKey }) => {
+    const { workspaceId, userId } = requireContext()
+    const view = await getDiagramView(workspaceId, viewKey, userId)
+    return text(view)
   })
 )
 
@@ -198,45 +153,25 @@ server.registerTool(
   'save_diagram_view',
   {
     title: 'Save Diagram View',
-    description: 'Update one Delma Mermaid view, write a history snapshot, and refresh the High Level Project Details.',
+    description: 'Update a Mermaid diagram view and write a history snapshot.',
     inputSchema: {
-      viewId: z.string(),
+      viewKey: z.string().describe('View key (e.g. "architecture", "org")'),
       title: z.string().optional(),
       description: z.string().optional(),
       summary: z.string().optional(),
       mermaid: z.string().optional(),
-      reason: z.string().optional(),
-      projectDir: z.string().optional()
+      reason: z.string().optional()
     }
   },
-  withLogging('save_diagram_view', async ({ viewId, title, description, summary, mermaid, reason, projectDir }) => {
-    const dir = await requireProjectDir(projectDir)
-    const workspace = await readWorkspace(dir)
-    const view = workspace.views.find((entry) => entry.id === viewId)
-    if (!view) throw new Error(`Unknown view: ${viewId}`)
-
-    if (title !== undefined) view.title = title
-    if (description !== undefined) view.description = description
-    if (summary !== undefined) view.summary = summary
-    if (mermaid !== undefined) view.mermaid = mermaid
-
-    const result = await writeWorkspace(dir, workspace, reason || `mcp-save-${viewId}`)
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(
-            {
-              ok: true,
-              snapshotFile: result.snapshotFile,
-              view
-            },
-            null,
-            2
-          )
-        }
-      ]
-    }
+  withLogging('save_diagram_view', async ({ viewKey, title, description, summary, mermaid, reason }) => {
+    const { workspaceId, userId } = requireContext()
+    const updates = {}
+    if (title !== undefined) updates.title = title
+    if (description !== undefined) updates.description = description
+    if (summary !== undefined) updates.summary = summary
+    if (mermaid !== undefined) updates.mermaid = mermaid
+    const view = await saveDiagramView(workspaceId, viewKey, updates, userId, reason)
+    return text({ ok: true, view })
   })
 )
 
@@ -244,102 +179,68 @@ server.registerTool(
   'append_memory_note',
   {
     title: 'Append Memory Note',
-    description: 'Append text to one Delma memory markdown file and refresh the High Level Project Details.',
+    description: 'Append text to a memory file (environment.md, logic.md, people.md, session-log.md).',
     inputSchema: {
       file: z.enum(['environment.md', 'logic.md', 'people.md', 'session-log.md']),
       note: z.string(),
-      heading: z.string().optional(),
-      projectDir: z.string().optional()
+      heading: z.string().optional()
     }
   },
-  withLogging('append_memory_note', async ({ file, note, heading, projectDir }) => {
-    const dir = await requireProjectDir(projectDir)
-    const filePath = resolve(getDelmaPath(dir), file)
-    const existing = existsSync(filePath) ? await readFile(filePath, 'utf-8') : ''
-    const prefix = heading ? `\n## ${heading}\n` : '\n'
-    await writeFile(filePath, `${existing}${prefix}${note.trim()}\n`, 'utf-8')
-    const composed = await composeClaudeMd(dir)
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify({ ok: true, file, claudeLength: composed.length }, null, 2)
-        }
-      ]
-    }
+  withLogging('append_memory_note', async ({ file, note, heading }) => {
+    const { workspaceId, userId } = requireContext()
+    await appendMemoryNote(workspaceId, file, note, heading, userId)
+    return text({ ok: true, file })
   })
 )
 
 server.registerTool(
   'compose_claude_md',
   {
-    title: 'Refresh High Level Project Details',
-    description: 'Regenerate the High Level Project Details for the active Delma workspace from views and memory files.',
-    inputSchema: {
-      projectDir: z.string().optional()
-    }
+    title: 'Compose CLAUDE.md',
+    description: 'Generate the CLAUDE.md content from current workspace state. Returns the composed markdown.',
+    inputSchema: {}
   },
-  withLogging('compose_claude_md', async ({ projectDir }) => {
-    const dir = await requireProjectDir(projectDir)
-    const composed = await composeClaudeMd(dir)
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify({ ok: true, projectDir: dir, length: composed.length }, null, 2)
-        }
-      ]
-    }
+  withLogging('compose_claude_md', async () => {
+    const { workspaceId, userId } = requireContext()
+    const md = await composeClaudeMd(workspaceId, userId)
+    return text({ ok: true, length: md.length, content: md })
   })
 )
 
 server.registerTool(
   'list_history',
   {
-    title: 'List Delma History',
-    description: 'List Delma workspace snapshot files for the active project.',
-    inputSchema: {
-      projectDir: z.string().optional()
-    }
+    title: 'List History',
+    description: 'List workspace history snapshots.',
+    inputSchema: {}
   },
-  withLogging('list_history', async ({ projectDir }) => {
-    const dir = await requireProjectDir(projectDir)
-    const history = await listHistory(dir)
-    return {
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify(history, null, 2)
-        }
-      ]
-    }
+  withLogging('list_history', async () => {
+    const { workspaceId } = requireContext()
+    const history = await listHistory(workspaceId)
+    return text(history)
   })
 )
 
+// ── Resource ─────────────────────────────────────────────────────────────────
+
 server.registerResource(
   'workspace',
-  new ResourceTemplate('delma://workspace/{viewId}', {
-    list: undefined
-  }),
-  {
-    title: 'Delma Diagram View',
-    description: 'Read a Delma diagram view directly as a resource.'
-  },
-  async (uri, { viewId }) => {
-    const dir = await requireProjectDir(activeProjectDir || process.cwd())
-    const workspace = await readWorkspace(dir)
-    const view = workspace.views.find((entry) => entry.id === viewId)
-    if (!view) throw new Error(`Unknown view: ${viewId}`)
-    return {
-      contents: [
-        {
-          uri: uri.href,
-          text: JSON.stringify(view, null, 2)
-        }
-      ]
-    }
+  new ResourceTemplate('delma://workspace/{viewKey}', { list: undefined }),
+  { title: 'Delma Diagram View', description: 'Read a diagram view as a resource.' },
+  async (uri, { viewKey }) => {
+    const { workspaceId, userId } = requireContext()
+    const view = await getDiagramView(workspaceId, viewKey, userId)
+    return { contents: [{ uri: uri.href, text: JSON.stringify(view, null, 2) }] }
   }
 )
+
+// ── Helper ───────────────────────────────────────────────────────────────────
+
+function text(obj) {
+  return { content: [{ type: 'text', text: JSON.stringify(obj, null, 2) }] }
+}
+
+// ── Start ────────────────────────────────────────────────────────────────────
 
 const transport = new StdioServerTransport()
 await server.connect(transport)

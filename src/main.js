@@ -1,5 +1,6 @@
 import mermaid from 'mermaid'
 import elkLayouts from '@mermaid-js/layout-elk'
+import { supabase } from './lib/supabase.js'
 
 mermaid.registerLayoutLoaders(elkLayouts)
 mermaid.initialize({
@@ -12,25 +13,21 @@ mermaid.initialize({
 })
 
 const state = {
-  authEnabled: false,
-  authenticated: false,
-  username: '',
-  projectDir: '',
-  workspace: null,
-  graph: null,
+  user: null,
+  workspaceId: null,
+  workspaceName: '',
+  workspaces: [],
+  views: [],
   memory: {},
   history: [],
-  activeViewId: null,
+  activeViewKey: null,
   previewMermaid: '',
   activeTopTab: 'view',
   documentationContent: '',
   diagramMode: 'view'
 }
 
-const hostedPreviewMode = window.location.hostname.endsWith('.vercel.app')
-
 const els = {
-  projectDir: document.getElementById('project-dir'),
   connectBtn: document.getElementById('connect-btn'),
   sdkStatus: document.getElementById('sdk-status'),
   activityRail: document.getElementById('activity-rail'),
@@ -70,10 +67,11 @@ const els = {
   authUsername: document.getElementById('auth-username'),
   authPassword: document.getElementById('auth-password'),
   authError: document.getElementById('auth-error'),
-  authCopy: document.getElementById('auth-copy')
+  authCopy: document.getElementById('auth-copy'),
+  projectDir: document.getElementById('project-dir')
 }
 
-const starterTemplates = defaultViewTemplates()
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 function appendLog(title, body, tone = 'assistant') {
   const node = document.createElement('div')
@@ -82,13 +80,170 @@ function appendLog(title, body, tone = 'assistant') {
   els.sdkBody.prepend(node)
 }
 
-function setActivity(text) {
-  els.activityRail.textContent = text
+function setActivity(text) { els.activityRail.textContent = text }
+function setWorkspaceStatus(text) { els.workspaceStatus.textContent = text }
+
+function escapeHtml(text) {
+  return String(text ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;')
 }
 
-function setWorkspaceStatus(text) {
-  els.workspaceStatus.textContent = text
+function trimPreview(text) {
+  if (!text) return ''
+  return text.length > 340 ? `${text.slice(0, 337)}...` : text
 }
+
+// ── Auth ─────────────────────────────────────────────────────────────────────
+
+function setAuthUi(authenticated) {
+  els.authOverlay.classList.toggle('visible', !authenticated)
+  els.authOverlay.setAttribute('aria-hidden', String(authenticated))
+  els.logoutBtn.classList.toggle('visible', authenticated)
+}
+
+async function checkAuth() {
+  const { data: { user } } = await supabase.auth.getUser()
+  state.user = user
+  setAuthUi(!!user)
+  return user
+}
+
+async function login(email, password) {
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+  if (error) throw new Error(error.message)
+  state.user = data.user
+  setAuthUi(true)
+  return data.user
+}
+
+async function signup(email, password) {
+  const { data, error } = await supabase.auth.signUp({ email, password })
+  if (error) throw new Error(error.message)
+  state.user = data.user
+  setAuthUi(true)
+  return data.user
+}
+
+async function logout() {
+  await supabase.auth.signOut()
+  state.user = null
+  state.workspaceId = null
+  state.views = []
+  state.memory = {}
+  state.history = []
+  setAuthUi(false)
+  renderWorkspace()
+}
+
+// ── Workspace CRUD ───────────────────────────────────────────────────────────
+
+async function loadWorkspaces() {
+  if (!state.user) return
+  const { data } = await supabase
+    .from('workspace_members')
+    .select('workspace_id, role, workspaces(id, name, created_at)')
+    .eq('user_id', state.user.id)
+  state.workspaces = (data || []).map(r => ({ ...r.workspaces, role: r.role }))
+}
+
+async function createWorkspace(name) {
+  const { data: ws, error } = await supabase
+    .from('workspaces')
+    .insert({ name, created_by: state.user.id })
+    .select()
+    .single()
+  if (error) throw new Error(error.message)
+
+  await supabase.from('workspace_members').insert({
+    workspace_id: ws.id, user_id: state.user.id, role: 'owner'
+  })
+
+  // Seed default views
+  const defaults = defaultViewTemplates()
+  for (const view of defaults) {
+    await supabase.from('diagram_views').insert({
+      workspace_id: ws.id, owner_id: state.user.id, ...view
+    })
+  }
+
+  // Seed default memory
+  const memDefaults = {
+    'environment.md': { content: '# Environment\n\nTech stack, infrastructure, key identifiers.\n', visibility: 'shared' },
+    'logic.md': { content: '# Logic\n\nBusiness logic, architecture decisions.\n', visibility: 'shared' },
+    'people.md': { content: '# People\n\nOwnership, stakeholders, tribal knowledge.\n', visibility: 'shared' },
+    'session-log.md': { content: '# Session Log\n', visibility: 'private' }
+  }
+  for (const [filename, { content, visibility }] of Object.entries(memDefaults)) {
+    await supabase.from('memory_notes').insert({
+      workspace_id: ws.id, filename, content, visibility, owner_id: state.user.id
+    })
+  }
+
+  return ws
+}
+
+async function openWorkspace(workspaceId) {
+  state.workspaceId = workspaceId
+  await refreshWorkspace()
+  setupRealtimeSubscription()
+  setWorkspaceStatus('Workspace open. Claude Code can connect via Delma MCP.')
+  appendLog('Workspace Open', `Connected to workspace. Diagrams and memory are live.`)
+}
+
+// ── Data Loading ─────────────────────────────────────────────────────────────
+
+async function refreshWorkspace() {
+  if (!state.workspaceId || !state.user) return
+
+  const [{ data: views }, { data: memory }, { data: history }, { data: ws }] = await Promise.all([
+    supabase.from('diagram_views').select('*').eq('workspace_id', state.workspaceId)
+      .or(`visibility.eq.shared,owner_id.eq.${state.user.id}`).order('view_key'),
+    supabase.from('memory_notes').select('*').eq('workspace_id', state.workspaceId)
+      .or(`visibility.eq.shared,owner_id.eq.${state.user.id}`),
+    supabase.from('history_snapshots').select('id, reason, created_at')
+      .eq('workspace_id', state.workspaceId).order('created_at', { ascending: false }).limit(30),
+    supabase.from('workspaces').select('name').eq('id', state.workspaceId).single()
+  ])
+
+  state.views = views || []
+  state.memory = {}
+  for (const row of (memory || [])) state.memory[row.filename] = row.content
+  state.history = (history || []).map(h => `${h.created_at} — ${h.reason}`)
+  state.workspaceName = ws?.name || ''
+
+  if (!state.activeViewKey || !state.views.some(v => v.view_key === state.activeViewKey)) {
+    state.activeViewKey = state.views[0]?.view_key || null
+  }
+
+  const active = getActiveView()
+  state.previewMermaid = active?.mermaid || ''
+  renderWorkspace()
+}
+
+// ── Supabase Realtime ────────────────────────────────────────────────────────
+
+let realtimeChannel = null
+
+function setupRealtimeSubscription() {
+  if (realtimeChannel) supabase.removeChannel(realtimeChannel)
+
+  realtimeChannel = supabase
+    .channel(`workspace-${state.workspaceId}`)
+    .on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'diagram_views',
+      filter: `workspace_id=eq.${state.workspaceId}`
+    }, () => void refreshWorkspace())
+    .on('postgres_changes', {
+      event: '*',
+      schema: 'public',
+      table: 'memory_notes',
+      filter: `workspace_id=eq.${state.workspaceId}`
+    }, () => void refreshWorkspace())
+    .subscribe()
+}
+
+// ── Diagram Mode ─────────────────────────────────────────────────────────────
 
 function setDiagramMode(mode) {
   state.diagramMode = mode
@@ -97,9 +252,7 @@ function setDiagramMode(mode) {
   els.editModeBtn.classList.toggle('active', mode === 'edit')
   if (state.activeTopTab === 'documentation') {
     els.diagramOutput.hidden = mode === 'edit'
-    if (mode === 'edit') {
-      els.diagramEditor.value = state.documentationContent || ''
-    }
+    if (mode === 'edit') els.diagramEditor.value = state.documentationContent || ''
     els.diagramEditor.classList.toggle('visible', mode === 'edit')
   } else {
     els.diagramOutput.hidden = mode === 'edit'
@@ -107,202 +260,111 @@ function setDiagramMode(mode) {
   }
 }
 
-function setAuthUi(authenticated) {
-  state.authenticated = authenticated
-  els.authOverlay.classList.toggle('visible', state.authEnabled && !authenticated)
-  els.authOverlay.setAttribute('aria-hidden', String(!(state.authEnabled && !authenticated)))
-  els.logoutBtn.classList.toggle('visible', state.authEnabled && authenticated)
-}
-
-async function apiFetch(url, options = {}) {
-  const response = await fetch(url, options)
-  if (response.status === 401) {
-    state.authenticated = false
-    setAuthUi(false)
-    throw new Error('Please sign in to Delma.')
-  }
-  return response
-}
-
-async function checkAuth() {
-  let response
-  try {
-    response = await fetch('/api/auth/status')
-  } catch {
-    state.authEnabled = false
-    state.authenticated = true
-    setAuthUi(true)
-    return
-  }
-
-  if (!response.ok) {
-    state.authEnabled = false
-    state.authenticated = true
-    setAuthUi(true)
-    return
-  }
-
-  const data = await response.json()
-  state.authEnabled = Boolean(data.authEnabled)
-  state.authenticated = Boolean(data.authenticated)
-  state.username = data.username || ''
-  if (state.authEnabled) {
-    els.authUsername.value = state.username || ''
-    els.authCopy.textContent = state.username
-      ? `Use the Delma login for ${state.username}.`
-      : 'Use your personal Delma login to open the workspace.'
-  }
-  setAuthUi(state.authenticated)
-}
-
-async function login(username, password) {
-  const response = await fetch('/api/auth/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password })
-  })
-  const data = await response.json()
-  if (!response.ok) throw new Error(data.error || 'Unable to sign in')
-  state.authEnabled = Boolean(data.authEnabled ?? state.authEnabled)
-  state.authenticated = true
-  state.username = data.username || username
-  els.authError.textContent = ''
-  els.authPassword.value = ''
-  setAuthUi(true)
-}
-
-async function logout() {
-  await fetch('/api/auth/logout', { method: 'POST' })
-  state.authenticated = false
-  setAuthUi(false)
-}
-
-function setOpenState(isOpen) {
-  els.sdkStatus.textContent = hostedPreviewMode
-    ? 'Workspace Ready'
-    : isOpen
-      ? 'Workspace Open'
-      : 'Waiting For Workspace'
-  els.connectBtn.textContent = hostedPreviewMode
-    ? 'Runs Locally'
-    : isOpen
-      ? 'Reload Workspace'
-      : 'Open Workspace'
-  els.input.disabled = true
-  els.sendBtn.disabled = true
-}
+// ── View Helpers ─────────────────────────────────────────────────────────────
 
 function getActiveView() {
-  const views = state.workspace?.views?.length ? state.workspace.views : starterTemplates
-  return views.find((view) => view.id === state.activeViewId) || views[0] || null
+  if (!state.views.length) return defaultViewTemplates()[0]
+  return state.views.find(v => v.view_key === state.activeViewKey) || state.views[0] || null
 }
 
-function escapeHtml(text) {
-  return String(text ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;')
-}
-
-function trimPreview(text) {
-  if (!text) return ''
-  return text.length > 340 ? `${text.slice(0, 337)}...` : text
-}
-
-function buildDocumentationPreview(workspace, memory) {
-  const sections = [
-    '# High Level Project Details',
-    '',
-    'Generated by Delma from the shared workspace.',
-    ''
-  ]
-
-  const views = workspace?.views || []
-  if (views.length) {
-    sections.push('## Diagram Views', '')
-    for (const view of views) {
-      sections.push(`### ${view.title}`)
-      if (view.description) sections.push(view.description)
-      if (view.summary) sections.push('', view.summary)
-      sections.push('')
-    }
+async function renderDiagram(mermaidCode) {
+  if (!mermaidCode?.trim()) {
+    els.diagramOutput.className = 'diagram-empty'
+    els.diagramOutput.textContent = 'This view does not have Mermaid content yet.'
+    return true
   }
+  try {
+    const renderId = `delma-diagram-${Date.now()}`
+    const { svg } = await mermaid.render(renderId, mermaidCode)
+    els.diagramOutput.className = ''
+    els.diagramOutput.innerHTML = svg
+    return true
+  } catch (error) {
+    els.diagramOutput.className = 'diagram-error'
+    els.diagramOutput.innerHTML = `<div class="diagram-error-title">Mermaid syntax error</div><pre class="diagram-error-detail">${escapeHtml(error.message)}</pre>`
+    return false
+  }
+}
 
-  const entries = Object.entries(memory || {}).filter(([, value]) => value && value.trim())
+async function validateCurrentMermaid() {
+  const code = els.diagramEditor.value || els.viewMermaid.value
+  if (!code?.trim()) return true
+  try {
+    await mermaid.render(`delma-validate-${Date.now()}`, code)
+    return true
+  } catch { return false }
+}
+
+function buildDocumentationPreview() {
+  const sections = ['# High Level Project Details', '', 'Generated by Delma.', '']
+  for (const view of state.views) {
+    sections.push(`### ${view.title}`)
+    if (view.description) sections.push(view.description)
+    if (view.summary) sections.push('', view.summary)
+    sections.push('')
+  }
+  const entries = Object.entries(state.memory).filter(([, v]) => v?.trim())
   if (entries.length) {
     sections.push('## Reference Notes', '')
-    for (const [file, content] of entries) {
-      sections.push(`### ${file}`, '', content.trim(), '')
-    }
+    for (const [file, content] of entries) sections.push(`### ${file}`, '', content.trim(), '')
   }
-
   return sections.join('\n').trim()
 }
 
+// ── Render ───────────────────────────────────────────────────────────────────
+
 function renderViewTabs() {
-  const views = state.workspace?.views?.length ? state.workspace.views : starterTemplates
+  const views = state.views.length ? state.views : defaultViewTemplates()
   els.viewTabs.textContent = ''
 
-  if (!views.length) {
-    els.viewTabs.innerHTML = '<div class="history-item">No diagram tabs yet.</div>'
-    return
-  }
-
   for (const view of views) {
-    const button = document.createElement('button')
-    button.className = `view-tab${state.activeTopTab === 'view' && view.id === state.activeViewId ? ' active' : ''}`
-    button.innerHTML = `
-      <div class="view-tab-title">${escapeHtml(view.title)}</div>
-      <div class="view-tab-copy">${escapeHtml(view.description || 'No description yet.')}</div>
-    `
-    button.addEventListener('click', () => {
+    const btn = document.createElement('button')
+    const key = view.view_key
+    btn.className = `view-tab${state.activeTopTab === 'view' && key === state.activeViewKey ? ' active' : ''}`
+    btn.innerHTML = `<div class="view-tab-title">${escapeHtml(view.title)}</div><div class="view-tab-copy">${escapeHtml(view.description || 'No description.')}</div>`
+    btn.addEventListener('click', () => {
       saveCurrentEditState()
       state.activeTopTab = 'view'
-      state.activeViewId = view.id
+      state.activeViewKey = key
       state.previewMermaid = view.mermaid || ''
       renderWorkspace()
     })
-    els.viewTabs.appendChild(button)
+    els.viewTabs.appendChild(btn)
   }
 
-  const docButton = document.createElement('button')
-  docButton.className = `view-tab action-tab${state.activeTopTab === 'documentation' ? ' active' : ''}`
-  docButton.innerHTML = '<div class="view-tab-title">High Level Project Details</div>'
-  docButton.addEventListener('click', () => {
+  const docBtn = document.createElement('button')
+  docBtn.className = `view-tab action-tab${state.activeTopTab === 'documentation' ? ' active' : ''}`
+  docBtn.innerHTML = '<div class="view-tab-title">High Level Project Details</div>'
+  docBtn.addEventListener('click', () => {
     saveCurrentEditState()
-    void openDocumentationTab().catch((error) => {
-      setWorkspaceStatus(error.message)
-      appendLog('Documentation Failed', error.message, 'error')
-    })
+    state.documentationContent = buildDocumentationPreview()
+    state.activeTopTab = 'documentation'
+    renderWorkspace()
   })
-  els.viewTabs.appendChild(docButton)
+  els.viewTabs.appendChild(docBtn)
 }
 
 function renderHistory() {
   els.historyList.textContent = ''
   if (!state.history.length) {
-    els.historyList.innerHTML = '<div class="history-item">No snapshots yet. Saving the workspace will create versioned history.</div>'
+    els.historyList.innerHTML = '<div class="history-item">No snapshots yet.</div>'
     return
   }
-
-  for (const file of state.history.slice(0, 12)) {
+  for (const entry of state.history.slice(0, 12)) {
     const item = document.createElement('div')
     item.className = 'history-item'
-    item.textContent = file
+    item.textContent = entry
     els.historyList.appendChild(item)
   }
 }
 
 function renderMemory() {
   els.memoryList.textContent = ''
-  const entries = Object.entries(state.memory || {})
+  const entries = Object.entries(state.memory)
   if (!entries.length) {
-    els.memoryList.innerHTML = '<div class="memory-item"><h4>Waiting</h4><pre>No memory files loaded yet.</pre></div>'
+    els.memoryList.innerHTML = '<div class="memory-item"><h4>Waiting</h4><pre>No memory loaded.</pre></div>'
     return
   }
-
   for (const [file, content] of entries) {
     const item = document.createElement('div')
     item.className = 'memory-item'
@@ -319,43 +381,10 @@ function populateEditor(view) {
   els.diagramEditor.value = state.previewMermaid || view?.mermaid || ''
 }
 
-async function renderDiagram(mermaidCode) {
-  if (!mermaidCode?.trim()) {
-    els.diagramOutput.className = 'diagram-empty'
-    els.diagramOutput.textContent = 'This view does not have Mermaid content yet.'
-    return true
-  }
-
-  try {
-    const renderId = `delma-diagram-${Date.now()}`
-    const { svg } = await mermaid.render(renderId, mermaidCode)
-    els.diagramOutput.className = ''
-    els.diagramOutput.innerHTML = svg
-    return true
-  } catch (error) {
-    els.diagramOutput.className = 'diagram-error'
-    els.diagramOutput.innerHTML = `<div class="diagram-error-title">Mermaid syntax error — fix before saving</div><pre class="diagram-error-detail">${escapeHtml(error.message)}</pre>`
-    return false
-  }
-}
-
-// Returns true if the current editor content renders without errors.
-async function validateCurrentMermaid() {
-  const code = els.diagramEditor.value || els.viewMermaid.value
-  if (!code?.trim()) return true
-  try {
-    const renderId = `delma-validate-${Date.now()}`
-    await mermaid.render(renderId, code)
-    return true
-  } catch {
-    return false
-  }
-}
-
 async function renderDocumentation(content) {
   setDiagramMode('view')
   els.diagramOutput.className = 'documentation-shell'
-  els.diagramOutput.textContent = content?.trim() || 'No High Level Project Details yet.'
+  els.diagramOutput.textContent = content?.trim() || 'No project details yet.'
 }
 
 function renderWorkspace() {
@@ -366,89 +395,39 @@ function renderWorkspace() {
   const view = getActiveView()
   if (!view) {
     els.workspaceTitle.textContent = 'Delma Workspace'
-    els.workspaceCopy.textContent = 'Open a workspace to load Delma memory, connections, and diagram tabs.'
-    els.viewTitle.textContent = 'No active view'
-    els.viewDescription.textContent = ''
-    els.viewSummary.textContent = ''
-    els.modeToggle.hidden = true
-    els.resetExampleBtn.hidden = true
-    populateEditor(null)
+    els.workspaceCopy.textContent = 'Select or create a workspace to get started.'
     void renderDiagram('')
     return
   }
 
-  els.workspaceTitle.textContent = state.workspace?.projectName ? `${state.workspace.projectName} Workspace` : 'Delma Workspace'
-  els.workspaceCopy.textContent = state.workspace
-    ? 'Claude Code is the worker. Delma is the shared operational memory sidecar for SFMC and Salesforce.'
-    : 'Keep the shared SFMC and Salesforce map visible, even before the workspace details are fully filled in.'
+  els.workspaceTitle.textContent = state.workspaceName ? `${state.workspaceName}` : 'Delma Workspace'
+  els.workspaceCopy.textContent = 'Visual workspace for Claude Code. Diagrams and memory update live.'
+
   if (state.activeTopTab === 'documentation') {
     els.viewTitle.textContent = 'High Level Project Details'
-    els.viewDescription.textContent = 'The shared top-level reference generated from Delma memory, diagrams, and workspace notes.'
+    els.viewDescription.textContent = 'Synthesized from diagrams and memory.'
     els.resetExampleBtn.hidden = true
     setDiagramMode(state.diagramMode)
-    if (state.diagramMode === 'view') {
-      void renderDocumentation(state.documentationContent || buildDocumentationPreview(state.workspace, state.memory))
-    }
+    if (state.diagramMode === 'view') void renderDocumentation(state.documentationContent || buildDocumentationPreview())
     return
   }
 
   els.modeToggle.hidden = false
   els.resetExampleBtn.hidden = false
   els.viewTitle.textContent = view.title
-  els.viewDescription.textContent = view.description || 'No description yet.'
-  els.viewSummary.textContent = view.summary || 'No summary yet.'
-  els.projectPill.textContent = state.projectDir || 'No local path attached'
+  els.viewDescription.textContent = view.description || ''
+  els.viewSummary.textContent = view.summary || ''
+  els.projectPill.textContent = state.workspaceName || 'No workspace'
   els.historyPill.textContent = `${state.history.length} snapshots`
   els.diagramToolbarTitle.textContent = view.title
   els.diagramToolbarSubtitle.textContent = view.kind ? `${view.kind} view` : 'Mermaid view'
-  els.saveNote.textContent = 'Claude Code should update these views through the Delma MCP server. Manual edits here stay versioned too.'
+  els.saveNote.textContent = 'Both you and Claude Code can update these views. Changes sync live.'
   populateEditor(view)
   setDiagramMode(state.diagramMode)
-  if (state.diagramMode !== 'edit') {
-    void renderDiagram(state.previewMermaid || view.mermaid || '')
-  }
+  if (state.diagramMode !== 'edit') void renderDiagram(state.previewMermaid || view.mermaid || '')
 }
 
-async function refreshWorkspace() {
-  if (!state.projectDir) return
-  const response = await apiFetch('/api/delma/state')
-  const data = await response.json()
-  if (!response.ok) throw new Error(data.error || 'Unable to load Delma state')
-
-  state.workspace = data.workspace
-  state.graph = data.graph
-  state.memory = data.memory || {}
-  state.history = data.history || []
-
-  if (!state.activeViewId || !state.workspace.views.some((view) => view.id === state.activeViewId)) {
-    state.activeViewId = state.workspace.views?.[0]?.id || null
-  }
-
-  const activeView = getActiveView()
-  state.previewMermaid = activeView?.mermaid || ''
-  if (state.activeTopTab === 'documentation' && !state.documentationContent) {
-    state.documentationContent = buildDocumentationPreview(state.workspace, state.memory)
-  }
-  renderWorkspace()
-}
-
-async function saveWorkspace(reason = 'workspace-save') {
-  if (!state.workspace) return
-  const response = await apiFetch('/api/delma/workspace', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      reason,
-      workspace: state.workspace
-    })
-  })
-  const data = await response.json()
-  if (!response.ok) throw new Error(data.error || 'Unable to save workspace')
-  state.workspace = data.workspace
-  await refreshWorkspace()
-  setWorkspaceStatus(`Saved workspace and snapshot ${data.snapshotFile}`)
-  appendLog('Workspace Saved', `Snapshot ${data.snapshotFile} written and High Level Project Details refreshed.`)
-}
+// ── Edit State ───────────────────────────────────────────────────────────────
 
 function saveCurrentEditState() {
   if (state.diagramMode !== 'edit') return
@@ -471,102 +450,206 @@ function updateActiveViewFromEditor() {
   els.viewMermaid.value = nextMermaid
 }
 
-async function openProject() {
-  if (hostedPreviewMode) {
-    setWorkspaceStatus('This Delma workspace is available here. Local runtime adds MCP, optional local assets, and live Salesforce connections.')
-    setActivity('Delma is available here as the shared workspace shell. Run it locally for MCP, optional local files, and live High Level Project Details updates.')
-    appendLog(
-      'Delma Workspace',
-      [
-        'This Delma deployment is the shared workspace shell.',
-        'The real Delma sidecar still runs locally on your machine.',
-        'Use Delma as a shared SFMC and Salesforce workspace, with optional local files when you need them.',
-        'For full Delma: run `npm run dev` and `npm run start:mcp` locally.'
-      ].join('\n')
-    )
-    return
-  }
+// ── Save to Supabase ─────────────────────────────────────────────────────────
 
-  const dir = els.projectDir.value.trim()
-  if (!dir) {
-    els.projectDir.focus()
-    return
-  }
-
-  state.projectDir = dir
-  setActivity('Opening the Delma workspace and refreshing High Level Project Details...')
-  const response = await apiFetch('/api/project/open', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ projectDir: dir })
-  })
-  const data = await response.json()
-  if (!response.ok) throw new Error(data.error || 'Unable to open workspace')
-
-  setOpenState(true)
-  await refreshWorkspace()
-  setWorkspaceStatus('Workspace opened. Claude Code can now connect to Delma via MCP.')
-  setActivity('Delma is ready. Attach local assets when needed, and let Claude Code call it while you work.')
-  appendLog(
-    'How Delma Fits',
-    [
-      '1. Keep working in Claude Code.',
-      '2. Run `npm run start:mcp` in this repo.',
-      '3. Add the Delma server from `.mcp.json.example` to your Claude Code MCP config.',
-      '4. Use Delma as the shared memory for SFMC, Salesforce CRM, and optional local assets.'
-    ].join('\n')
-  )
-}
-
-async function composeClaudeMd() {
-  if (hostedPreviewMode || !state.projectDir) {
-    state.documentationContent = buildDocumentationPreview(state.workspace, state.memory)
-    state.activeTopTab = 'documentation'
-    setWorkspaceStatus(`Refreshed High Level Project Details (${state.documentationContent.length} chars)`)
-    appendLog('High Level Project Details Refreshed', `Regenerated the shared project details from Delma memory and diagrams. Length: ${state.documentationContent.length} chars.`)
-    renderWorkspace()
-    return
-  }
-
-  const response = await apiFetch('/api/memory/compose', { method: 'POST' })
-  const data = await response.json()
-  if (!response.ok) throw new Error(data.error || 'Unable to refresh High Level Project Details')
-
-  const contentResponse = await apiFetch('/api/memory/CLAUDE.md')
-  const contentData = await contentResponse.json()
-  if (!contentResponse.ok) throw new Error(contentData.error || 'Unable to load High Level Project Details')
-
-  state.documentationContent = contentData.content || ''
-  state.activeTopTab = 'documentation'
-  setWorkspaceStatus(`Refreshed High Level Project Details (${data.length} chars)`)
-  appendLog('High Level Project Details Refreshed', `Regenerated the shared project details from Delma memory and diagrams. Length: ${data.length} chars.`)
-  renderWorkspace()
-}
-
-async function openDocumentationTab() {
-  await composeClaudeMd()
-}
-
-function resetActiveView() {
-  const currentId = state.activeViewId
-  if (!currentId) return
-  const template = starterTemplates.find((view) => view.id === currentId)
-  if (!template) return
+async function saveView() {
   const view = getActiveView()
-  Object.assign(view, template)
-  state.previewMermaid = view.mermaid
-  els.diagramEditor.value = view.mermaid
-  renderWorkspace()
-  setWorkspaceStatus(`Restored ${view.title} to the saved Delma baseline.`)
+  if (!view || !state.workspaceId) return
+  updateActiveViewFromEditor()
+
+  const { error } = await supabase
+    .from('diagram_views')
+    .update({
+      title: view.title,
+      description: view.description,
+      summary: view.summary,
+      mermaid: view.mermaid
+    })
+    .eq('id', view.id)
+
+  if (error) throw new Error(error.message)
+
+  // Write history
+  await supabase.from('history_snapshots').insert({
+    workspace_id: state.workspaceId,
+    reason: `save-${view.view_key}`,
+    snapshot: { view },
+    created_by: state.user.id
+  })
+
+  await refreshWorkspace()
+  setWorkspaceStatus('Saved.')
 }
+
+// ── Workspace Selector ───────────────────────────────────────────────────────
+
+function renderWorkspaceSelector() {
+  const dir = els.projectDir
+  if (!dir) return
+
+  // Repurpose the project-dir input as workspace selector
+  dir.placeholder = 'Workspace name'
+  dir.value = ''
+
+  if (state.workspaces.length) {
+    dir.placeholder = `${state.workspaces.length} workspace(s) — type a name to create new`
+  }
+}
+
+// ── Event Listeners ──────────────────────────────────────────────────────────
+
+els.connectBtn.addEventListener('click', () => {
+  void (async () => {
+    const input = els.projectDir.value.trim()
+    if (!input) {
+      // If no name typed, open first workspace or show error
+      if (state.workspaces.length) {
+        await openWorkspace(state.workspaces[0].id)
+      } else {
+        els.projectDir.focus()
+        setWorkspaceStatus('Type a workspace name to create one.')
+      }
+      return
+    }
+
+    // Check if workspace exists
+    const existing = state.workspaces.find(w => w.name.toLowerCase() === input.toLowerCase())
+    if (existing) {
+      await openWorkspace(existing.id)
+    } else {
+      const ws = await createWorkspace(input)
+      state.workspaces.push({ ...ws, role: 'owner' })
+      await openWorkspace(ws.id)
+      appendLog('Workspace Created', `Created "${ws.name}" with default diagrams and memory.`)
+    }
+
+    els.sdkStatus.textContent = 'Workspace Open'
+    els.connectBtn.textContent = 'Switch Workspace'
+  })().catch(err => {
+    setWorkspaceStatus(err.message)
+    appendLog('Error', err.message, 'error')
+  })
+})
+
+els.saveWorkspaceBtn.addEventListener('click', () => {
+  void saveView().catch(err => {
+    setWorkspaceStatus(err.message)
+    appendLog('Save Failed', err.message, 'error')
+  })
+})
+
+els.viewModeBtn.addEventListener('click', () => {
+  saveCurrentEditState()
+  setDiagramMode('view')
+  renderWorkspace()
+})
+
+els.editModeBtn.addEventListener('click', () => {
+  setDiagramMode('edit')
+  renderWorkspace()
+  setWorkspaceStatus('Edit mode — make changes, then save.')
+})
+
+els.diagramEditor.addEventListener('input', () => {
+  if (state.activeTopTab === 'documentation') {
+    state.documentationContent = els.diagramEditor.value
+  } else {
+    state.previewMermaid = els.diagramEditor.value
+    els.viewMermaid.value = els.diagramEditor.value
+  }
+})
+
+els.previewBtn.addEventListener('click', () => {
+  updateActiveViewFromEditor()
+  renderWorkspace()
+  setWorkspaceStatus('Preview updated. Save when ready.')
+})
+
+els.saveViewBtn.addEventListener('click', () => {
+  void (async () => {
+    if (state.activeTopTab !== 'documentation') {
+      const valid = await validateCurrentMermaid()
+      if (!valid) {
+        updateActiveViewFromEditor()
+        renderWorkspace()
+        setWorkspaceStatus('Fix the Mermaid syntax error before saving.')
+        return
+      }
+    }
+    await saveView()
+  })().catch(err => {
+    setWorkspaceStatus(err.message)
+    appendLog('Save Failed', err.message, 'error')
+  })
+})
+
+els.resetExampleBtn.addEventListener('click', () => {
+  const templates = defaultViewTemplates()
+  const tpl = templates.find(v => v.view_key === state.activeViewKey)
+  if (!tpl) return
+  const view = getActiveView()
+  if (view) Object.assign(view, tpl)
+  state.previewMermaid = tpl.mermaid
+  els.diagramEditor.value = tpl.mermaid
+  renderWorkspace()
+  setWorkspaceStatus('Reset to default template.')
+})
+
+els.authForm.addEventListener('submit', (e) => {
+  e.preventDefault()
+  const email = els.authUsername.value.trim()
+  const password = els.authPassword.value
+
+  void (async () => {
+    try {
+      await login(email, password)
+    } catch (loginErr) {
+      // If login fails, try signup
+      if (loginErr.message.includes('Invalid login')) {
+        try {
+          await signup(email, password)
+          appendLog('Account Created', 'Signed up and logged in.')
+        } catch (signupErr) {
+          els.authError.textContent = signupErr.message
+          return
+        }
+      } else {
+        els.authError.textContent = loginErr.message
+        return
+      }
+    }
+    els.authError.textContent = ''
+    els.authPassword.value = ''
+    setWorkspaceStatus('Signed in.')
+    appendLog('Signed In', 'Workspace and memory tools available.')
+    await loadWorkspaces()
+    renderWorkspaceSelector()
+    if (state.workspaces.length) {
+      await openWorkspace(state.workspaces[0].id)
+      els.sdkStatus.textContent = 'Workspace Open'
+      els.connectBtn.textContent = 'Switch Workspace'
+    }
+  })()
+})
+
+els.logoutBtn.addEventListener('click', () => {
+  void logout().then(() => {
+    setWorkspaceStatus('Signed out.')
+    els.sdkStatus.textContent = 'Signed Out'
+  })
+})
+
+// ── Default Templates ────────────────────────────────────────────────────────
 
 function defaultViewTemplates() {
   return [
     {
-      id: 'architecture',
+      view_key: 'architecture',
       title: 'Architecture',
-      description: 'How the systems, code assets, integrations, and automation surfaces work together.',
-      summary: 'Use this to explain how the technical pieces fit together across SFMC, Salesforce CRM, integrations, and any supporting code.',
+      kind: 'architecture',
+      description: 'How systems, integrations, and automation surfaces connect.',
+      summary: 'Technical architecture.',
+      visibility: 'shared',
       mermaid: `---
 config:
   look: neo
@@ -578,16 +661,18 @@ flowchart LR
   SFMC["SFMC"] --> Sync
   Sync --> Journeys["Journeys / Automations"]
   Sync --> Data["Data Extensions / Objects"]
-  Code["Optional Local Code"] --> Sync
+  Code["Local Code"] --> Sync
   Delma["Delma Memory"] --> Claude["Claude Code"]
   Claude --> Sync
 `
     },
     {
-      id: 'org',
+      view_key: 'org',
       title: 'Org Chart',
-      description: 'The human org of the company: stakeholders, owners, decision-makers, and trust boundaries.',
-      summary: 'Capture who owns what, who approves changes, who to ask, and where human context shapes the work.',
+      kind: 'people',
+      description: 'Stakeholders, owners, decision-makers, and trust boundaries.',
+      summary: 'Human org.',
+      visibility: 'shared',
       mermaid: `---
 config:
   look: neo
@@ -606,166 +691,38 @@ flowchart TD
   ]
 }
 
-els.connectBtn.addEventListener('click', () => {
-  void openProject().catch((error) => {
-    setWorkspaceStatus(error.message)
-    appendLog('Open Workspace Failed', error.message, 'error')
-  })
-})
-
-els.saveWorkspaceBtn.addEventListener('click', () => {
-  if (state.activeTopTab === 'view') updateActiveViewFromEditor()
-  void saveWorkspace('workspace-save').catch((error) => {
-    setWorkspaceStatus(error.message)
-    appendLog('Save Failed', error.message, 'error')
-  })
-})
-
-els.viewModeBtn.addEventListener('click', () => {
-  saveCurrentEditState()
-  setDiagramMode('view')
-  renderWorkspace()
-})
-
-els.editModeBtn.addEventListener('click', () => {
-  setDiagramMode('edit')
-  renderWorkspace()
-  setWorkspaceStatus('Edit mode — make changes directly, then switch back to View.')
-})
-
-els.diagramEditor.addEventListener('input', () => {
-  if (state.activeTopTab === 'documentation') {
-    state.documentationContent = els.diagramEditor.value
-  } else {
-    state.previewMermaid = els.diagramEditor.value
-    els.viewMermaid.value = els.diagramEditor.value
-  }
-})
-
-els.previewBtn.addEventListener('click', () => {
-  updateActiveViewFromEditor()
-  renderWorkspace()
-  setWorkspaceStatus('Preview updated locally. Save when the view looks right.')
-})
-
-els.saveViewBtn.addEventListener('click', () => {
-  void (async () => {
-    if (state.activeTopTab !== 'documentation') {
-      const valid = await validateCurrentMermaid()
-      if (!valid) {
-        updateActiveViewFromEditor()
-        renderWorkspace()
-        setWorkspaceStatus('Fix the Mermaid syntax error before saving.')
-        return
-      }
-    }
-    updateActiveViewFromEditor()
-    renderWorkspace()
-    void saveWorkspace(`save-${state.activeViewId || 'view'}`).catch((error) => {
-      setWorkspaceStatus(error.message)
-      appendLog('Save Failed', error.message, 'error')
-    })
-  })()
-})
-
-els.resetExampleBtn.addEventListener('click', () => {
-  resetActiveView()
-})
-
-els.authForm.addEventListener('submit', (event) => {
-  event.preventDefault()
-  const username = els.authUsername.value.trim()
-  const password = els.authPassword.value
-  void login(username, password)
-    .then(() => {
-      setWorkspaceStatus('Signed in to Delma.')
-      appendLog('Signed In', 'Delma unlocked. Your workspace and memory tools are now available.')
-    })
-    .catch((error) => {
-      els.authError.textContent = error.message
-    })
-})
-
-els.logoutBtn.addEventListener('click', () => {
-  void logout().then(() => {
-    setWorkspaceStatus('Signed out.')
-    appendLog('Signed Out', 'This Delma workspace is locked until you sign in again.')
-  })
-})
-
-// ── Live socket (/ws/live) ───────────────────────────────────────────────────
-// Receives push notifications when .delma/ files change (from fs.watch on the server).
-// Calls refreshWorkspace() so the UI stays in sync without polling.
-let liveSocket = null
-let liveReconnectTimer = null
-
-function initLiveSocket() {
-  if (hostedPreviewMode) return
-  if (liveSocket && liveSocket.readyState === WebSocket.OPEN) return
-
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const url = `${protocol}//${window.location.host}/ws/live`
-
-  liveSocket = new WebSocket(url)
-
-  liveSocket.addEventListener('message', (event) => {
-    try {
-      const msg = JSON.parse(event.data)
-      if (msg.type === 'delma_update' && state.projectDir) {
-        void refreshWorkspace().catch(() => {})
-      }
-    } catch { /* ignore malformed messages */ }
-  })
-
-  liveSocket.addEventListener('close', () => {
-    // Reconnect after 3s — handles server restarts gracefully
-    clearTimeout(liveReconnectTimer)
-    liveReconnectTimer = setTimeout(initLiveSocket, 3000)
-  })
-
-  liveSocket.addEventListener('error', () => {
-    liveSocket?.close()
-  })
-}
+// ── Init ─────────────────────────────────────────────────────────────────────
 
 async function init() {
-  setOpenState(false)
-  state.activeViewId = starterTemplates[0].id
-  state.documentationContent = buildDocumentationPreview({ views: starterTemplates }, {})
-  els.input.value = 'Claude Code is now the primary chat surface. Delma runs beside it as a workspace + MCP server.'
+  els.sdkStatus.textContent = 'Checking auth...'
+  els.connectBtn.textContent = 'Open Workspace'
+  els.input.disabled = true
+  els.sendBtn.disabled = true
+
+  if (els.authCopy) els.authCopy.textContent = 'Sign in with your email and password.'
+  if (els.authUsername) els.authUsername.placeholder = 'Email'
+  if (els.projectDir) els.projectDir.placeholder = 'Workspace name'
+
+  // Show default templates before auth
   renderWorkspace()
-  appendLog(
-    'Delma Is The Sidecar Now',
-    [
-      'Claude Code should stay your main coding surface.',
-      'Delma keeps the diagrams, memory files, history, credentials context, and High Level Project Details in sync.',
-      'Run the Delma MCP server with `npm run start:mcp` and point Claude Code at it.'
-    ].join('\n')
-  )
 
-  await checkAuth()
-  initLiveSocket()
-
-  if (hostedPreviewMode) {
-    state.workspace = {
-      projectName: 'Delma',
-      updatedAt: new Date().toISOString(),
-      views: starterTemplates.map((view) => ({ ...view }))
+  const user = await checkAuth()
+  if (user) {
+    await loadWorkspaces()
+    renderWorkspaceSelector()
+    if (state.workspaces.length) {
+      await openWorkspace(state.workspaces[0].id)
+      els.sdkStatus.textContent = 'Workspace Open'
+      els.connectBtn.textContent = 'Switch Workspace'
+    } else {
+      els.sdkStatus.textContent = 'No Workspaces'
+      setWorkspaceStatus('Type a workspace name and click Open to create one.')
     }
-    state.memory = {
-      'environment.md': '# Environment\n\nDelma workspace for SFMC, Salesforce CRM, and optional local assets.\n',
-      'logic.md': '# Logic\n\nClaude Code is the main worker. Delma is the shared operational memory sidecar.\n',
-      'people.md': '# People\n\nBuilt first around David’s SFMC workflow and shared stakeholder visibility.\n',
-      'session-log.md': '# Session Log\n\nWorkspace loaded.\n'
-    }
-    state.history = ['preview-snapshot--delma-v1.json']
-    state.activeViewId = state.workspace.views[0].id
-    state.previewMermaid = state.workspace.views[0].mermaid
-    state.documentationContent = buildDocumentationPreview(state.workspace, state.memory)
-    setActivity('Delma is available here as the shared workspace shell. The full sidecar behavior runs locally with Claude Code.')
-    setWorkspaceStatus(state.authEnabled && !state.authenticated ? 'Sign in to open this Delma workspace.' : 'Workspace ready.')
-    renderWorkspace()
+  } else {
+    els.sdkStatus.textContent = 'Sign In'
   }
+
+  appendLog('Delma v2', 'Supabase-backed visual workspace. Diagrams and memory sync live between you and Claude Code.')
 }
 
 void init()
