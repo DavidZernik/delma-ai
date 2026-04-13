@@ -92,12 +92,19 @@ function setWorkspaceStatus(text) {
 
 function setDiagramMode(mode) {
   state.diagramMode = mode
-  const editingDiagram = state.activeTopTab === 'view'
-  els.modeToggle.hidden = !editingDiagram
-  els.viewModeBtn.classList.toggle('active', editingDiagram && mode === 'view')
-  els.editModeBtn.classList.toggle('active', editingDiagram && mode === 'edit')
-  els.diagramOutput.hidden = editingDiagram && mode === 'edit'
-  els.diagramEditor.classList.toggle('visible', editingDiagram && mode === 'edit')
+  els.modeToggle.hidden = false
+  els.viewModeBtn.classList.toggle('active', mode === 'view')
+  els.editModeBtn.classList.toggle('active', mode === 'edit')
+  if (state.activeTopTab === 'documentation') {
+    els.diagramOutput.hidden = mode === 'edit'
+    if (mode === 'edit') {
+      els.diagramEditor.value = state.documentationContent || ''
+    }
+    els.diagramEditor.classList.toggle('visible', mode === 'edit')
+  } else {
+    els.diagramOutput.hidden = mode === 'edit'
+    els.diagramEditor.classList.toggle('visible', mode === 'edit')
+  }
 }
 
 function setAuthUi(authenticated) {
@@ -251,6 +258,7 @@ function renderViewTabs() {
       <div class="view-tab-copy">${escapeHtml(view.description || 'No description yet.')}</div>
     `
     button.addEventListener('click', () => {
+      saveCurrentEditState()
       state.activeTopTab = 'view'
       state.activeViewId = view.id
       state.previewMermaid = view.mermaid || ''
@@ -263,6 +271,7 @@ function renderViewTabs() {
   docButton.className = `view-tab action-tab${state.activeTopTab === 'documentation' ? ' active' : ''}`
   docButton.innerHTML = '<div class="view-tab-title">High Level Project Details</div>'
   docButton.addEventListener('click', () => {
+    saveCurrentEditState()
     void openDocumentationTab().catch((error) => {
       setWorkspaceStatus(error.message)
       appendLog('Documentation Failed', error.message, 'error')
@@ -361,7 +370,10 @@ function renderWorkspace() {
     els.viewTitle.textContent = 'High Level Project Details'
     els.viewDescription.textContent = 'The shared top-level reference generated from Delma memory, diagrams, and workspace notes.'
     els.resetExampleBtn.hidden = true
-    void renderDocumentation(state.documentationContent || buildDocumentationPreview(state.workspace, state.memory))
+    setDiagramMode(state.diagramMode)
+    if (state.diagramMode === 'view') {
+      void renderDocumentation(state.documentationContent || buildDocumentationPreview(state.workspace, state.memory))
+    }
     return
   }
 
@@ -377,12 +389,9 @@ function renderWorkspace() {
   els.saveNote.textContent = 'Claude Code should update these views through the Delma MCP server. Manual edits here stay versioned too.'
   populateEditor(view)
   setDiagramMode(state.diagramMode)
-  if (state.diagramMode === 'edit') {
-    els.diagramOutput.className = ''
-    els.diagramOutput.innerHTML = ''
-    return
+  if (state.diagramMode !== 'edit') {
+    void renderDiagram(state.previewMermaid || view.mermaid || '')
   }
-  void renderDiagram(state.previewMermaid || view.mermaid || '')
 }
 
 async function refreshWorkspace() {
@@ -424,6 +433,15 @@ async function saveWorkspace(reason = 'workspace-save') {
   await refreshWorkspace()
   setWorkspaceStatus(`Saved workspace and snapshot ${data.snapshotFile}`)
   appendLog('Workspace Saved', `Snapshot ${data.snapshotFile} written and High Level Project Details refreshed.`)
+}
+
+function saveCurrentEditState() {
+  if (state.diagramMode !== 'edit') return
+  if (state.activeTopTab === 'documentation') {
+    state.documentationContent = els.diagramEditor.value
+  } else {
+    updateActiveViewFromEditor()
+  }
 }
 
 function updateActiveViewFromEditor() {
@@ -589,22 +607,24 @@ els.saveWorkspaceBtn.addEventListener('click', () => {
 })
 
 els.viewModeBtn.addEventListener('click', () => {
-  if (state.activeTopTab !== 'view') return
-  updateActiveViewFromEditor()
+  saveCurrentEditState()
   setDiagramMode('view')
   renderWorkspace()
 })
 
 els.editModeBtn.addEventListener('click', () => {
-  if (state.activeTopTab !== 'view') return
   setDiagramMode('edit')
   renderWorkspace()
-  setWorkspaceStatus('Edit mode shows the raw Mermaid so you can update it directly.')
+  setWorkspaceStatus('Edit mode — make changes directly, then switch back to View.')
 })
 
 els.diagramEditor.addEventListener('input', () => {
-  state.previewMermaid = els.diagramEditor.value
-  els.viewMermaid.value = els.diagramEditor.value
+  if (state.activeTopTab === 'documentation') {
+    state.documentationContent = els.diagramEditor.value
+  } else {
+    state.previewMermaid = els.diagramEditor.value
+    els.viewMermaid.value = els.diagramEditor.value
+  }
 })
 
 els.previewBtn.addEventListener('click', () => {
