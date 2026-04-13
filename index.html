@@ -236,6 +236,10 @@
       border-color: rgba(67, 0, 46, 0.16);
     }
 
+    .view-tab.action-tab {
+      flex: 0 0 auto;
+    }
+
     .view-tab-title {
       font-size: 11px;
       font-weight: 600;
@@ -243,10 +247,6 @@
 
     .view-tab-copy {
       display: none;
-    }
-
-    .tab-action {
-      flex: 0 0 auto;
     }
 
     .diagram-meta {
@@ -294,6 +294,15 @@
       border-radius: 20px;
       background: #fff;
       padding: 18px;
+    }
+
+    .documentation-shell {
+      min-height: 420px;
+      color: var(--ink);
+      font-size: 14px;
+      line-height: 1.7;
+      white-space: pre-wrap;
+      font-family: "SF Mono", "JetBrains Mono", "Menlo", monospace;
     }
 
     #diagram-output {
@@ -688,10 +697,6 @@
         padding: 7px 10px;
       }
 
-      .tab-action {
-        width: auto;
-      }
-
       .diagram-meta {
         gap: 10px;
       }
@@ -911,7 +916,6 @@
 
       <div class="tab-row">
         <div id="view-tabs" class="tab-bar"></div>
-        <button id="compose-btn" class="primary-btn tab-action">High Level Documentation</button>
       </div>
 
       <div class="diagram-meta">
