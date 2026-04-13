@@ -186,7 +186,8 @@ function setOpenState(isOpen) {
 }
 
 function getActiveView() {
-  return state.workspace?.views?.find((view) => view.id === state.activeViewId) || state.workspace?.views?.[0] || null
+  const views = state.workspace?.views?.length ? state.workspace.views : starterTemplates
+  return views.find((view) => view.id === state.activeViewId) || views[0] || null
 }
 
 function escapeHtml(text) {
@@ -234,7 +235,7 @@ function buildDocumentationPreview(workspace, memory) {
 }
 
 function renderViewTabs() {
-  const views = state.workspace?.views || []
+  const views = state.workspace?.views?.length ? state.workspace.views : starterTemplates
   els.viewTabs.textContent = ''
 
   if (!views.length) {
@@ -353,7 +354,9 @@ function renderWorkspace() {
   }
 
   els.workspaceTitle.textContent = state.workspace?.projectName ? `${state.workspace.projectName} Workspace` : 'Delma Workspace'
-  els.workspaceCopy.textContent = 'Claude Code is the worker. Delma is the shared operational memory sidecar for SFMC and Salesforce.'
+  els.workspaceCopy.textContent = state.workspace
+    ? 'Claude Code is the worker. Delma is the shared operational memory sidecar for SFMC and Salesforce.'
+    : 'Keep the shared SFMC and Salesforce map visible, even before the workspace details are fully filled in.'
   if (state.activeTopTab === 'documentation') {
     els.viewTitle.textContent = 'High Level Documentation'
     els.viewDescription.textContent = 'The shared top-level reference generated from Delma memory, diagrams, and workspace notes.'
@@ -550,7 +553,7 @@ flowchart LR
     },
     {
       id: 'org',
-      title: 'Org',
+      title: 'Org Chart',
       description: 'The human org of the company: stakeholders, owners, decision-makers, and trust boundaries.',
       summary: 'Capture who owns what, who approves changes, who to ask, and where human context shapes the work.',
       mermaid: `---
@@ -647,6 +650,8 @@ els.logoutBtn.addEventListener('click', () => {
 
 async function init() {
   setOpenState(false)
+  state.activeViewId = starterTemplates[0].id
+  state.documentationContent = buildDocumentationPreview({ views: starterTemplates }, {})
   els.input.value = 'Claude Code is now the primary chat surface. Delma runs beside it as a workspace + MCP server.'
   renderWorkspace()
   appendLog(

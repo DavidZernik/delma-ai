@@ -46,7 +46,7 @@ flowchart LR
       },
       {
         id: 'org',
-        title: 'Org',
+        title: 'Org Chart',
         kind: 'people',
         description: 'The human org of the company: stakeholders, owners, decision-makers, and trust boundaries.',
         summary: 'Capture who owns what, who approves changes, who to ask, and where human context shapes the work.',
