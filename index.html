@@ -215,14 +215,6 @@
       padding: 14px 20px 6px;
     }
 
-    .meta-actions {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-    }
-
     .meta-block {
       min-width: 0;
     }
@@ -704,11 +696,6 @@
         gap: 10px;
       }
 
-      .meta-actions {
-        width: 100%;
-        justify-content: flex-start;
-      }
-
       .diagram-stage {
         padding-top: 6px;
         padding-bottom: 14px;
@@ -924,15 +911,9 @@
           <div id="view-title" class="meta-title">Architecture</div>
           <div id="view-description" class="meta-copy"></div>
         </div>
-        <div class="meta-actions">
-          <div class="mode-toggle" id="mode-toggle" aria-label="Diagram Mode">
-            <button id="view-mode-btn" class="mode-btn active" type="button">View</button>
-            <button id="edit-mode-btn" class="mode-btn" type="button">Edit</button>
-          </div>
-          <div class="meta-block" style="text-align:right;">
-            <div class="meta-label">Summary</div>
-            <div id="view-summary" class="meta-copy" style="max-width: 320px;"></div>
-          </div>
+        <div class="mode-toggle" id="mode-toggle" aria-label="Diagram Mode">
+          <button id="view-mode-btn" class="mode-btn active" type="button">View</button>
+          <button id="edit-mode-btn" class="mode-btn" type="button">Edit</button>
         </div>
       </div>
 
@@ -1015,6 +996,7 @@
     <input id="view-title-input" />
     <textarea id="view-description-input"></textarea>
     <textarea id="view-summary-input"></textarea>
+    <div id="view-summary"></div>
     <textarea id="view-mermaid"></textarea>
     <button id="preview-btn"></button>
     <button id="save-view-btn"></button>
