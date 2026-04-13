@@ -1,5 +1,6 @@
 import mermaid from 'mermaid'
 import elkLayouts from '@mermaid-js/layout-elk'
+import { marked } from 'marked'
 import { supabase } from './lib/supabase.js'
 
 mermaid.registerLayoutLoaders(elkLayouts)
@@ -312,6 +313,41 @@ function buildDocumentationPreview() {
   return sections.join('\n').trim()
 }
 
+// ── Markdown + Mermaid Renderer ──────────────────────────────────────────────
+
+async function renderMarkdownWithMermaid(container, markdownText) {
+  // Parse markdown to HTML
+  let html = marked.parse(markdownText)
+
+  // Find all <code class="language-mermaid"> blocks and replace with placeholders
+  const mermaidBlocks = []
+  html = html.replace(/<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/g, (match, code) => {
+    const id = `mermaid-block-${Date.now()}-${mermaidBlocks.length}`
+    mermaidBlocks.push({ id, code: decodeHtmlEntities(code.trim()) })
+    return `<div id="${id}" class="mermaid-inline"></div>`
+  })
+
+  container.innerHTML = html
+
+  // Render each mermaid block
+  for (const block of mermaidBlocks) {
+    const el = container.querySelector(`#${block.id}`)
+    if (!el) continue
+    try {
+      const { svg } = await mermaid.render(`render-${block.id}`, block.code)
+      el.innerHTML = svg
+    } catch (e) {
+      el.innerHTML = `<pre style="color:#999;font-size:12px;">(diagram error: ${escapeHtml(e.message)})</pre>`
+    }
+  }
+}
+
+function decodeHtmlEntities(str) {
+  const el = document.createElement('textarea')
+  el.innerHTML = str
+  return el.value
+}
+
 // ── Tab Labels for Memory Files ──────────────────────────────────────────────
 
 const MEMORY_TAB_LABELS = {
@@ -383,7 +419,7 @@ function populateEditor(view) {
 
 // ── Render a memory file as a readable document ─────────────────────────────
 
-function renderMemoryDocument(filename) {
+async function renderMemoryDocument(filename) {
   const content = state.memory[filename] || ''
   const label = MEMORY_TAB_LABELS[filename] || { title: filename, desc: '' }
 
@@ -399,13 +435,8 @@ function renderMemoryDocument(filename) {
   } else {
     els.diagramOutput.hidden = false
     els.diagramEditor.classList.remove('visible')
-    els.diagramOutput.className = 'documentation-shell'
-    els.diagramOutput.innerHTML = ''
-
-    const pre = document.createElement('pre')
-    pre.style.cssText = 'font-size: 13px; line-height: 1.7; white-space: pre-wrap; color: #333; font-family: var(--sans); padding: 8px 0;'
-    pre.textContent = content.trim() || '(empty)'
-    els.diagramOutput.appendChild(pre)
+    els.diagramOutput.className = 'documentation-shell markdown-body'
+    await renderMarkdownWithMermaid(els.diagramOutput, content.trim() || '*(empty)*')
   }
 }
 
@@ -463,10 +494,11 @@ async function renderDocumentation() {
       heading.textContent = label.title
       section.appendChild(heading)
 
-      const pre = document.createElement('pre')
-      pre.style.cssText = 'font-size: 12px; line-height: 1.6; white-space: pre-wrap; color: #555; background: #f9f9f9; padding: 12px; border-radius: 6px;'
-      pre.textContent = content.trim()
-      section.appendChild(pre)
+      const body = document.createElement('div')
+      body.className = 'markdown-body'
+      body.style.cssText = 'font-size: 13px; line-height: 1.6; color: #333;'
+      await renderMarkdownWithMermaid(body, content.trim())
+      section.appendChild(body)
 
       els.diagramOutput.appendChild(section)
     }
@@ -491,7 +523,7 @@ function renderWorkspace() {
 
   // Memory file tab
   if (state.activeTopTab === 'memory') {
-    renderMemoryDocument(state.activeMemoryFile)
+    void renderMemoryDocument(state.activeMemoryFile)
     return
   }
 
@@ -771,31 +803,8 @@ flowchart LR
   SFMC["SFMC"] --> Sync
   Sync --> Journeys["Journeys / Automations"]
   Sync --> Data["Data Extensions / Objects"]
-  Code["Local Code"] --> Sync
   Delma["Delma Memory"] --> Claude["Claude Code"]
   Claude --> Sync
-`
-    },
-    {
-      view_key: 'org',
-      title: 'Org Chart',
-      kind: 'people',
-      description: 'Stakeholders, owners, decision-makers, and trust boundaries.',
-      summary: 'Human org.',
-      visibility: 'shared',
-      mermaid: `---
-config:
-  look: neo
-  theme: neo
-  layout: elk
----
-flowchart TD
-  Architect["SFMC Architect"] --> PM["Product / PM"]
-  Architect --> Marketing["Marketing Ops"]
-  Architect --> SalesOps["Sales Ops / CRM"]
-  PM --> Stakeholders["Stakeholders"]
-  Marketing --> Approvals["Approvals / Signoff"]
-  SalesOps --> Approvals
 `
     }
   ]

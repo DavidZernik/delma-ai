@@ -280,6 +280,13 @@
     .diagram-shell {
       width: 100%;
       max-width: 820px;
+      min-height: 200px;
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background: #fff;
+      padding: 18px;
+      box-sizing: border-box;
+      overflow: visible;
     }
 
     .documentation-shell {
@@ -288,16 +295,23 @@
       padding: 12px 0;
     }
 
-    .diagram-shell {
-      min-height: 560px;
-      border: 1px solid var(--line);
-      border-radius: 20px;
-      background: #fff;
-      padding: 18px;
-      box-sizing: border-box;
-    }
-
-    /* documentation-shell defined above in diagram-stage */
+    .markdown-body h1 { font-size: 22px; font-weight: 700; margin: 24px 0 8px; letter-spacing: -0.02em; }
+    .markdown-body h2 { font-size: 17px; font-weight: 700; margin: 20px 0 6px; letter-spacing: -0.01em; }
+    .markdown-body h3 { font-size: 14px; font-weight: 600; margin: 16px 0 4px; }
+    .markdown-body p { margin: 6px 0; }
+    .markdown-body ul, .markdown-body ol { margin: 6px 0; padding-left: 20px; }
+    .markdown-body li { margin: 3px 0; }
+    .markdown-body code { background: #f3f3f3; padding: 2px 5px; border-radius: 4px; font-size: 12px; }
+    .markdown-body pre { background: #f6f6f6; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 12px; margin: 8px 0; }
+    .markdown-body pre code { background: none; padding: 0; }
+    .markdown-body table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+    .markdown-body th, .markdown-body td { border: 1px solid #e0e0e0; padding: 6px 10px; text-align: left; }
+    .markdown-body th { background: #f6f6f6; font-weight: 600; }
+    .markdown-body a { color: var(--accent); }
+    .markdown-body hr { border: none; border-top: 1px solid var(--line); margin: 16px 0; }
+    .markdown-body blockquote { border-left: 3px solid var(--accent-soft); margin: 8px 0; padding: 4px 12px; color: #666; }
+    .mermaid-inline { margin: 16px 0; padding: 12px; background: #fafafa; border-radius: 10px; border: 1px solid var(--line); text-align: center; }
+    .mermaid-inline svg { max-width: 100%; height: auto; }
 
     .diagram-editor {
       display: none;

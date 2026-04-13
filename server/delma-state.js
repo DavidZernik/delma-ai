@@ -47,28 +47,6 @@ flowchart LR
   Delma["Delma Memory"] --> Claude["Claude Code"]
   Claude --> Sync
 `
-  },
-  {
-    view_key: 'org',
-    title: 'Org Chart',
-    kind: 'people',
-    description: 'The human org of the company: stakeholders, owners, decision-makers, and trust boundaries.',
-    summary: 'Capture who owns what, who approves changes, and where human context shapes the work.',
-    visibility: 'shared',
-    mermaid: `---
-config:
-  look: neo
-  theme: neo
-  layout: elk
----
-flowchart TD
-  Architect["SFMC Architect"] --> PM["Product / PM"]
-  Architect --> Marketing["Marketing Ops"]
-  Architect --> SalesOps["Sales Ops / CRM"]
-  PM --> Stakeholders["Stakeholders"]
-  Marketing --> Approvals["Approvals / Signoff"]
-  SalesOps --> Approvals
-`
   }
 ]
 
