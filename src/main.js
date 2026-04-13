@@ -23,7 +23,8 @@ const state = {
   activeViewId: null,
   previewMermaid: '',
   activeTopTab: 'view',
-  documentationContent: ''
+  documentationContent: '',
+  diagramMode: 'view'
 }
 
 const hostedPreviewMode = window.location.hostname.endsWith('.vercel.app')
@@ -50,12 +51,16 @@ const els = {
   viewTitle: document.getElementById('view-title'),
   viewDescription: document.getElementById('view-description'),
   viewSummary: document.getElementById('view-summary'),
+  modeToggle: document.getElementById('mode-toggle'),
+  viewModeBtn: document.getElementById('view-mode-btn'),
+  editModeBtn: document.getElementById('edit-mode-btn'),
   workspaceStatus: document.getElementById('workspace-status'),
   projectPill: document.getElementById('project-pill'),
   historyPill: document.getElementById('history-pill'),
   diagramToolbarTitle: document.getElementById('diagram-toolbar-title'),
   diagramToolbarSubtitle: document.getElementById('diagram-toolbar-subtitle'),
   diagramOutput: document.getElementById('diagram-output'),
+  diagramEditor: document.getElementById('diagram-editor'),
   viewTitleInput: document.getElementById('view-title-input'),
   viewDescriptionInput: document.getElementById('view-description-input'),
   viewSummaryInput: document.getElementById('view-summary-input'),
@@ -84,6 +89,16 @@ function setActivity(text) {
 
 function setWorkspaceStatus(text) {
   els.workspaceStatus.textContent = text
+}
+
+function setDiagramMode(mode) {
+  state.diagramMode = mode
+  const editingDiagram = state.activeTopTab === 'view'
+  els.modeToggle.hidden = !editingDiagram
+  els.viewModeBtn.classList.toggle('active', editingDiagram && mode === 'view')
+  els.editModeBtn.classList.toggle('active', editingDiagram && mode === 'edit')
+  els.diagramOutput.hidden = editingDiagram && mode === 'edit'
+  els.diagramEditor.classList.toggle('visible', editingDiagram && mode === 'edit')
 }
 
 function setAuthUi(authenticated) {
@@ -293,6 +308,7 @@ function populateEditor(view) {
   els.viewDescriptionInput.value = view?.description || ''
   els.viewSummaryInput.value = view?.summary || ''
   els.viewMermaid.value = state.previewMermaid || view?.mermaid || ''
+  els.diagramEditor.value = state.previewMermaid || view?.mermaid || ''
 }
 
 async function renderDiagram(mermaidCode) {
@@ -314,6 +330,7 @@ async function renderDiagram(mermaidCode) {
 }
 
 async function renderDocumentation(content) {
+  setDiagramMode('view')
   els.diagramOutput.className = 'documentation-shell'
   els.diagramOutput.textContent = content?.trim() || 'No High Level Documentation yet.'
 }
@@ -330,6 +347,8 @@ function renderWorkspace() {
     els.viewTitle.textContent = 'No active view'
     els.viewDescription.textContent = ''
     els.viewSummary.textContent = ''
+    els.modeToggle.hidden = true
+    els.resetExampleBtn.hidden = true
     populateEditor(null)
     void renderDiagram('')
     return
@@ -341,10 +360,13 @@ function renderWorkspace() {
     els.viewTitle.textContent = 'High Level Documentation'
     els.viewDescription.textContent = 'The shared top-level reference generated from Delma memory, diagrams, and workspace notes.'
     els.viewSummary.textContent = 'Use this as the clean, non-technical handoff document for Claude, stakeholders, and future sessions.'
+    els.resetExampleBtn.hidden = true
     void renderDocumentation(state.documentationContent || buildDocumentationPreview(state.workspace, state.memory))
     return
   }
 
+  els.modeToggle.hidden = false
+  els.resetExampleBtn.hidden = false
   els.viewTitle.textContent = view.title
   els.viewDescription.textContent = view.description || 'No description yet.'
   els.viewSummary.textContent = view.summary || 'No summary yet.'
@@ -354,6 +376,12 @@ function renderWorkspace() {
   els.diagramToolbarSubtitle.textContent = view.kind ? `${view.kind} view` : 'Mermaid view'
   els.saveNote.textContent = 'Claude Code should update these views through the Delma MCP server. Manual edits here stay versioned too.'
   populateEditor(view)
+  setDiagramMode(state.diagramMode)
+  if (state.diagramMode === 'edit') {
+    els.diagramOutput.className = ''
+    els.diagramOutput.innerHTML = ''
+    return
+  }
   void renderDiagram(state.previewMermaid || view.mermaid || '')
 }
 
@@ -401,11 +429,13 @@ async function saveWorkspace(reason = 'workspace-save') {
 function updateActiveViewFromEditor() {
   const view = getActiveView()
   if (!view) return
+  const nextMermaid = els.diagramEditor.value || els.viewMermaid.value
   view.title = els.viewTitleInput.value.trim() || view.title
   view.description = els.viewDescriptionInput.value.trim()
   view.summary = els.viewSummaryInput.value.trim()
-  view.mermaid = els.viewMermaid.value
+  view.mermaid = nextMermaid
   state.previewMermaid = view.mermaid
+  els.viewMermaid.value = nextMermaid
 }
 
 async function openProject() {
@@ -492,6 +522,7 @@ function resetActiveView() {
   const view = getActiveView()
   Object.assign(view, template)
   state.previewMermaid = view.mermaid
+  els.diagramEditor.value = view.mermaid
   renderWorkspace()
   setWorkspaceStatus(`Restored ${view.title} to the saved Delma baseline.`)
 }
@@ -550,10 +581,30 @@ els.connectBtn.addEventListener('click', () => {
 })
 
 els.saveWorkspaceBtn.addEventListener('click', () => {
+  if (state.activeTopTab === 'view') updateActiveViewFromEditor()
   void saveWorkspace('workspace-save').catch((error) => {
     setWorkspaceStatus(error.message)
     appendLog('Save Failed', error.message, 'error')
   })
+})
+
+els.viewModeBtn.addEventListener('click', () => {
+  if (state.activeTopTab !== 'view') return
+  updateActiveViewFromEditor()
+  setDiagramMode('view')
+  renderWorkspace()
+})
+
+els.editModeBtn.addEventListener('click', () => {
+  if (state.activeTopTab !== 'view') return
+  setDiagramMode('edit')
+  renderWorkspace()
+  setWorkspaceStatus('Edit mode shows the raw Mermaid so you can update it directly.')
+})
+
+els.diagramEditor.addEventListener('input', () => {
+  state.previewMermaid = els.diagramEditor.value
+  els.viewMermaid.value = els.diagramEditor.value
 })
 
 els.previewBtn.addEventListener('click', () => {

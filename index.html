@@ -257,6 +257,14 @@
       padding: 14px 20px 6px;
     }
 
+    .meta-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
     .meta-block {
       min-width: 0;
     }
@@ -282,6 +290,32 @@
       max-width: 520px;
     }
 
+    .mode-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+    }
+
+    .mode-btn {
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      border-radius: 999px;
+      padding: 7px 12px;
+      font-size: 12px;
+      line-height: 1;
+      white-space: nowrap;
+    }
+
+    .mode-btn.active {
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
     .diagram-stage {
       min-height: 0;
       overflow: auto;
@@ -303,6 +337,24 @@
       line-height: 1.7;
       white-space: pre-wrap;
       font-family: "SF Mono", "JetBrains Mono", "Menlo", monospace;
+    }
+
+    .diagram-editor {
+      display: none;
+      width: 100%;
+      min-height: 560px;
+      border: 0;
+      resize: vertical;
+      background: transparent;
+      color: var(--ink);
+      font-size: 13px;
+      line-height: 1.6;
+      font-family: "SF Mono", "JetBrains Mono", "Menlo", monospace;
+      outline: none;
+    }
+
+    .diagram-editor.visible {
+      display: block;
     }
 
     #diagram-output {
@@ -701,6 +753,11 @@
         gap: 10px;
       }
 
+      .meta-actions {
+        width: 100%;
+        justify-content: flex-start;
+      }
+
       .diagram-stage {
         padding-top: 6px;
         padding-bottom: 14px;
@@ -712,6 +769,10 @@
       }
 
       #diagram-output {
+        min-height: 320px;
+      }
+
+      .diagram-editor {
         min-height: 320px;
       }
 
@@ -924,15 +985,22 @@
           <div id="view-title" class="meta-title">Architecture</div>
           <div id="view-description" class="meta-copy"></div>
         </div>
-        <div class="meta-block" style="text-align:right;">
-          <div class="meta-label">Summary</div>
-          <div id="view-summary" class="meta-copy" style="max-width: 320px;"></div>
+        <div class="meta-actions">
+          <div class="mode-toggle" id="mode-toggle" aria-label="Diagram Mode">
+            <button id="view-mode-btn" class="mode-btn active" type="button">View</button>
+            <button id="edit-mode-btn" class="mode-btn" type="button">Edit</button>
+          </div>
+          <div class="meta-block" style="text-align:right;">
+            <div class="meta-label">Summary</div>
+            <div id="view-summary" class="meta-copy" style="max-width: 320px;"></div>
+          </div>
         </div>
       </div>
 
       <div class="diagram-stage">
         <div class="diagram-shell">
           <div id="diagram-output" class="diagram-empty">Open a workspace to load Delma memory, connections, and diagrams.</div>
+          <textarea id="diagram-editor" class="diagram-editor" spellcheck="false" aria-label="Mermaid Source"></textarea>
         </div>
       </div>
 
@@ -944,8 +1012,8 @@
           <span id="workspace-status">Workspace ready.</span>
         </div>
         <div class="footer-actions">
-          <button id="reset-example-btn" class="secondary-btn">Restore View</button>
-          <button id="save-workspace-btn" class="secondary-btn">Save Workspace</button>
+          <button id="reset-example-btn" class="secondary-btn">Reset Diagram</button>
+          <button id="save-workspace-btn" class="secondary-btn">Save Changes</button>
         </div>
       </div>
     </main>
