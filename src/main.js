@@ -336,7 +336,7 @@ async function saveWorkspace(reason = 'workspace-save') {
   state.workspace = data.workspace
   await refreshWorkspace()
   setWorkspaceStatus(`Saved workspace and snapshot ${data.snapshotFile}`)
-  appendLog('Workspace Saved', `Snapshot ${data.snapshotFile} written and CLAUDE.md recomposed.`)
+  appendLog('Workspace Saved', `Snapshot ${data.snapshotFile} written and High Level Documentation refreshed.`)
 }
 
 function updateActiveViewFromEditor() {
@@ -352,7 +352,7 @@ function updateActiveViewFromEditor() {
 async function openProject() {
   if (hostedPreviewMode) {
     setWorkspaceStatus('This Delma workspace is available here. Local runtime adds MCP, optional local assets, and live Salesforce connections.')
-    setActivity('Delma is available here as the shared workspace shell. Run it locally for MCP, optional local files, and live CLAUDE.md updates.')
+    setActivity('Delma is available here as the shared workspace shell. Run it locally for MCP, optional local files, and live High Level Documentation updates.')
     appendLog(
       'Delma Workspace',
       [
@@ -372,7 +372,7 @@ async function openProject() {
   }
 
   state.projectDir = dir
-  setActivity('Opening the Delma workspace and recomposing CLAUDE.md...')
+  setActivity('Opening the Delma workspace and refreshing High Level Documentation...')
   const response = await apiFetch('/api/project/open', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -399,9 +399,9 @@ async function openProject() {
 async function composeClaudeMd() {
   const response = await apiFetch('/api/memory/compose', { method: 'POST' })
   const data = await response.json()
-  if (!response.ok) throw new Error(data.error || 'Unable to compose CLAUDE.md')
-  setWorkspaceStatus(`Refreshed workspace brief (${data.length} chars)`)
-  appendLog('Workspace Brief Refreshed', `Regenerated the shared brief from Delma memory and diagrams. Length: ${data.length} chars.`)
+  if (!response.ok) throw new Error(data.error || 'Unable to refresh High Level Documentation')
+  setWorkspaceStatus(`Refreshed High Level Documentation (${data.length} chars)`)
+  appendLog('High Level Documentation Refreshed', `Regenerated the shared documentation from Delma memory and diagrams. Length: ${data.length} chars.`)
 }
 
 function resetActiveView() {
@@ -531,7 +531,7 @@ async function init() {
     'Delma Is The Sidecar Now',
     [
       'Claude Code should stay your main coding surface.',
-      'Delma keeps the diagrams, memory files, history, credentials context, and CLAUDE.md in sync.',
+      'Delma keeps the diagrams, memory files, history, credentials context, and High Level Documentation in sync.',
       'Run the Delma MCP server with `npm run start:mcp` and point Claude Code at it.'
     ].join('\n')
   )
