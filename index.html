@@ -323,15 +323,16 @@
     }
 
     .diagram-shell {
-      min-height: 100%;
+      min-height: 560px;
       border: 1px solid var(--line);
       border-radius: 20px;
       background: #fff;
       padding: 18px;
+      box-sizing: border-box;
     }
 
     .documentation-shell {
-      min-height: 420px;
+      min-height: 100%;
       color: var(--ink);
       font-size: 14px;
       line-height: 1.7;
@@ -342,7 +343,7 @@
     .diagram-editor {
       display: none;
       width: 100%;
-      min-height: 560px;
+      min-height: 100%;
       border: 0;
       resize: vertical;
       background: transparent;
@@ -351,6 +352,7 @@
       line-height: 1.6;
       font-family: "SF Mono", "JetBrains Mono", "Menlo", monospace;
       outline: none;
+      box-sizing: border-box;
     }
 
     .diagram-editor.visible {
@@ -358,7 +360,7 @@
     }
 
     #diagram-output {
-      min-height: 560px;
+      min-height: 100%;
     }
 
     #diagram-output svg {
@@ -699,6 +701,10 @@
         min-height: auto;
       }
 
+      .diagram-shell {
+        min-height: 420px;
+      }
+
       #diagram-output {
         min-height: 420px;
       }
@@ -764,16 +770,17 @@
       }
 
       .diagram-shell {
+        min-height: 320px;
         border-radius: 16px;
         padding: 12px;
       }
 
       #diagram-output {
-        min-height: 320px;
+        min-height: 100%;
       }
 
       .diagram-editor {
-        min-height: 320px;
+        min-height: 100%;
       }
 
       .diagram-empty {
@@ -923,11 +930,12 @@
       }
 
       .diagram-shell {
+        min-height: 260px;
         padding: 10px;
       }
 
       #diagram-output {
-        min-height: 260px;
+        min-height: 100%;
       }
 
       .composer-shell {
