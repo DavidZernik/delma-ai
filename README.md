@@ -2,14 +2,14 @@
 
 Delma is now a shared SFMC and Salesforce workspace sidecar for Claude Code, not a Claude wrapper.
 
-Claude Code stays the main coding surface. Delma maintains shared operational memory, versioned Mermaid views, connections context, and High Level Documentation so Claude can read and update that context while it works.
+Claude Code stays the main coding surface. Delma maintains shared operational memory, versioned Mermaid views, connections context, and High Level Project Details so Claude can read and update that context while it works.
 
 ## What Delma owns
 
 - `.delma/workspace.json` for the two core diagram tabs: `Architecture` and `Org`
 - `.delma/history/` snapshots every time a view is saved
 - `.delma/*.md` memory files
-- project-root `CLAUDE.md`, surfaced in Delma as High Level Documentation and composed from the workspace and memory files
+- project-root `CLAUDE.md`, surfaced in Delma as High Level Project Details and composed from the workspace and memory files
 
 ## App surfaces
 
@@ -32,7 +32,7 @@ Delma exposes tools for:
 - listing and reading diagram views
 - saving a diagram view
 - appending memory notes
-- refreshing High Level Documentation
+- refreshing High Level Project Details
 - listing history
 
 ## Running locally

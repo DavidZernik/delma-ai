@@ -163,7 +163,7 @@ server.registerTool(
   'save_diagram_view',
   {
     title: 'Save Diagram View',
-    description: 'Update one Delma Mermaid view, write a history snapshot, and refresh the High Level Documentation.',
+    description: 'Update one Delma Mermaid view, write a history snapshot, and refresh the High Level Project Details.',
     inputSchema: {
       viewId: z.string(),
       title: z.string().optional(),
@@ -209,7 +209,7 @@ server.registerTool(
   'append_memory_note',
   {
     title: 'Append Memory Note',
-    description: 'Append text to one Delma memory markdown file and refresh the High Level Documentation.',
+    description: 'Append text to one Delma memory markdown file and refresh the High Level Project Details.',
     inputSchema: {
       file: z.enum(['environment.md', 'logic.md', 'people.md', 'session-log.md']),
       note: z.string(),
@@ -238,8 +238,8 @@ server.registerTool(
 server.registerTool(
   'compose_claude_md',
   {
-    title: 'Refresh High Level Documentation',
-    description: 'Regenerate the High Level Documentation for the active Delma workspace from views and memory files.',
+    title: 'Refresh High Level Project Details',
+    description: 'Regenerate the High Level Project Details for the active Delma workspace from views and memory files.',
     inputSchema: {
       projectDir: z.string().optional()
     }
