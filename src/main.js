@@ -33,7 +33,6 @@ const els = {
   projectDir: document.getElementById('project-dir'),
   connectBtn: document.getElementById('connect-btn'),
   sdkStatus: document.getElementById('sdk-status'),
-  statusDot: document.getElementById('status-dot'),
   activityRail: document.getElementById('activity-rail'),
   sdkBody: document.getElementById('sdk-body'),
   input: document.getElementById('input'),
@@ -177,7 +176,6 @@ function setOpenState(isOpen) {
     : isOpen
       ? 'Workspace Open'
       : 'Waiting For Workspace'
-  els.statusDot.className = `dot${isOpen || hostedPreviewMode ? ' connected' : ''}`
   els.connectBtn.textContent = hostedPreviewMode
     ? 'Runs Locally'
     : isOpen

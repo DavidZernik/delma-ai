@@ -65,7 +65,7 @@
 
     .app-shell {
       display: grid;
-      grid-template-columns: 72px minmax(360px, 0.94fr) minmax(420px, 1.06fr);
+      grid-template-columns: minmax(360px, 0.94fr) minmax(420px, 1.06fr);
       gap: 0;
       height: 100vh;
       padding: 0;
@@ -77,48 +77,6 @@
       border: 0;
       border-radius: 0;
       box-shadow: none;
-    }
-
-    .sidebar-rail {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 14px;
-      padding: 18px 0 14px;
-      border-right: 1px solid var(--line);
-      background: #fafafa;
-    }
-
-    .rail-spacer {
-      flex: 1 1 auto;
-    }
-
-    .rail-btn,
-    .rail-avatar {
-      width: 42px;
-      height: 42px;
-      border-radius: 999px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      border: 1px solid transparent;
-      color: #2f2f2a;
-      background: transparent;
-      font-size: 24px;
-      line-height: 1;
-    }
-
-    .rail-btn.active {
-      background: #fff;
-      border-color: rgba(0, 0, 0, 0.06);
-    }
-
-    .rail-avatar {
-      background: var(--accent);
-      color: #fff;
-      font-size: 18px;
-      font-weight: 600;
-      letter-spacing: -0.04em;
     }
 
     .workspace-panel {
@@ -394,25 +352,11 @@
     .status-strip {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 6px;
       min-width: 0;
       flex-wrap: wrap;
       color: var(--muted);
       font-size: 13px;
-    }
-
-    .dot {
-      width: 9px;
-      height: 9px;
-      border-radius: 999px;
-      background: #b58b2d;
-      box-shadow: 0 0 0 3px rgba(181, 139, 45, 0.12);
-      flex: 0 0 auto;
-    }
-
-    .dot.connected {
-      background: var(--accent);
-      box-shadow: 0 0 0 3px rgba(67, 0, 46, 0.14);
     }
 
     .footer-actions {
@@ -465,6 +409,11 @@
       font-size: 12px;
       color: var(--muted);
       white-space: nowrap;
+    }
+
+    .chat-status-label {
+      color: var(--ink);
+      font-weight: 500;
     }
 
     .activity-rail {
@@ -673,10 +622,6 @@
         grid-template-columns: 1fr;
         height: auto;
         min-height: 100vh;
-      }
-
-      .sidebar-rail {
-        display: none;
       }
 
       .controls {
@@ -925,10 +870,6 @@
         font-size: 10px;
       }
 
-      .tab-action {
-        width: 100%;
-      }
-
       .diagram-shell {
         min-height: 260px;
         padding: 10px;
@@ -960,16 +901,6 @@
 </head>
 <body>
   <div class="app-shell">
-    <aside class="sidebar-rail" aria-label="Primary Navigation">
-      <button class="rail-btn" aria-label="New Thread">+</button>
-      <button class="rail-btn" aria-label="Search">⌕</button>
-      <button class="rail-btn" aria-label="History">◷</button>
-      <button class="rail-btn active" aria-label="Workspace">▣</button>
-      <div class="rail-spacer"></div>
-      <button class="rail-btn" aria-label="Downloads">↓</button>
-      <div class="rail-avatar" aria-label="Profile">DZ</div>
-    </aside>
-
     <main class="panel workspace-panel">
       <div class="workspace-header">
         <div>
@@ -1014,9 +945,8 @@
 
       <div class="workspace-footer">
         <div class="status-strip">
-          <span id="status-dot" class="dot"></span>
           <span id="sdk-status">Waiting For Workspace</span>
-          <span>•</span>
+          <span>—</span>
           <span id="workspace-status">Workspace ready.</span>
         </div>
         <div class="footer-actions">
@@ -1033,8 +963,7 @@
           <div class="chat-copy">Claude Code stays primary. Delma tracks the map beside it.</div>
         </div>
         <div class="chat-status">
-          <span class="dot connected"></span>
-          <span>Ready</span>
+          <span class="chat-status-label">Signed in</span>
           <button id="logout-btn" class="secondary-btn logout-btn" type="button">Log out</button>
         </div>
       </div>
@@ -1053,7 +982,7 @@
             </div>
             <div class="composer-toolbar">
               <span class="composer-model">Opus 4.6 1M</span>
-              <button id="send-btn" class="send-pill" disabled aria-label="Send">◉</button>
+              <button id="send-btn" class="send-pill" disabled aria-label="Send">↑</button>
             </div>
           </div>
         </div>
