@@ -8,6 +8,7 @@ Read this if you want to understand:
 - what the web app shows and does
 - how the MCP server works and what tools it exposes
 - how the workspace and memory files are structured
+- why bidirectional editing is the core design constraint
 - where the value already lives without any wrapper
 
 For future features and product direction, see `docs/future.md`.
@@ -165,12 +166,93 @@ full workspace state before the first message, every time.
 
 ---
 
-## 6. The Live Product Thesis
+## 6. Bidirectional Editing
+
+Both Claude and the user are write-heads into the same `.delma/` files.
+Neither owns the store — both can update it, and the diagram re-renders
+either way.
+
+**How it works:**
+
+- User edits Mermaid directly in the web UI → saves → diagram re-renders
+- Claude calls `save_diagram_view` or `append_memory_note` via MCP → files change →
+  `fs.watch` detects the change → broadcasts via `/ws/live` WebSocket →
+  browser calls `refreshWorkspace()` → diagram re-renders live
+
+No polling. No manual refresh. Both write sources converge on the same
+`.delma/` files as the single source of truth.
+
+**Conflict model (V1):** last-write-wins. This is a single-user tool and
+the conflict window is tiny. A history snapshot is written on every save,
+so any overwrite is recoverable.
+
+**Mermaid is the format.** It's human-readable enough to edit by hand and
+machine-readable enough for Claude to write directly. No separate
+markdown-to-diagram parser is needed.
+
+---
+
+## 7. MCP Call Logger
+
+Every MCP tool call is logged to `.delma/mcp-calls.jsonl`
+(newline-delimited JSON). Each line contains:
+
+```json
+{
+  "timestamp": "2026-04-13T14:22:01.123Z",
+  "tool": "append_memory_note",
+  "input": { "file": "people.md", "note": "..." },
+  "durationMs": 42,
+  "success": true,
+  "error": null
+}
+```
+
+This log is the raw material for the analyzer app — it captures when
+Claude calls MCP tools, what triggered the call, and how long it took.
+It is excluded from `fs.watch` broadcasts so it doesn't cause UI
+re-renders.
+
+---
+
+## 8. Claude Auto-Update Behavior
+
+The generated `CLAUDE.md` includes explicit instructions telling Claude
+to call MCP tools automatically during conversations — without being asked.
+
+**Rules embedded in CLAUDE.md:**
+
+- Call `get_delma_state` at the start of each conversation
+- Call `append_memory_note` when the user confirms a fact about a person,
+  role, ownership, or decision
+- Call `save_diagram_view` when a structural relationship changes
+- Only write what the user has explicitly stated or confirmed — never infer
+- Batch updates: one call with all facts learned, not one call per fact
+
+The CLAUDE.md is regenerated on every MCP write, so these instructions
+are always current and always loaded.
+
+---
+
+## 9. Mermaid Error Handling
+
+If a diagram has invalid Mermaid syntax:
+
+- **In view mode:** the diagram area shows a styled error with the
+  specific syntax problem
+- **Before saving:** the save button validates first — broken Mermaid
+  is blocked from saving with a status message explaining why
+- **Recovery:** the last valid snapshot is always in `.delma/history/`
+
+---
+
+## 10. The Live Product Thesis
 
 The live product is the MCP memory server plus the visual workspace layer
-that makes it observable.
+that makes it observable, bidirectional, and live.
 
 In one sentence:
 
 > **Delma is the persistent project memory Claude Code reads from and
-> writes to — made visible as a live map you keep open beside your work.**
+> writes to — made visible as a live map you keep open beside your work,
+> that both you and Claude can edit.**

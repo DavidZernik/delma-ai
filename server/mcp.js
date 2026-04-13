@@ -1,6 +1,6 @@
-import { resolve } from 'path'
+import { resolve, join } from 'path'
 import { existsSync } from 'fs'
-import { readFile, writeFile } from 'fs/promises'
+import { readFile, writeFile, appendFile } from 'fs/promises'
 import { z } from 'zod'
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
@@ -21,6 +21,41 @@ const server = new McpServer({
 })
 
 let activeProjectDir = process.env.DELMA_PROJECT_DIR ? resolve(process.env.DELMA_PROJECT_DIR) : null
+
+// ── MCP Call Logger ──────────────────────────────────────────────────────────
+// Writes to .delma/mcp-calls.jsonl — one JSON line per tool call.
+// Used by the analyzer app to understand when and why Claude calls MCP tools.
+async function logMcpCall({ tool, input, durationMs, error }) {
+  if (!activeProjectDir) return
+  const entry = JSON.stringify({
+    timestamp: new Date().toISOString(),
+    tool,
+    input,
+    durationMs,
+    success: !error,
+    error: error?.message || null
+  }) + '\n'
+  try {
+    await appendFile(join(activeProjectDir, '.delma', 'mcp-calls.jsonl'), entry, 'utf-8')
+  } catch {
+    // best-effort — never crash on logging failure
+  }
+}
+
+function withLogging(toolName, handler) {
+  return async (args) => {
+    const start = Date.now()
+    let caughtError = null
+    try {
+      return await handler(args)
+    } catch (e) {
+      caughtError = e
+      throw e
+    } finally {
+      void logMcpCall({ tool: toolName, input: args, durationMs: Date.now() - start, error: caughtError })
+    }
+  }
+}
 
 async function requireProjectDir(projectDir) {
   const dir = resolve(projectDir || activeProjectDir || process.cwd())
@@ -58,7 +93,7 @@ server.registerTool(
       projectDir: z.string().describe('Absolute or relative path to the project directory.')
     }
   },
-  async ({ projectDir }) => {
+  withLogging('open_project', async ({ projectDir }) => {
     const dir = await requireProjectDir(projectDir)
     const state = await loadState(dir)
     return {
@@ -74,7 +109,7 @@ server.registerTool(
         }
       ]
     }
-  }
+  })
 )
 
 server.registerTool(
@@ -86,7 +121,7 @@ server.registerTool(
       projectDir: z.string().optional()
     }
   },
-  async ({ projectDir }) => {
+  withLogging('get_delma_state', async ({ projectDir }) => {
     const dir = await requireProjectDir(projectDir)
     const state = await loadState(dir)
     return {
@@ -97,7 +132,7 @@ server.registerTool(
         }
       ]
     }
-  }
+  })
 )
 
 server.registerTool(
@@ -109,7 +144,7 @@ server.registerTool(
       projectDir: z.string().optional()
     }
   },
-  async ({ projectDir }) => {
+  withLogging('list_diagram_views', async ({ projectDir }) => {
     const dir = await requireProjectDir(projectDir)
     const workspace = await readWorkspace(dir)
     return {
@@ -130,7 +165,7 @@ server.registerTool(
         }
       ]
     }
-  }
+  })
 )
 
 server.registerTool(
@@ -143,7 +178,7 @@ server.registerTool(
       projectDir: z.string().optional()
     }
   },
-  async ({ viewId, projectDir }) => {
+  withLogging('get_diagram_view', async ({ viewId, projectDir }) => {
     const dir = await requireProjectDir(projectDir)
     const workspace = await readWorkspace(dir)
     const view = workspace.views.find((entry) => entry.id === viewId)
@@ -156,7 +191,7 @@ server.registerTool(
         }
       ]
     }
-  }
+  })
 )
 
 server.registerTool(
@@ -174,7 +209,7 @@ server.registerTool(
       projectDir: z.string().optional()
     }
   },
-  async ({ viewId, title, description, summary, mermaid, reason, projectDir }) => {
+  withLogging('save_diagram_view', async ({ viewId, title, description, summary, mermaid, reason, projectDir }) => {
     const dir = await requireProjectDir(projectDir)
     const workspace = await readWorkspace(dir)
     const view = workspace.views.find((entry) => entry.id === viewId)
@@ -202,7 +237,7 @@ server.registerTool(
         }
       ]
     }
-  }
+  })
 )
 
 server.registerTool(
@@ -217,7 +252,7 @@ server.registerTool(
       projectDir: z.string().optional()
     }
   },
-  async ({ file, note, heading, projectDir }) => {
+  withLogging('append_memory_note', async ({ file, note, heading, projectDir }) => {
     const dir = await requireProjectDir(projectDir)
     const filePath = resolve(getDelmaPath(dir), file)
     const existing = existsSync(filePath) ? await readFile(filePath, 'utf-8') : ''
@@ -232,7 +267,7 @@ server.registerTool(
         }
       ]
     }
-  }
+  })
 )
 
 server.registerTool(
@@ -244,7 +279,7 @@ server.registerTool(
       projectDir: z.string().optional()
     }
   },
-  async ({ projectDir }) => {
+  withLogging('compose_claude_md', async ({ projectDir }) => {
     const dir = await requireProjectDir(projectDir)
     const composed = await composeClaudeMd(dir)
     return {
@@ -255,7 +290,7 @@ server.registerTool(
         }
       ]
     }
-  }
+  })
 )
 
 server.registerTool(
@@ -267,7 +302,7 @@ server.registerTool(
       projectDir: z.string().optional()
     }
   },
-  async ({ projectDir }) => {
+  withLogging('list_history', async ({ projectDir }) => {
     const dir = await requireProjectDir(projectDir)
     const history = await listHistory(dir)
     return {
@@ -278,7 +313,7 @@ server.registerTool(
         }
       ]
     }
-  }
+  })
 )
 
 server.registerResource(

@@ -323,7 +323,7 @@ async function renderDiagram(mermaidCode) {
   if (!mermaidCode?.trim()) {
     els.diagramOutput.className = 'diagram-empty'
     els.diagramOutput.textContent = 'This view does not have Mermaid content yet.'
-    return
+    return true
   }
 
   try {
@@ -331,9 +331,24 @@ async function renderDiagram(mermaidCode) {
     const { svg } = await mermaid.render(renderId, mermaidCode)
     els.diagramOutput.className = ''
     els.diagramOutput.innerHTML = svg
+    return true
   } catch (error) {
-    els.diagramOutput.className = 'diagram-empty'
-    els.diagramOutput.textContent = `Unable to render Mermaid right now.\n\n${error.message}`
+    els.diagramOutput.className = 'diagram-error'
+    els.diagramOutput.innerHTML = `<div class="diagram-error-title">Mermaid syntax error — fix before saving</div><pre class="diagram-error-detail">${escapeHtml(error.message)}</pre>`
+    return false
+  }
+}
+
+// Returns true if the current editor content renders without errors.
+async function validateCurrentMermaid() {
+  const code = els.diagramEditor.value || els.viewMermaid.value
+  if (!code?.trim()) return true
+  try {
+    const renderId = `delma-validate-${Date.now()}`
+    await mermaid.render(renderId, code)
+    return true
+  } catch {
+    return false
   }
 }
 
@@ -634,12 +649,23 @@ els.previewBtn.addEventListener('click', () => {
 })
 
 els.saveViewBtn.addEventListener('click', () => {
-  updateActiveViewFromEditor()
-  renderWorkspace()
-  void saveWorkspace(`save-${state.activeViewId || 'view'}`).catch((error) => {
-    setWorkspaceStatus(error.message)
-    appendLog('Save Failed', error.message, 'error')
-  })
+  void (async () => {
+    if (state.activeTopTab !== 'documentation') {
+      const valid = await validateCurrentMermaid()
+      if (!valid) {
+        updateActiveViewFromEditor()
+        renderWorkspace()
+        setWorkspaceStatus('Fix the Mermaid syntax error before saving.')
+        return
+      }
+    }
+    updateActiveViewFromEditor()
+    renderWorkspace()
+    void saveWorkspace(`save-${state.activeViewId || 'view'}`).catch((error) => {
+      setWorkspaceStatus(error.message)
+      appendLog('Save Failed', error.message, 'error')
+    })
+  })()
 })
 
 els.resetExampleBtn.addEventListener('click', () => {
@@ -667,6 +693,41 @@ els.logoutBtn.addEventListener('click', () => {
   })
 })
 
+// ── Live socket (/ws/live) ───────────────────────────────────────────────────
+// Receives push notifications when .delma/ files change (from fs.watch on the server).
+// Calls refreshWorkspace() so the UI stays in sync without polling.
+let liveSocket = null
+let liveReconnectTimer = null
+
+function initLiveSocket() {
+  if (hostedPreviewMode) return
+  if (liveSocket && liveSocket.readyState === WebSocket.OPEN) return
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+  const url = `${protocol}//${window.location.host}/ws/live`
+
+  liveSocket = new WebSocket(url)
+
+  liveSocket.addEventListener('message', (event) => {
+    try {
+      const msg = JSON.parse(event.data)
+      if (msg.type === 'delma_update' && state.projectDir) {
+        void refreshWorkspace().catch(() => {})
+      }
+    } catch { /* ignore malformed messages */ }
+  })
+
+  liveSocket.addEventListener('close', () => {
+    // Reconnect after 3s — handles server restarts gracefully
+    clearTimeout(liveReconnectTimer)
+    liveReconnectTimer = setTimeout(initLiveSocket, 3000)
+  })
+
+  liveSocket.addEventListener('error', () => {
+    liveSocket?.close()
+  })
+}
+
 async function init() {
   setOpenState(false)
   state.activeViewId = starterTemplates[0].id
@@ -683,6 +744,7 @@ async function init() {
   )
 
   await checkAuth()
+  initLiveSocket()
 
   if (hostedPreviewMode) {
     state.workspace = {

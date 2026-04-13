@@ -7,7 +7,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'crypto'
 import { WebSocketServer } from 'ws'
 import { spawn } from 'child_process'
 import { readFile, readdir, writeFile } from 'fs/promises'
-import { existsSync } from 'fs'
+import { existsSync, watch } from 'fs'
 import {
   ensureProjectState,
   readWorkspace,
@@ -160,6 +160,7 @@ app.post('/api/project/open', async (req, res) => {
     projectDir = dir
     await ensureProjectState(projectDir)
     await composeClaudeMd(projectDir)
+    watchProject(projectDir)
     res.json({ ok: true, projectDir })
   } catch (e) {
     res.status(500).json({ error: e.message })
@@ -420,6 +421,47 @@ if (process.env.NODE_ENV === 'production') {
 
 const server = createServer(app)
 const wss = new WebSocketServer({ server, path: '/ws/agent-sdk' })
+
+// ── Live update WebSocket (/ws/live) ─────────────────────────────────────────
+// Clients connect here to receive push notifications when .delma/ files change.
+// The frontend calls refreshWorkspace() on each message.
+const liveWss = new WebSocketServer({ server, path: '/ws/live' })
+const liveClients = new Set()
+
+liveWss.on('connection', (ws, req) => {
+  if (!isAuthenticatedRequest(req)) { ws.close(); return }
+  liveClients.add(ws)
+  ws.on('close', () => liveClients.delete(ws))
+})
+
+function broadcastLive(event) {
+  const msg = JSON.stringify(event)
+  for (const ws of liveClients) {
+    if (ws.readyState === ws.OPEN) ws.send(msg)
+  }
+}
+
+// ── fs.watch on .delma/ ───────────────────────────────────────────────────────
+// Broadcasts to all /ws/live clients when a file changes.
+// Debounced per-file to avoid rapid-fire updates.
+// Skips CLAUDE.md (auto-generated on every write — would cause loops).
+let fileWatcher = null
+const debounceTimers = new Map()
+
+function watchProject(dir) {
+  if (fileWatcher) { fileWatcher.close(); fileWatcher = null }
+  const delmaPath = getDelmaPath(dir)
+  if (!existsSync(delmaPath)) return
+
+  fileWatcher = watch(delmaPath, { recursive: false }, (eventType, filename) => {
+    if (!filename || filename === 'CLAUDE.md' || filename === 'mcp-calls.jsonl') return
+    clearTimeout(debounceTimers.get(filename))
+    debounceTimers.set(filename, setTimeout(() => {
+      debounceTimers.delete(filename)
+      broadcastLive({ type: 'delma_update', file: filename, eventType })
+    }, 200))
+  })
+}
 
 wss.on('connection', async (ws, req) => {
   if (!isAuthenticatedRequest(req)) {
