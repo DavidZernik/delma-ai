@@ -21,8 +21,9 @@ const state = {
   memory: {},
   history: [],
   activeViewKey: null,
+  activeMemoryFile: null,
   previewMermaid: '',
-  activeTopTab: 'view',
+  activeTopTab: 'diagram',
   documentationContent: '',
   diagramMode: 'view'
 }
@@ -311,20 +312,31 @@ function buildDocumentationPreview() {
   return sections.join('\n').trim()
 }
 
+// ── Tab Labels for Memory Files ──────────────────────────────────────────────
+
+const MEMORY_TAB_LABELS = {
+  'environment.md': { title: 'Environment', desc: 'IDs, URLs, infrastructure, and where things live in SFMC.' },
+  'logic.md': { title: 'Campaign Logic', desc: 'Business rules, routing, how the campaign works.' },
+  'people.md': { title: 'People', desc: 'Who owns what, stakeholders, key decisions.' },
+  'session-log.md': { title: 'Session Log', desc: 'Current status, what\'s done, what\'s needed.' }
+}
+
 // ── Render ───────────────────────────────────────────────────────────────────
 
 function renderViewTabs() {
-  const views = state.views.length ? state.views : defaultViewTemplates()
   els.viewTabs.textContent = ''
 
+  // Diagram tabs
+  const views = state.views.length ? state.views : defaultViewTemplates()
   for (const view of views) {
     const btn = document.createElement('button')
     const key = view.view_key
-    btn.className = `view-tab${state.activeTopTab === 'view' && key === state.activeViewKey ? ' active' : ''}`
-    btn.innerHTML = `<div class="view-tab-title">${escapeHtml(view.title)}</div><div class="view-tab-copy">${escapeHtml(view.description || 'No description.')}</div>`
+    const isActive = state.activeTopTab === 'diagram' && key === state.activeViewKey
+    btn.className = `view-tab${isActive ? ' active' : ''}`
+    btn.innerHTML = `<div class="view-tab-title">${escapeHtml(view.title)}</div>`
     btn.addEventListener('click', () => {
       saveCurrentEditState()
-      state.activeTopTab = 'view'
+      state.activeTopTab = 'diagram'
       state.activeViewKey = key
       state.previewMermaid = view.mermaid || ''
       renderWorkspace()
@@ -332,45 +344,33 @@ function renderViewTabs() {
     els.viewTabs.appendChild(btn)
   }
 
+  // Memory file tabs
+  const memFiles = Object.keys(state.memory).length ? Object.keys(state.memory) : Object.keys(MEMORY_TAB_LABELS)
+  for (const filename of memFiles) {
+    const label = MEMORY_TAB_LABELS[filename] || { title: filename, desc: '' }
+    const isActive = state.activeTopTab === 'memory' && state.activeMemoryFile === filename
+    const btn = document.createElement('button')
+    btn.className = `view-tab${isActive ? ' active' : ''}`
+    btn.innerHTML = `<div class="view-tab-title">${escapeHtml(label.title)}</div>`
+    btn.addEventListener('click', () => {
+      saveCurrentEditState()
+      state.activeTopTab = 'memory'
+      state.activeMemoryFile = filename
+      renderWorkspace()
+    })
+    els.viewTabs.appendChild(btn)
+  }
+
+  // Project Details tab
   const docBtn = document.createElement('button')
   docBtn.className = `view-tab action-tab${state.activeTopTab === 'documentation' ? ' active' : ''}`
-  docBtn.innerHTML = '<div class="view-tab-title">High Level Project Details</div>'
+  docBtn.innerHTML = '<div class="view-tab-title">Overview</div>'
   docBtn.addEventListener('click', () => {
     saveCurrentEditState()
-    state.documentationContent = buildDocumentationPreview()
     state.activeTopTab = 'documentation'
     renderWorkspace()
   })
   els.viewTabs.appendChild(docBtn)
-}
-
-function renderHistory() {
-  els.historyList.textContent = ''
-  if (!state.history.length) {
-    els.historyList.innerHTML = '<div class="history-item">No snapshots yet.</div>'
-    return
-  }
-  for (const entry of state.history.slice(0, 12)) {
-    const item = document.createElement('div')
-    item.className = 'history-item'
-    item.textContent = entry
-    els.historyList.appendChild(item)
-  }
-}
-
-function renderMemory() {
-  els.memoryList.textContent = ''
-  const entries = Object.entries(state.memory)
-  if (!entries.length) {
-    els.memoryList.innerHTML = '<div class="memory-item"><h4>Waiting</h4><pre>No memory loaded.</pre></div>'
-    return
-  }
-  for (const [file, content] of entries) {
-    const item = document.createElement('div')
-    item.className = 'memory-item'
-    item.innerHTML = `<h4>${escapeHtml(file)}</h4><pre>${escapeHtml(trimPreview(content))}</pre>`
-    els.memoryList.appendChild(item)
-  }
 }
 
 function populateEditor(view) {
@@ -381,34 +381,124 @@ function populateEditor(view) {
   els.diagramEditor.value = state.previewMermaid || view?.mermaid || ''
 }
 
-async function renderDocumentation(content) {
-  setDiagramMode('view')
-  els.diagramOutput.className = 'documentation-shell'
-  els.diagramOutput.textContent = content?.trim() || 'No project details yet.'
+// ── Render a memory file as a readable document ─────────────────────────────
+
+function renderMemoryDocument(filename) {
+  const content = state.memory[filename] || ''
+  const label = MEMORY_TAB_LABELS[filename] || { title: filename, desc: '' }
+
+  els.viewTitle.textContent = label.title
+  els.viewDescription.textContent = label.desc
+  els.modeToggle.hidden = false
+  els.resetExampleBtn.hidden = true
+
+  if (state.diagramMode === 'edit') {
+    els.diagramOutput.hidden = true
+    els.diagramEditor.classList.add('visible')
+    els.diagramEditor.value = content
+  } else {
+    els.diagramOutput.hidden = false
+    els.diagramEditor.classList.remove('visible')
+    els.diagramOutput.className = 'documentation-shell'
+    els.diagramOutput.innerHTML = ''
+
+    const pre = document.createElement('pre')
+    pre.style.cssText = 'font-size: 13px; line-height: 1.7; white-space: pre-wrap; color: #333; font-family: var(--sans); padding: 8px 0;'
+    pre.textContent = content.trim() || '(empty)'
+    els.diagramOutput.appendChild(pre)
+  }
 }
+
+// ── Render the overview tab (diagrams + memory summary) ─────────────────────
+
+async function renderDocumentation() {
+  els.viewTitle.textContent = 'Overview'
+  els.viewDescription.textContent = 'All diagrams and notes in one view.'
+  els.modeToggle.hidden = true
+  els.resetExampleBtn.hidden = true
+  els.diagramOutput.hidden = false
+  els.diagramEditor.classList.remove('visible')
+  els.diagramOutput.className = 'documentation-shell'
+  els.diagramOutput.innerHTML = ''
+
+  for (const view of state.views) {
+    const section = document.createElement('div')
+    section.style.cssText = 'margin-bottom: 36px;'
+
+    const heading = document.createElement('h3')
+    heading.style.cssText = 'font-size: 16px; font-weight: 700; margin-bottom: 4px;'
+    heading.textContent = view.title
+    section.appendChild(heading)
+
+    if (view.description) {
+      const desc = document.createElement('p')
+      desc.style.cssText = 'font-size: 13px; color: #666; margin-bottom: 12px;'
+      desc.textContent = view.description
+      section.appendChild(desc)
+    }
+
+    if (view.mermaid?.trim()) {
+      const diagramDiv = document.createElement('div')
+      try {
+        const { svg } = await mermaid.render(`doc-${view.view_key}-${Date.now()}`, view.mermaid)
+        diagramDiv.innerHTML = svg
+      } catch (e) {
+        diagramDiv.textContent = `(render error: ${e.message})`
+        diagramDiv.style.cssText = 'color: #999; font-size: 12px;'
+      }
+      section.appendChild(diagramDiv)
+    }
+    els.diagramOutput.appendChild(section)
+  }
+
+  const entries = Object.entries(state.memory).filter(([, v]) => v?.trim())
+  if (entries.length) {
+    for (const [file, content] of entries) {
+      const label = MEMORY_TAB_LABELS[file] || { title: file }
+      const section = document.createElement('div')
+      section.style.cssText = 'margin-bottom: 24px; border-top: 1px solid rgba(0,0,0,0.06); padding-top: 20px;'
+
+      const heading = document.createElement('h3')
+      heading.style.cssText = 'font-size: 15px; font-weight: 700; margin-bottom: 8px;'
+      heading.textContent = label.title
+      section.appendChild(heading)
+
+      const pre = document.createElement('pre')
+      pre.style.cssText = 'font-size: 12px; line-height: 1.6; white-space: pre-wrap; color: #555; background: #f9f9f9; padding: 12px; border-radius: 6px;'
+      pre.textContent = content.trim()
+      section.appendChild(pre)
+
+      els.diagramOutput.appendChild(section)
+    }
+  }
+}
+
+// ── Main renderWorkspace ────────────────────────────────────────────────────
 
 function renderWorkspace() {
   renderViewTabs()
-  renderHistory()
-  renderMemory()
 
-  const view = getActiveView()
-  if (!view) {
-    els.workspaceTitle.textContent = 'Delma Workspace'
-    els.workspaceCopy.textContent = 'Select or create a workspace to get started.'
-    void renderDiagram('')
+  els.workspaceTitle.textContent = state.workspaceName || 'Delma Workspace'
+  els.workspaceCopy.textContent = state.workspaceId
+    ? 'Visual workspace for Claude Code. Diagrams and memory update live.'
+    : 'Select or create a workspace to get started.'
+
+  // Documentation / Overview tab
+  if (state.activeTopTab === 'documentation') {
+    void renderDocumentation()
     return
   }
 
-  els.workspaceTitle.textContent = state.workspaceName ? `${state.workspaceName}` : 'Delma Workspace'
-  els.workspaceCopy.textContent = 'Visual workspace for Claude Code. Diagrams and memory update live.'
+  // Memory file tab
+  if (state.activeTopTab === 'memory') {
+    renderMemoryDocument(state.activeMemoryFile)
+    return
+  }
 
-  if (state.activeTopTab === 'documentation') {
-    els.viewTitle.textContent = 'High Level Project Details'
-    els.viewDescription.textContent = 'Synthesized from diagrams and memory.'
-    els.resetExampleBtn.hidden = true
-    setDiagramMode(state.diagramMode)
-    if (state.diagramMode === 'view') void renderDocumentation(state.documentationContent || buildDocumentationPreview())
+  // Diagram tab
+  const view = getActiveView()
+  if (!view) {
+    void renderDiagram('')
     return
   }
 
@@ -416,12 +506,6 @@ function renderWorkspace() {
   els.resetExampleBtn.hidden = false
   els.viewTitle.textContent = view.title
   els.viewDescription.textContent = view.description || ''
-  els.viewSummary.textContent = view.summary || ''
-  els.projectPill.textContent = state.workspaceName || 'No workspace'
-  els.historyPill.textContent = `${state.history.length} snapshots`
-  els.diagramToolbarTitle.textContent = view.title
-  els.diagramToolbarSubtitle.textContent = view.kind ? `${view.kind} view` : 'Mermaid view'
-  els.saveNote.textContent = 'Both you and Claude Code can update these views. Changes sync live.'
   populateEditor(view)
   setDiagramMode(state.diagramMode)
   if (state.diagramMode !== 'edit') void renderDiagram(state.previewMermaid || view.mermaid || '')
@@ -431,9 +515,9 @@ function renderWorkspace() {
 
 function saveCurrentEditState() {
   if (state.diagramMode !== 'edit') return
-  if (state.activeTopTab === 'documentation') {
-    state.documentationContent = els.diagramEditor.value
-  } else {
+  if (state.activeTopTab === 'memory') {
+    state.memory[state.activeMemoryFile] = els.diagramEditor.value
+  } else if (state.activeTopTab === 'diagram') {
     updateActiveViewFromEditor()
   }
 }
@@ -452,33 +536,59 @@ function updateActiveViewFromEditor() {
 
 // ── Save to Supabase ─────────────────────────────────────────────────────────
 
-async function saveView() {
-  const view = getActiveView()
-  if (!view || !state.workspaceId) return
-  updateActiveViewFromEditor()
+async function saveCurrentTab() {
+  if (!state.workspaceId) return
 
-  const { error } = await supabase
-    .from('diagram_views')
-    .update({
-      title: view.title,
-      description: view.description,
-      summary: view.summary,
-      mermaid: view.mermaid
+  if (state.activeTopTab === 'memory') {
+    // Save memory file
+    const filename = state.activeMemoryFile
+    const content = els.diagramEditor.value
+    state.memory[filename] = content
+
+    const { data: existing } = await supabase
+      .from('memory_notes')
+      .select('id')
+      .eq('workspace_id', state.workspaceId)
+      .eq('filename', filename)
+      .or(`visibility.eq.shared,owner_id.eq.${state.user.id}`)
+      .single()
+
+    if (existing) {
+      await supabase.from('memory_notes').update({ content }).eq('id', existing.id)
+    } else {
+      const visibility = filename === 'session-log.md' ? 'private' : 'shared'
+      await supabase.from('memory_notes').insert({
+        workspace_id: state.workspaceId, filename, content, visibility, owner_id: state.user.id
+      })
+    }
+
+    await refreshWorkspace()
+    setWorkspaceStatus(`Saved ${MEMORY_TAB_LABELS[filename]?.title || filename}.`)
+    return
+  }
+
+  if (state.activeTopTab === 'diagram') {
+    const view = getActiveView()
+    if (!view) return
+    updateActiveViewFromEditor()
+
+    const { error } = await supabase
+      .from('diagram_views')
+      .update({ title: view.title, description: view.description, summary: view.summary, mermaid: view.mermaid })
+      .eq('id', view.id)
+
+    if (error) throw new Error(error.message)
+
+    await supabase.from('history_snapshots').insert({
+      workspace_id: state.workspaceId,
+      reason: `save-${view.view_key}`,
+      snapshot: { view },
+      created_by: state.user.id
     })
-    .eq('id', view.id)
 
-  if (error) throw new Error(error.message)
-
-  // Write history
-  await supabase.from('history_snapshots').insert({
-    workspace_id: state.workspaceId,
-    reason: `save-${view.view_key}`,
-    snapshot: { view },
-    created_by: state.user.id
-  })
-
-  await refreshWorkspace()
-  setWorkspaceStatus('Saved.')
+    await refreshWorkspace()
+    setWorkspaceStatus('Saved.')
+  }
 }
 
 // ── Workspace Selector ───────────────────────────────────────────────────────
@@ -532,7 +642,7 @@ els.connectBtn.addEventListener('click', () => {
 })
 
 els.saveWorkspaceBtn.addEventListener('click', () => {
-  void saveView().catch(err => {
+  void saveCurrentTab().catch(err => {
     setWorkspaceStatus(err.message)
     appendLog('Save Failed', err.message, 'error')
   })
@@ -551,9 +661,9 @@ els.editModeBtn.addEventListener('click', () => {
 })
 
 els.diagramEditor.addEventListener('input', () => {
-  if (state.activeTopTab === 'documentation') {
-    state.documentationContent = els.diagramEditor.value
-  } else {
+  if (state.activeTopTab === 'memory') {
+    state.memory[state.activeMemoryFile] = els.diagramEditor.value
+  } else if (state.activeTopTab === 'diagram') {
     state.previewMermaid = els.diagramEditor.value
     els.viewMermaid.value = els.diagramEditor.value
   }
@@ -567,7 +677,7 @@ els.previewBtn.addEventListener('click', () => {
 
 els.saveViewBtn.addEventListener('click', () => {
   void (async () => {
-    if (state.activeTopTab !== 'documentation') {
+    if (state.activeTopTab === 'diagram') {
       const valid = await validateCurrentMermaid()
       if (!valid) {
         updateActiveViewFromEditor()
@@ -576,7 +686,7 @@ els.saveViewBtn.addEventListener('click', () => {
         return
       }
     }
-    await saveView()
+    await saveCurrentTab()
   })().catch(err => {
     setWorkspaceStatus(err.message)
     appendLog('Save Failed', err.message, 'error')
