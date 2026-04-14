@@ -42,7 +42,7 @@ mermaid.initialize({
     tertiaryColor: '#F5EDE4',      // background elements
     tertiaryTextColor: '#1A1A1A',
     tertiaryBorderColor: '#D8CFC4',
-    lineColor: '#8F0000',          // arrows/connectors — brand red
+    lineColor: '#7A0000',          // arrows — slightly deeper red, confident
     textColor: '#1A1A1A',
     fontSize: '13px',
     fontFamily: '"Instrument Sans", "Avenir Next", "Segoe UI", sans-serif',

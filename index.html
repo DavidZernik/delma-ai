@@ -6,12 +6,14 @@
   <title>Delma</title>
   <style>
     :root {
-      --bg: #F5EDE4;              /* warm cream background */
-      --panel: #FAF6F0;           /* warm white for cards — distinct from bg */
-      --panel-soft: #F5EDE4;      /* matches bg for headers/footers */
-      --ink: #1A1A1A;             /* dark text */
-      --muted: #7a7168;           /* warm gray */
-      --line: #D8CFC4;            /* warm borders/dividers */
+      --bg: #F5EDE4;              /* page — lightest layer */
+      --chrome: #EBE0D4;          /* header, tabs, footer — structural frame */
+      --panel: #FBF6F0;           /* content card — warm white, sits above bg */
+      --panel-soft: #F5EDE4;      /* matches bg */
+      --ink: #1A1A1A;             /* primary text */
+      --ink-secondary: #5c554d;   /* secondary text — clearly recedes */
+      --muted: #8a8079;           /* tertiary text — labels, hints */
+      --line: #D4C9BC;            /* borders — slightly more defined */
       --accent: #8F0000;          /* dark red — CTAs, brand moments */
       --accent-soft: #f2e6e6;     /* light red wash for selected states */
       --accent-ink: #ffffff;      /* white text on red */
@@ -100,7 +102,7 @@
       gap: 12px;
       padding: 14px 20px;
       border-bottom: 1px solid var(--line);
-      background: #EFE4D8;
+      background: var(--chrome);
     }
 
     .eyebrow {
@@ -185,7 +187,10 @@
       gap: 12px;
       padding: 10px 20px;
       border-bottom: 1px solid var(--line);
-      background: #EFE4D8;
+      background: var(--chrome);
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+      position: relative;
+      z-index: 2;
     }
 
     .tab-bar {
@@ -205,11 +210,12 @@
       border: 1px solid var(--line);
       background: var(--panel);
       border-radius: 999px;
-      padding: 7px 12px;
+      padding: 7px 14px;
       text-align: left;
       min-width: max-content;
-      transition: background 160ms ease, border-color 160ms ease;
-      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+      color: var(--ink-secondary);
+      font-size: 12px;
+      transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
     }
 
     .view-tab.active {
@@ -249,18 +255,18 @@
     }
 
     .meta-title {
-      font-size: 20px;
+      font-size: 22px;
       font-weight: 700;
-      letter-spacing: -0.03em;
+      letter-spacing: -0.035em;
       color: var(--ink);
+      line-height: 1.1;
     }
 
     .meta-copy {
-      margin-top: 3px;
-      color: var(--muted);
-      font-size: 12px;
+      margin-top: 4px;
+      color: var(--ink-secondary);
+      font-size: 13px;
       line-height: 1.4;
-      opacity: 0.8;
       max-width: 520px;
     }
 
@@ -303,13 +309,13 @@
       width: 100%;
       max-width: 820px;
       border: 1px solid var(--line);
-      border-radius: 16px;
-      background: #F8F1E8;
+      border-radius: 14px;
+      background: var(--panel);
       padding: 28px 32px;
       box-sizing: border-box;
       overflow-wrap: break-word;
       word-wrap: break-word;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03), 0 4px 16px rgba(0, 0, 0, 0.02);
     }
 
     .documentation-shell {
@@ -331,7 +337,7 @@
     .markdown-body a { color: var(--accent); }
     .markdown-body hr { border: none; border-top: 1px solid var(--line); margin: 16px 0; }
     .markdown-body blockquote { border-left: 3px solid var(--positive); margin: 8px 0; padding: 4px 12px; color: #666; }
-    .mermaid-inline { margin: 16px 0; padding: 16px; background: #F8F1E8; border-radius: 12px; border: 1px solid var(--line); text-align: center; }
+    .mermaid-inline { margin: 16px 0; padding: 20px; background: var(--bg); border-radius: 12px; border: 1px solid var(--line); text-align: center; }
     .mermaid-inline svg { max-width: 100%; height: auto; }
 
     /* Mermaid node styling — more presence */
@@ -344,16 +350,23 @@
       ry: 8;
     }
 
-    /* Thicker arrows */
+    /* Arrows — confident, not decorative */
     .diagram-shell .edgePath path.path,
     .mermaid-inline .edgePath path.path {
-      stroke-width: 2px !important;
+      stroke-width: 2.5px !important;
     }
 
     /* Arrow markers */
     .diagram-shell marker path,
     .mermaid-inline marker path {
-      fill: #8F0000 !important;
+      fill: #7A0000 !important;
+    }
+
+    /* Node labels — quieter than surrounding UI text */
+    .diagram-shell .nodeLabel,
+    .mermaid-inline .nodeLabel {
+      font-size: 12px !important;
+      color: var(--ink-secondary) !important;
     }
     .markdown-body details { margin: 12px 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
     .markdown-body details summary { padding: 10px 14px; cursor: pointer; font-weight: 600; font-size: 13px; background: #f9f9f9; user-select: none; }
@@ -410,7 +423,7 @@
       gap: 14px;
       padding: 10px 24px;
       border-top: 1px solid var(--line);
-      background: #EFE4D8;
+      background: var(--chrome);
     }
 
     .status-strip {
