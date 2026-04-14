@@ -1,6 +1,21 @@
+// ──────────────────────────────────────────────────────────────────────────────
 // Delma MCP Server — Supabase backend
-// Runs via stdio transport. Claude Code connects to this.
-// Env: DELMA_WORKSPACE_ID, DELMA_USER_ID (set in .mcp.json)
+// ──────────────────────────────────────────────────────────────────────────────
+//
+// This runs as a stdio MCP server that Claude Code connects to.
+// It gives Claude read/write access to the Delma workspace — diagrams,
+// memory notes, and history — all stored in Supabase.
+//
+// Required env vars (set in .mcp.json):
+//   DELMA_WORKSPACE_ID — UUID of the workspace to operate on
+//   DELMA_USER_ID      — UUID of the authenticated user
+//
+// Permission enforcement:
+//   Supabase RLS policies enforce access at the database level.
+//   This server also checks permissions before writes and returns
+//   helpful error messages (e.g. "you don't have edit access to this tab").
+//
+// ──────────────────────────────────────────────────────────────────────────────
 
 import { config } from 'dotenv'
 config()
@@ -18,6 +33,8 @@ import {
   readMemoryMap,
   appendMemoryNote,
   listHistory,
+  canEdit,
+  getUserRole,
   logMcpCall,
   composeClaudeMd
 } from './delma-state.js'
@@ -127,8 +144,9 @@ server.registerTool(
   withLogging('list_diagram_views', async () => {
     const { workspaceId, userId } = requireContext()
     const views = await readDiagramViews(workspaceId, userId)
-    return text(views.map(({ view_key, title, kind, description, summary, visibility }) => ({
-      view_key, title, kind, description, summary, visibility
+    // Include permission level so Claude knows what's editable
+    return text(views.map(({ view_key, title, kind, description, summary, visibility, permission }) => ({
+      view_key, title, kind, description, summary, visibility, permission
     })))
   })
 )
@@ -165,6 +183,14 @@ server.registerTool(
   },
   withLogging('save_diagram_view', async ({ viewKey, title, description, summary, mermaid, reason }) => {
     const { workspaceId, userId } = requireContext()
+
+    // Check permission before writing
+    const existing = await getDiagramView(workspaceId, viewKey, userId)
+    const role = await getUserRole(workspaceId, userId)
+    if (!canEdit(existing.permission, existing.owner_id, userId, role)) {
+      throw new Error(`No edit access to "${existing.title}" (permission: ${existing.permission}). Only ${existing.permission === 'view-all' ? 'admins' : 'the owner'} can edit this tab.`)
+    }
+
     const updates = {}
     if (title !== undefined) updates.title = title
     if (description !== undefined) updates.description = description
@@ -188,6 +214,26 @@ server.registerTool(
   },
   withLogging('append_memory_note', async ({ file, note, heading }) => {
     const { workspaceId, userId } = requireContext()
+
+    // Check permission before writing
+    // Note: appendMemoryNote creates the note if it doesn't exist yet,
+    // so we only check permission if there's an existing note.
+    const { supabase: sb } = await import('./lib/supabase.js')
+    const { data: existing } = await sb
+      .from('memory_notes')
+      .select('permission, owner_id')
+      .eq('workspace_id', workspaceId)
+      .eq('filename', file)
+      .limit(1)
+      .single()
+
+    if (existing) {
+      const role = await getUserRole(workspaceId, userId)
+      if (!canEdit(existing.permission, existing.owner_id, userId, role)) {
+        throw new Error(`No edit access to "${file}" (permission: ${existing.permission}).`)
+      }
+    }
+
     await appendMemoryNote(workspaceId, file, note, heading, userId)
     return text({ ok: true, file })
   })

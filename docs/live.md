@@ -3,31 +3,17 @@
 This is the canonical reference for the product as it exists in the
 repo today.
 
-Read this if you want to understand:
-- what Delma is right now
-- what the web app shows and does
-- how the MCP server works and what tools it exposes
-- how Supabase stores everything (no local files)
-- how bidirectional editing and real-time sync work
-- how shared vs private visibility works
-
-For future features and product direction, see `docs/future.md`.
-
 ---
 
-## 1. What Delma is right now
+## 1. What Delma is
 
-> **Delma is a persistent visual workspace for Claude Code: a web app
-> that keeps your system map, diagrams, and project memory visible
-> while Claude works — backed by Supabase, with live real-time sync.**
+> **Delma is a visual workspace that captures project context from AI
+> conversations and makes it visible, editable, and shareable — so
+> non-technical people can manage technical projects through Claude Code
+> without needing an engineer.**
 
-The live product has three jobs:
-
-- keep the shared workspace map visible beside Claude Code at all times
-- give Claude Code a structured memory it can read from and write to via MCP
-- update the visual layer in real time when anyone makes changes
-
-No local files. No repos required. Everything lives in Supabase.
+No local repo required. Everything lives in Supabase. Claude Code
+connects via MCP and reads/writes the same data the web app shows.
 
 ---
 
@@ -47,142 +33,144 @@ clients instantly.
 
 ---
 
-## 3. What the Web App Shows
+## 3. Tabs
 
-Three tabs, always visible:
+Every tab is markdown. Some contain inline Mermaid diagrams. No
+separate "diagram type" vs "document type" — just content.
 
-1. **Architecture** — Mermaid diagram of systems, integrations, data flow.
-   Shared across all workspace members.
-
-2. **Org Chart** — Mermaid diagram of people, ownership, trust boundaries.
-   Shared across all workspace members.
-
-3. **High Level Project Details** — Generated prose from all diagrams
-   and memory notes. Read-only synthesis.
-
-Each diagram tab has View and Edit modes. Edit mode shows raw Mermaid
-source. Mermaid syntax errors are caught before saving.
+| Tab | What it answers | Default permission |
+|-----|----------------|-------------------|
+| Architecture | How does the system flow? | view-all (everyone reads, admins edit) |
+| Campaign Logic | What are the business rules? | view-all |
+| People | Who owns what? Who decides? | edit-all (anyone can correct) |
+| Environment | Where do I find this ID/URL/key? | view-admins (has API credentials) |
+| Session Log | What's done? What's left? | private (per user) |
 
 ---
 
-## 4. Supabase Backend
+## 4. Tab Permissions
 
-All state lives in Supabase Postgres. No local `.delma/` folder.
+Each tab has a permission level that controls who can see and edit it.
+This is enforced at two levels: Postgres RLS policies (hard boundary)
+and UI controls (lock icons, hidden Edit buttons).
+
+| Permission | Who sees it | Who edits it |
+|-----------|-------------|-------------|
+| `private` | Only the owner | Only the owner |
+| `view-all` | All workspace members | Only owners/admins |
+| `edit-all` | All workspace members | All workspace members |
+| `view-admins` | Only owners/admins | Only owners/admins |
+
+### Why this matters
+
+- **Environment tab** has API keys and credentials — hidden from
+  regular members by default (`view-admins`)
+- **Session Log** is personal — each user has their own (`private`)
+- **People** tab is open — anyone can correct who owns what (`edit-all`)
+- **Architecture and Logic** are visible to everyone but only
+  admins change them (`view-all`)
+
+### Workspace roles
+
+- `owner` — full access to everything, can manage members
+- `member` — access controlled by tab permission levels
+
+---
+
+## 5. Supabase Backend
 
 ### Tables
 
 | Table | Purpose |
 |-------|---------|
-| `workspaces` | Named workspaces (e.g. "birthday", "kpi-dashboard") |
-| `workspace_members` | Who belongs to which workspace + role (owner/member) |
-| `diagram_views` | Mermaid diagrams with title, description, summary, visibility |
-| `memory_notes` | Structured markdown files (environment.md, logic.md, people.md, session-log.md) |
+| `workspaces` | Named workspaces (e.g. "Birthday Campaign") |
+| `workspace_members` | Who belongs + role (owner/member) |
+| `diagram_views` | Mermaid diagrams with title, description, summary, permission |
+| `memory_notes` | Markdown documents with filename, content, permission |
 | `history_snapshots` | Timestamped JSON snapshots on every save |
-| `mcp_call_logs` | Every MCP tool call logged for the analyzer app |
+| `mcp_call_logs` | Every MCP tool call logged for analytics |
 
 ### Auth
 
 Supabase Auth with email/password. First login auto-creates the account.
 
-### Row Level Security
-
-Users can only see workspaces they're members of. Private items
-(session-log.md) only visible to their owner. All enforced at the
-database level.
-
 ### Real-time
 
-`diagram_views` and `memory_notes` tables have Supabase Realtime enabled.
-When Claude writes via MCP or a user edits in the web app, all connected
-clients get the update instantly via WebSocket subscription.
+`diagram_views` and `memory_notes` have Supabase Realtime enabled.
+When Claude writes via MCP, the web app updates live.
 
 ---
 
-## 5. Visibility Rules (Fixed)
+## 6. The MCP Server
 
-| Item | Visibility |
-|------|-----------|
-| Architecture diagram | Shared — all workspace members see it |
-| Org Chart diagram | Shared |
-| environment.md | Shared |
-| logic.md | Shared |
-| people.md | Shared |
-| session-log.md | Private — only the owner sees their own |
-| High Level Project Details | Generated from shared content |
-
----
-
-## 6. The MCP Server Tools
-
-The MCP server runs locally via `npm run start:mcp` (stdio transport).
-Claude Code connects to it via `.mcp.json`.
-
+Runs locally via `npm run start:mcp` (stdio transport).
 Requires env vars: `DELMA_WORKSPACE_ID`, `DELMA_USER_ID`.
 
 | Tool | Purpose |
 |------|---------|
-| `open_workspace` | Set active workspace by name or ID. Creates if not found. |
-| `get_workspace_state` | Read full workspace: views, memory, history. |
-| `list_diagram_views` | List available Mermaid views. |
-| `get_diagram_view` | Read one view by key. |
-| `save_diagram_view` | Update a view + write history snapshot. |
-| `append_memory_note` | Append to a memory file. |
-| `compose_claude_md` | Generate CLAUDE.md content from workspace state. |
-| `list_history` | List history snapshots. |
+| `open_workspace` | Set active workspace by name or ID |
+| `get_workspace_state` | Read all views, memory, and history |
+| `list_diagram_views` | List views with permission levels |
+| `get_diagram_view` | Read one view by key |
+| `save_diagram_view` | Update a view (permission-checked) |
+| `append_memory_note` | Append to a memory file (permission-checked) |
+| `compose_claude_md` | Return static CLAUDE.md behavior instructions |
+| `list_history` | List history snapshots |
+
+All write operations check permissions before executing. If a user
+doesn't have edit access, the MCP server returns a clear error.
 
 ### MCP Call Logger
 
-Every tool call is logged to the `mcp_call_logs` table with timestamp,
-tool name, input payload, duration, and success/error. This is the raw
-data source for the analyzer app.
+Every tool call is logged to `mcp_call_logs` with timestamp, tool name,
+input, duration, and success/error.
 
 ---
 
-## 7. Claude Auto-Update Behavior
+## 7. Context Loading
 
-The generated CLAUDE.md includes instructions telling Claude to call
-MCP tools automatically during conversations:
+### Hook (reading)
 
-- Call `get_workspace_state` at the start of each conversation
-- Call `append_memory_note` when the user confirms a fact
-- Call `save_diagram_view` when a structural relationship changes
-- Only write confirmed facts, never inferences
-- Batch updates into single calls
+A Claude Code hook (`hooks/load-workspace.sh`) runs at session start
+and loads the full workspace context from Supabase. Claude has all
+5 tabs of content before the first message.
+
+### CLAUDE.md (writing behavior)
+
+Static file — never changes. Three lines:
+
+```
+Write to Delma when the user confirms a fact:
+- append_memory_note for people, logic, environment, or session updates
+- save_diagram_view for architecture or diagram changes
+
+Only write confirmed facts. Never write inferences. Batch updates.
+```
+
+The hook handles reading. CLAUDE.md handles writing rules.
 
 ---
 
 ## 8. Bidirectional Editing
 
 Both Claude and the user write to the same Supabase tables.
+Supabase Realtime pushes changes to all connected clients.
+No polling. No manual refresh.
 
-- User edits Mermaid in the web UI -> saves -> Supabase row updates ->
-  Realtime pushes to all clients
-- Claude calls `save_diagram_view` via MCP -> Supabase row updates ->
-  Realtime pushes to all clients (including the web app)
-
-No polling. No manual refresh. Both write sources converge on the same
-database as the single source of truth.
-
-Conflict model (V1): last-write-wins. History snapshots on every save
+Conflict model: last-write-wins. History snapshots on every save
 make any overwrite recoverable.
 
 ---
 
-## 9. OpenMemory Integration
+## 9. The Product Thesis
 
-OpenMemory MCP runs as a separate, side-by-side MCP server. Claude Code
-has both MCP servers configured:
+Delma is a **context layer that makes AI assistants usable by
+non-technical people** on technical projects.
 
-- **OpenMemory** — fuzzy memory retrieval ("what did we decide about X?")
-- **Delma** — visual workspace ("update the org chart, log this fact")
+The PM doesn't need to be technical because Claude has the
+Environment tab (every ID, every API endpoint) and the Campaign
+Logic tab (every business rule). The PM just says what they want
+in plain English. Claude does the rest.
 
-No integration code between them. Complementary, not competing.
-
----
-
-## 10. The Live Product Thesis
-
-> **Delma is the persistent project memory Claude Code reads from and
-> writes to — made visible as a live map you keep open beside your work,
-> that both you and Claude can edit, backed by Supabase so it works
-> from anywhere without a local repo.**
+The diagrams and memory aren't documentation — they're the
+**shared truth** that makes this possible.

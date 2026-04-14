@@ -1,5 +1,26 @@
-// Delma state management — Supabase backend
+// ──────────────────────────────────────────────────────────────────────────────
+// Delma State Management — Supabase Backend
+// ──────────────────────────────────────────────────────────────────────────────
+//
 // All workspace, diagram, memory, and history operations go through Supabase.
+// Access control is enforced at two levels:
+//
+//   1. Row Level Security (RLS) in Postgres — enforces who can SELECT/UPDATE
+//      based on workspace membership, role (owner/member), and permission level.
+//      This is the hard security boundary. Even if the app has a bug, RLS prevents
+//      unauthorized access.
+//
+//   2. Application-level permission checks — used by the UI to show/hide edit
+//      buttons and by the MCP server to return helpful error messages. These are
+//      a UX convenience on top of RLS, not a replacement.
+//
+// Permission levels (set per tab):
+//   'private'      — only the owner can see and edit
+//   'view-all'     — all workspace members can see, only owner/admin can edit
+//   'edit-all'     — all workspace members can see and edit
+//   'view-admins'  — only owners/admins can see and edit (hidden from members)
+//
+// ──────────────────────────────────────────────────────────────────────────────
 
 import { supabase } from './lib/supabase.js'
 
@@ -10,6 +31,16 @@ export const MEMORY_FILES = [
   'session-log.md'
 ]
 
+// Default permission for each memory file when creating a new workspace.
+// These encode the product opinion about what should be visible to whom.
+const DEFAULT_PERMISSIONS = {
+  'environment.md': 'view-admins',  // has API keys — admins only
+  'logic.md': 'view-all',          // everyone reads business rules, admins edit
+  'people.md': 'edit-all',         // anyone can correct info about people
+  'session-log.md': 'private'      // personal per user
+}
+
+// Legacy visibility mapping (kept for backward compat with older workspace code)
 const VISIBILITY_RULES = {
   'environment.md': 'shared',
   'logic.md': 'shared',
@@ -22,6 +53,42 @@ const DEFAULT_MEMORY_CONTENT = {
   'logic.md': '# Logic\n\nBusiness logic, architecture decisions, and implementation details.\n',
   'people.md': '# People\n\nOwnership, stakeholders, preferences, and tribal knowledge.\n',
   'session-log.md': '# Session Log\n'
+}
+
+// ── Permission Helpers ──────────────────────────────────────────────────────
+
+/**
+ * Check if a user can edit a given item based on its permission level.
+ * Used by the UI to show/hide edit buttons and by MCP to gate writes.
+ *
+ * @param {string} permission - The item's permission level
+ * @param {string} ownerId - The item's owner UUID
+ * @param {string} userId - The current user UUID
+ * @param {string} role - The user's workspace role ('owner' or 'member')
+ * @returns {boolean}
+ */
+export function canEdit(permission, ownerId, userId, role) {
+  if (role === 'owner') return true  // owners can always edit
+  switch (permission) {
+    case 'edit-all': return true
+    case 'private': return ownerId === userId
+    case 'view-all': return false     // members can only view
+    case 'view-admins': return false  // members can't even see this
+    default: return false
+  }
+}
+
+/**
+ * Get the user's role in a workspace. Returns 'owner' or 'member'.
+ */
+export async function getUserRole(workspaceId, userId) {
+  const { data } = await supabase
+    .from('workspace_members')
+    .select('role')
+    .eq('workspace_id', workspaceId)
+    .eq('user_id', userId)
+    .single()
+  return data?.role || 'member'
 }
 
 const DEFAULT_VIEWS = [
@@ -67,23 +134,26 @@ export async function createWorkspace(name, userId) {
     role: 'owner'
   })
 
-  // Seed default diagram views
+  // Seed default diagram views with permission levels
   for (const view of DEFAULT_VIEWS) {
     await supabase.from('diagram_views').insert({
       workspace_id: workspace.id,
       owner_id: userId,
+      permission: 'view-all',  // everyone sees architecture, admins edit
       ...view
     })
   }
 
-  // Seed default memory notes
+  // Seed default memory notes with per-file permission levels
   for (const [filename, content] of Object.entries(DEFAULT_MEMORY_CONTENT)) {
     const visibility = VISIBILITY_RULES[filename] || 'shared'
+    const permission = DEFAULT_PERMISSIONS[filename] || 'edit-all'
     await supabase.from('memory_notes').insert({
       workspace_id: workspace.id,
       filename,
       content,
       visibility,
+      permission,
       owner_id: userId
     })
   }

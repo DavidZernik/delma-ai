@@ -1,3 +1,25 @@
+// ──────────────────────────────────────────────────────────────────────────────
+// Delma Frontend — Visual Workspace for Claude Code
+// ──────────────────────────────────────────────────────────────────────────────
+//
+// This is the main UI for Delma. It renders:
+//   - Diagram tabs (Architecture, etc.) using Mermaid inside markdown
+//   - Document tabs (People, Campaign Logic, Environment, Session Log) as markdown
+//   - All tabs support View/Edit modes with permission-based access control
+//
+// Data flow:
+//   1. User signs in via Supabase Auth
+//   2. Workspace loads from Supabase (views, memory, history, user role)
+//   3. Supabase Realtime pushes changes from Claude Code MCP writes
+//   4. User edits save directly to Supabase
+//
+// Permissions:
+//   Each tab has a permission level (private, view-all, edit-all, view-admins).
+//   The UI shows a lock icon on read-only tabs and hides the Edit button.
+//   RLS policies in Postgres enforce the same rules at the database level.
+//
+// ──────────────────────────────────────────────────────────────────────────────
+
 import mermaid from 'mermaid'
 import elkLayouts from '@mermaid-js/layout-elk'
 import { marked } from 'marked'
@@ -15,11 +37,13 @@ mermaid.initialize({
 
 const state = {
   user: null,
+  userRole: 'member',   // 'owner' or 'member' — determines edit access
   workspaceId: null,
   workspaceName: '',
   workspaces: [],
-  views: [],
-  memory: {},
+  views: [],             // diagram_views rows from Supabase (includes permission field)
+  memoryRows: [],        // raw memory_notes rows (includes permission, owner_id)
+  memory: {},            // { filename: content } for easy access
   history: [],
   activeViewKey: null,
   activeMemoryFile: null,
@@ -83,6 +107,20 @@ function appendLog(title, body, tone = 'assistant') {
 
 function setActivity(text) { els.activityRail.textContent = text }
 function setWorkspaceStatus(text) { els.workspaceStatus.textContent = text }
+
+// ── Permission check (mirrors server/delma-state.js canEdit) ────────────────
+// Used to show/hide edit buttons in the UI.
+function canEditItem(item) {
+  if (!item || !state.user) return false
+  if (state.userRole === 'owner') return true
+  switch (item.permission) {
+    case 'edit-all': return true
+    case 'private': return item.owner_id === state.user.id
+    case 'view-all': return false
+    case 'view-admins': return false
+    default: return false
+  }
+}
 
 function escapeHtml(text) {
   return String(text ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;')
@@ -195,19 +233,22 @@ async function openWorkspace(workspaceId) {
 async function refreshWorkspace() {
   if (!state.workspaceId || !state.user) return
 
-  const [{ data: views }, { data: memory }, { data: history }, { data: ws }] = await Promise.all([
-    supabase.from('diagram_views').select('*').eq('workspace_id', state.workspaceId)
-      .or(`visibility.eq.shared,owner_id.eq.${state.user.id}`).order('view_key'),
-    supabase.from('memory_notes').select('*').eq('workspace_id', state.workspaceId)
-      .or(`visibility.eq.shared,owner_id.eq.${state.user.id}`),
+  // Fetch workspace data + user's role in parallel
+  const [{ data: views }, { data: memoryRows }, { data: history }, { data: ws }, { data: membership }] = await Promise.all([
+    supabase.from('diagram_views').select('*').eq('workspace_id', state.workspaceId).order('view_key'),
+    supabase.from('memory_notes').select('*').eq('workspace_id', state.workspaceId),
     supabase.from('history_snapshots').select('id, reason, created_at')
       .eq('workspace_id', state.workspaceId).order('created_at', { ascending: false }).limit(30),
-    supabase.from('workspaces').select('name').eq('id', state.workspaceId).single()
+    supabase.from('workspaces').select('name').eq('id', state.workspaceId).single(),
+    supabase.from('workspace_members').select('role')
+      .eq('workspace_id', state.workspaceId).eq('user_id', state.user.id).single()
   ])
 
+  state.userRole = membership?.role || 'member'
   state.views = views || []
+  state.memoryRows = memoryRows || []
   state.memory = {}
-  for (const row of (memory || [])) state.memory[row.filename] = row.content
+  for (const row of state.memoryRows) state.memory[row.filename] = row.content
   state.history = (history || []).map(h => `${h.created_at} — ${h.reason}`)
   state.workspaceName = ws?.name || ''
 
@@ -340,13 +381,15 @@ function renderViewTabs() {
   els.viewTabs.textContent = ''
 
   // Diagram tabs
+  // Diagram tabs — show lock icon if user can't edit
   const views = state.views.length ? state.views : defaultViewTemplates()
   for (const view of views) {
     const btn = document.createElement('button')
     const key = view.view_key
+    const editable = canEditItem(view)
     const isActive = state.activeTopTab === 'diagram' && key === state.activeViewKey
     btn.className = `view-tab${isActive ? ' active' : ''}`
-    btn.innerHTML = `<div class="view-tab-title">${escapeHtml(view.title)}</div>`
+    btn.innerHTML = `<div class="view-tab-title">${editable ? '' : '<span style="opacity:0.4;margin-right:3px;">&#128274;</span>'}${escapeHtml(view.title)}</div>`
     btn.addEventListener('click', () => {
       saveCurrentEditState()
       state.activeTopTab = 'diagram'
@@ -357,14 +400,16 @@ function renderViewTabs() {
     els.viewTabs.appendChild(btn)
   }
 
-  // Memory file tabs
+  // Memory file tabs — show lock icon if user can't edit
   const memFiles = Object.keys(state.memory).length ? Object.keys(state.memory) : Object.keys(MEMORY_TAB_LABELS)
   for (const filename of memFiles) {
     const label = MEMORY_TAB_LABELS[filename] || { title: filename, desc: '' }
+    const row = state.memoryRows.find(r => r.filename === filename)
+    const editable = row ? canEditItem(row) : true
     const isActive = state.activeTopTab === 'memory' && state.activeMemoryFile === filename
     const btn = document.createElement('button')
     btn.className = `view-tab${isActive ? ' active' : ''}`
-    btn.innerHTML = `<div class="view-tab-title">${escapeHtml(label.title)}</div>`
+    btn.innerHTML = `<div class="view-tab-title">${editable ? '' : '<span style="opacity:0.4;margin-right:3px;">&#128274;</span>'}${escapeHtml(label.title)}</div>`
     btn.addEventListener('click', () => {
       saveCurrentEditState()
       state.activeTopTab = 'memory'
@@ -389,13 +434,20 @@ function populateEditor(view) {
 async function renderMemoryDocument(filename) {
   const content = state.memory[filename] || ''
   const label = MEMORY_TAB_LABELS[filename] || { title: filename, desc: '' }
+  const row = state.memoryRows.find(r => r.filename === filename)
+  const editable = row ? canEditItem(row) : true
 
   els.viewTitle.textContent = label.title
-  els.viewDescription.textContent = label.desc
-  els.modeToggle.hidden = false
+  els.viewDescription.textContent = editable
+    ? label.desc
+    : `${label.desc} (read-only)`
   els.resetExampleBtn.hidden = true
 
-  if (state.diagramMode === 'edit') {
+  // Hide Edit button if user can't edit this tab
+  els.modeToggle.hidden = !editable
+  if (!editable && state.diagramMode === 'edit') state.diagramMode = 'view'
+
+  if (state.diagramMode === 'edit' && editable) {
     els.diagramOutput.hidden = true
     els.diagramEditor.classList.add('visible')
     els.diagramEditor.value = content
@@ -433,10 +485,17 @@ function renderWorkspace() {
     return
   }
 
-  els.modeToggle.hidden = false
-  els.resetExampleBtn.hidden = false
+  const editable = canEditItem(view)
+
+  // Hide Edit button if user can't edit this diagram
+  els.modeToggle.hidden = !editable
+  els.resetExampleBtn.hidden = !editable
+  if (!editable && state.diagramMode === 'edit') state.diagramMode = 'view'
+
   els.viewTitle.textContent = view.title
-  els.viewDescription.textContent = view.description || ''
+  els.viewDescription.textContent = editable
+    ? (view.description || '')
+    : `${view.description || ''} (read-only)`
   populateEditor(view)
   setDiagramMode(state.diagramMode)
 
