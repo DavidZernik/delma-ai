@@ -318,7 +318,7 @@
 
     .diagram-shell {
       width: 100%;
-      max-width: 720px;
+      max-width: 780px;
       border: 1px solid var(--line);
       border-radius: 14px;
       background: var(--panel);
@@ -326,8 +326,14 @@
       box-sizing: border-box;
       overflow-wrap: anywhere;
       word-break: break-word;
-      overflow-x: hidden;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
       box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03), 0 4px 16px rgba(0, 0, 0, 0.02);
+    }
+
+    /* Diagram SVG: never shrink below readable size */
+    .diagram-shell svg {
+      min-width: 550px;
     }
 
     .documentation-shell {
@@ -377,11 +383,12 @@
       fill: #7A0000 !important;
     }
 
-    /* Node labels — quieter than surrounding UI text */
+    /* Node labels — legible, not decorative */
     .diagram-shell .nodeLabel,
     .mermaid-inline .nodeLabel {
-      font-size: 12px !important;
-      color: var(--ink-secondary) !important;
+      font-size: 14px !important;
+      color: var(--ink) !important;
+      font-weight: 500 !important;
     }
     .markdown-body details { margin: 12px 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; max-width: 100%; }
     .markdown-body details summary { padding: 10px 14px; cursor: pointer; font-weight: 600; font-size: 12px; background: var(--bg); user-select: none; color: var(--ink-secondary); }

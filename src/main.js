@@ -31,7 +31,7 @@ mermaid.initialize({
   securityLevel: 'loose',
   theme: 'base',
   layout: 'elk',
-  flowchart: { curve: 'basis', padding: 16, nodeSpacing: 30, rankSpacing: 50 },
+  flowchart: { curve: 'basis', padding: 20, nodeSpacing: 40, rankSpacing: 60 },
   themeVariables: {
     primaryColor: '#FBF7F2',       // node fill — light warm white
     primaryTextColor: '#1A1A1A',   // node text
@@ -44,7 +44,7 @@ mermaid.initialize({
     tertiaryBorderColor: '#D8CFC4',
     lineColor: '#7A0000',          // arrows — slightly deeper red, confident
     textColor: '#1A1A1A',
-    fontSize: '13px',
+    fontSize: '15px',
     fontFamily: '"Instrument Sans", "Avenir Next", "Segoe UI", sans-serif',
     nodeBorder: '#D8CFC4',
     nodeTextColor: '#1A1A1A',
