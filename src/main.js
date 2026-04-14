@@ -403,6 +403,7 @@ async function renderDiagram(mermaidCode) {
     const renderId = `delma-diagram-${Date.now()}`
     const { svg } = await mermaid.render(renderId, mermaidCode)
     els.diagramOutput.className = ''
+    els.diagramOutput.style.opacity = '0'
 
     // Wrap SVG in zoom container with controls
     currentZoom = 1
@@ -445,6 +446,12 @@ async function renderDiagram(mermaidCode) {
         setZoom(currentZoom - e.deltaY * 0.002)
       }
     }, { passive: false })
+
+    // Reveal after render — prevents theme flash
+    requestAnimationFrame(() => {
+      els.diagramOutput.style.opacity = '1'
+      els.diagramOutput.style.transition = 'opacity 150ms ease'
+    })
 
     return true
   } catch (error) {

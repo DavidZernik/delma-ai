@@ -350,6 +350,17 @@
       min-width: 550px;
       transform-origin: top left;
       transition: transform 150ms ease;
+      animation: fadeInDiagram 200ms ease forwards;
+    }
+
+    @keyframes fadeInDiagram {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    /* Also hide inline mermaid blocks until rendered */
+    .mermaid-inline svg {
+      animation: fadeInDiagram 200ms ease forwards;
     }
 
     .diagram-zoom-controls {
