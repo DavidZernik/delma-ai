@@ -17,6 +17,7 @@
 import { config } from 'dotenv'
 config()
 
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY
 
 /**
@@ -52,33 +53,59 @@ function buildFullContext(views, memoryMap, orgName, workspaceName) {
  * Target: ~500 tokens — enough for Claude to stay oriented,
  * not enough to waste context on every turn.
  */
-async function summarizeWithHaiku(fullContext) {
-  if (!ANTHROPIC_API_KEY) return null
+/**
+ * Try DeepSeek first (3x cheaper on output), fall back to Haiku.
+ */
+async function summarizeWithLLM(fullContext) {
+  const prompt = 'Summarize this project workspace into a concise reference that an AI assistant will read at the start of every message. Include: project name, team members and roles, current status, key systems/IDs, and what needs to happen next. Be factual and terse. No fluff. Max 400 words.'
 
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-20250414',
-        max_tokens: 600,
-        messages: [{
-          role: 'user',
-          content: `Summarize this project workspace into a concise reference that an AI assistant will read at the start of every message. Include: project name, team members and roles, current status, key systems/IDs, and what needs to happen next. Be factual and terse. No fluff. Max 400 words.\n\n${fullContext}`
-        }]
+  // Try DeepSeek first — $0.42/M output vs Haiku's $1.25/M
+  if (DEEPSEEK_API_KEY) {
+    try {
+      const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${DEEPSEEK_API_KEY}`
+        },
+        body: JSON.stringify({
+          model: 'deepseek-chat',
+          max_tokens: 600,
+          messages: [{ role: 'user', content: `${prompt}\n\n${fullContext}` }]
+        })
       })
-    })
-
-    if (!res.ok) return null
-    const data = await res.json()
-    return data.content?.[0]?.text || null
-  } catch {
-    return null
+      if (res.ok) {
+        const data = await res.json()
+        const text = data.choices?.[0]?.message?.content
+        if (text) return text
+      }
+    } catch { /* fall through to Haiku */ }
   }
+
+  // Fallback: Haiku
+  if (ANTHROPIC_API_KEY) {
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-20250414',
+          max_tokens: 600,
+          messages: [{ role: 'user', content: `${prompt}\n\n${fullContext}` }]
+        })
+      })
+      if (res.ok) {
+        const data = await res.json()
+        return data.content?.[0]?.text || null
+      }
+    } catch { /* fall through to simple summary */ }
+  }
+
+  return null
 }
 
 /**
@@ -117,7 +144,7 @@ export async function generateClaudeMd(views, memoryMap, orgName, workspaceName)
   const fullContext = buildFullContext(views, memoryMap, orgName, workspaceName)
 
   // Try Haiku first, fall back to simple summary
-  const summary = await summarizeWithHaiku(fullContext) || simpleSummary(views, memoryMap, orgName, workspaceName)
+  const summary = await summarizeWithLLM(fullContext) || simpleSummary(views, memoryMap, orgName, workspaceName)
 
   return `# Delma Workspace
 
