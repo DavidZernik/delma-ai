@@ -33,13 +33,13 @@ mermaid.initialize({
   layout: 'elk',
   flowchart: { curve: 'basis' },
   themeVariables: {
-    primaryColor: '#FDFBF8',       // node fill — cream
+    primaryColor: '#FBF7F2',       // node fill — light warm white
     primaryTextColor: '#1A1A1A',   // node text
-    primaryBorderColor: '#D8CFC4', // node border — warm divider
-    secondaryColor: '#f2e6e6',     // alt node fill — light red wash
+    primaryBorderColor: '#D8CFC4', // node border — warm defined edge
+    secondaryColor: '#FBF7F2',     // alt node fill — same family
     secondaryTextColor: '#1A1A1A',
-    secondaryBorderColor: '#8F0000',
-    tertiaryColor: '#F5F0EB',      // background elements
+    secondaryBorderColor: '#D8CFC4',
+    tertiaryColor: '#F5EDE4',      // background elements
     tertiaryTextColor: '#1A1A1A',
     tertiaryBorderColor: '#D8CFC4',
     lineColor: '#8F0000',          // arrows/connectors — brand red
@@ -48,9 +48,9 @@ mermaid.initialize({
     fontFamily: '"Instrument Sans", "Avenir Next", "Segoe UI", sans-serif',
     nodeBorder: '#D8CFC4',
     nodeTextColor: '#1A1A1A',
-    mainBkg: '#FDFBF8',
-    edgeLabelBackground: '#FDFBF8',
-    clusterBkg: '#F5F0EB',
+    mainBkg: '#FBF7F2',
+    edgeLabelBackground: '#FAF6F0',
+    clusterBkg: '#F5EDE4',
     clusterBorder: '#D8CFC4'
   }
 })
