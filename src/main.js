@@ -32,7 +32,22 @@ mermaid.initialize({
   theme: 'base',
   look: 'neo',
   layout: 'elk',
-  flowchart: { curve: 'basis' }
+  flowchart: { curve: 'basis' },
+  themeVariables: {
+    primaryColor: '#e8edf4',       // node fill — light blue wash
+    primaryTextColor: '#121212',   // node text
+    primaryBorderColor: '#3E5A85', // node border — product blue
+    secondaryColor: '#e6f2ee',     // alt node fill — light teal
+    secondaryTextColor: '#121212',
+    secondaryBorderColor: '#2F6B5A',
+    tertiaryColor: '#f5f5f5',      // background elements
+    tertiaryTextColor: '#121212',
+    tertiaryBorderColor: '#ccc',
+    lineColor: '#3E5A85',          // arrows/connectors — product blue
+    textColor: '#121212',
+    fontSize: '13px',
+    fontFamily: '"Instrument Sans", "Avenir Next", "Segoe UI", sans-serif'
+  }
 })
 
 const state = {
