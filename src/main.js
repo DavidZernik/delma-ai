@@ -686,9 +686,8 @@ function renderWorkspace() {
 
   if (state.diagramMode !== 'edit') {
     const mermaidCode = state.previewMermaid || view.mermaid || ''
-    const md = `\`\`\`mermaid\n${mermaidCode}\n\`\`\``
-    els.diagramOutput.className = 'documentation-shell markdown-body'
-    void renderMarkdownWithMermaid(els.diagramOutput, md)
+    els.diagramOutput.className = ''
+    void renderDiagram(mermaidCode)
   }
 }
 
