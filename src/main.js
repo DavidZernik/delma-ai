@@ -1431,7 +1431,7 @@ async function askDeepSeekForGap(content, tabTitle) {
         max_tokens: 80,
         messages: [{
           role: 'user',
-          content: `You are reviewing a project workspace tab called "${tabTitle}". Here is the current content:\n\n${content.slice(0, 2000)}\n\nIs there one specific piece of information that seems obviously missing or incomplete? If yes, respond with ONLY a short, natural question (one sentence, no quotes, no explanation). If the content seems complete enough, respond with exactly: NONE`
+          content: `You are reviewing a project workspace tab called "${tabTitle}". Here is the current content:\n\n${content.slice(0, 2000)}\n\nIdentify one specific detail that appears missing or undefined. Respond in the style of a brief system annotation — like a margin note pointing at a gap. Examples: "Post-sequence behavior: not defined" or "Keyona's email: missing" or "Automation schedule: unconfirmed". No questions marks, no full sentences, no explanation. Just the gap as a short label. If nothing is obviously missing, respond with exactly: NONE`
         }]
       })
     })
@@ -1458,7 +1458,7 @@ function showPrompt(question, tabKey) {
   promptEl.innerHTML = `
     <button class="delma-prompt-dismiss" title="Dismiss">&times;</button>
     <div class="delma-prompt-question">${escapeHtml(question)}</div>
-    <input class="delma-prompt-input" type="text" placeholder="Type your answer..." />
+    <input class="delma-prompt-input" type="text" placeholder="Add detail..." />
     <div class="delma-prompt-actions">
       <button class="prompt-save">Save</button>
     </div>
