@@ -30,23 +30,28 @@ mermaid.initialize({
   startOnLoad: false,
   securityLevel: 'loose',
   theme: 'base',
-  look: 'neo',
   layout: 'elk',
   flowchart: { curve: 'basis' },
   themeVariables: {
-    primaryColor: '#e8edf4',       // node fill — light blue wash
-    primaryTextColor: '#121212',   // node text
-    primaryBorderColor: '#3E5A85', // node border — product blue
-    secondaryColor: '#e6f2ee',     // alt node fill — light teal
-    secondaryTextColor: '#121212',
-    secondaryBorderColor: '#2F6B5A',
-    tertiaryColor: '#f5f5f5',      // background elements
-    tertiaryTextColor: '#121212',
-    tertiaryBorderColor: '#ccc',
-    lineColor: '#3E5A85',          // arrows/connectors — product blue
-    textColor: '#121212',
+    primaryColor: '#FDFBF8',       // node fill — cream
+    primaryTextColor: '#1A1A1A',   // node text
+    primaryBorderColor: '#D8CFC4', // node border — warm divider
+    secondaryColor: '#f2e6e6',     // alt node fill — light red wash
+    secondaryTextColor: '#1A1A1A',
+    secondaryBorderColor: '#8F0000',
+    tertiaryColor: '#F5F0EB',      // background elements
+    tertiaryTextColor: '#1A1A1A',
+    tertiaryBorderColor: '#D8CFC4',
+    lineColor: '#8F0000',          // arrows/connectors — brand red
+    textColor: '#1A1A1A',
     fontSize: '13px',
-    fontFamily: '"Instrument Sans", "Avenir Next", "Segoe UI", sans-serif'
+    fontFamily: '"Instrument Sans", "Avenir Next", "Segoe UI", sans-serif',
+    nodeBorder: '#D8CFC4',
+    nodeTextColor: '#1A1A1A',
+    mainBkg: '#FDFBF8',
+    edgeLabelBackground: '#FDFBF8',
+    clusterBkg: '#F5F0EB',
+    clusterBorder: '#D8CFC4'
   }
 })
 
