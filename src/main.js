@@ -46,6 +46,8 @@ const state = {
   views: [],             // diagram_views rows from Supabase (includes permission field)
   memoryRows: [],        // raw memory_notes rows (includes permission, owner_id)
   memory: {},            // { filename: content } for easy access
+  orgMemoryRows: [],     // org-level memory notes (SFMC Setup, People)
+  orgMemory: {},         // { filename: content } for org-level tabs
   history: [],
   activeViewKey: null,
   activeMemoryFile: null,
@@ -245,6 +247,15 @@ async function openWorkspace(workspaceId) {
   state.workspaceId = workspaceId
   await refreshWorkspace()
   setupRealtimeSubscription()
+
+  // Track active workspace so the hook auto-loads it next session
+  if (state.org?.id) {
+    void supabase.from('org_members')
+      .update({ active_workspace_id: workspaceId })
+      .eq('org_id', state.org.id)
+      .eq('user_id', state.user.id)
+  }
+
   setWorkspaceStatus('Workspace open. Claude Code can connect via Delma MCP.')
   appendLog('Workspace Open', `Connected to workspace. Diagrams and memory are live.`)
 }
@@ -254,22 +265,34 @@ async function openWorkspace(workspaceId) {
 async function refreshWorkspace() {
   if (!state.workspaceId || !state.user) return
 
-  // Fetch workspace data + user's role in parallel
-  const [{ data: views }, { data: memoryRows }, { data: history }, { data: ws }, { data: membership }] = await Promise.all([
+  // Fetch workspace + org data + user's role in parallel
+  const queries = [
     supabase.from('diagram_views').select('*').eq('workspace_id', state.workspaceId).order('view_key'),
     supabase.from('memory_notes').select('*').eq('workspace_id', state.workspaceId),
     supabase.from('history_snapshots').select('id, reason, created_at')
       .eq('workspace_id', state.workspaceId).order('created_at', { ascending: false }).limit(30),
-    supabase.from('workspaces').select('name').eq('id', state.workspaceId).single(),
+    supabase.from('workspaces').select('name, org_id').eq('id', state.workspaceId).single(),
     supabase.from('workspace_members').select('role')
       .eq('workspace_id', state.workspaceId).eq('user_id', state.user.id).single()
-  ])
+  ]
+
+  // Also fetch org-level memory notes if we have an org
+  if (state.org?.id) {
+    queries.push(supabase.from('org_memory_notes').select('*').eq('org_id', state.org.id))
+  }
+
+  const results = await Promise.all(queries)
+  const [{ data: views }, { data: memoryRows }, { data: history }, { data: ws }, { data: membership }] = results
+  const orgMemoryRows = results[5]?.data || []
 
   state.userRole = membership?.role || 'member'
   state.views = views || []
   state.memoryRows = memoryRows || []
   state.memory = {}
   for (const row of state.memoryRows) state.memory[row.filename] = row.content
+  state.orgMemoryRows = orgMemoryRows
+  state.orgMemory = {}
+  for (const row of state.orgMemoryRows) state.orgMemory[row.filename] = row.content
   state.history = (history || []).map(h => `${h.created_at} — ${h.reason}`)
   state.workspaceName = ws?.name || ''
 
@@ -399,11 +422,17 @@ function stripMermaidConfig(code) {
 
 // ── Tab Labels for Memory Files ──────────────────────────────────────────────
 
+// Project-level tab labels (workspace-scoped)
 const MEMORY_TAB_LABELS = {
-  'environment.md': { title: 'Environment', desc: 'IDs, URLs, infrastructure, and where things live in SFMC.' },
+  'project-details.md': { title: 'Project Details', desc: 'Campaign-specific IDs, journeys, automations, CloudPages.' },
   'logic.md': { title: 'Campaign Logic', desc: 'Business rules, routing, how the campaign works.' },
-  'people.md': { title: 'People', desc: 'Who owns what, stakeholders, key decisions.' },
   'session-log.md': { title: 'Session Log', desc: 'Current status, what\'s done, what\'s needed.' }
+}
+
+// Org-level tab labels (shared across all projects)
+const ORG_TAB_LABELS = {
+  'sfmc-setup.md': { title: 'SFMC Setup', desc: 'API credentials, send config, shared DEs. Same across all campaigns.' },
+  'people.md': { title: 'People', desc: 'Team members, roles, ownership. Same across all projects.' }
 }
 
 // ── Render ───────────────────────────────────────────────────────────────────
@@ -411,8 +440,35 @@ const MEMORY_TAB_LABELS = {
 function renderViewTabs() {
   els.viewTabs.textContent = ''
 
+  // ── Org-level tabs (shared across all projects) ────────────────────────
+  const orgFiles = Object.keys(state.orgMemory).length ? Object.keys(state.orgMemory) : []
+  for (const filename of orgFiles) {
+    const label = ORG_TAB_LABELS[filename] || { title: filename, desc: '' }
+    const row = state.orgMemoryRows.find(r => r.filename === filename)
+    const editable = row ? canEditItem(row) : true
+    const isActive = state.activeTopTab === 'orgMemory' && state.activeMemoryFile === filename
+    const btn = document.createElement('button')
+    btn.className = `view-tab${isActive ? ' active' : ''}`
+    btn.innerHTML = `<div class="view-tab-title">${editable ? '' : '<span style="opacity:0.4;margin-right:3px;">&#128274;</span>'}${escapeHtml(label.title)}</div>`
+    btn.addEventListener('click', () => {
+      saveCurrentEditState()
+      state.activeTopTab = 'orgMemory'
+      state.activeMemoryFile = filename
+      renderWorkspace()
+    })
+    els.viewTabs.appendChild(btn)
+  }
+
+  // Separator between org and project tabs
+  if (orgFiles.length) {
+    const sep = document.createElement('span')
+    sep.style.cssText = 'width:1px;height:20px;background:rgba(0,0,0,0.12);flex-shrink:0;'
+    els.viewTabs.appendChild(sep)
+  }
+
+  // ── Project-level tabs ─────────────────────────────────────────────────
+
   // Diagram tabs
-  // Diagram tabs — show lock icon if user can't edit
   const views = state.views.length ? state.views : defaultViewTemplates()
   for (const view of views) {
     const btn = document.createElement('button')
@@ -431,7 +487,7 @@ function renderViewTabs() {
     els.viewTabs.appendChild(btn)
   }
 
-  // Memory file tabs — show lock icon if user can't edit
+  // Project memory tabs
   const memFiles = Object.keys(state.memory).length ? Object.keys(state.memory) : Object.keys(MEMORY_TAB_LABELS)
   for (const filename of memFiles) {
     const label = MEMORY_TAB_LABELS[filename] || { title: filename, desc: '' }
@@ -449,7 +505,6 @@ function renderViewTabs() {
     })
     els.viewTabs.appendChild(btn)
   }
-
 }
 
 function populateEditor(view) {
@@ -462,10 +517,12 @@ function populateEditor(view) {
 
 // ── Render a memory file as a readable document ─────────────────────────────
 
-async function renderMemoryDocument(filename) {
-  const content = state.memory[filename] || ''
-  const label = MEMORY_TAB_LABELS[filename] || { title: filename, desc: '' }
-  const row = state.memoryRows.find(r => r.filename === filename)
+async function renderMemoryDocument(filename, isOrg = false) {
+  const content = isOrg ? (state.orgMemory[filename] || '') : (state.memory[filename] || '')
+  const label = (isOrg ? ORG_TAB_LABELS[filename] : MEMORY_TAB_LABELS[filename]) || { title: filename, desc: '' }
+  const row = isOrg
+    ? state.orgMemoryRows.find(r => r.filename === filename)
+    : state.memoryRows.find(r => r.filename === filename)
   const editable = row ? canEditItem(row) : true
 
   els.viewTitle.textContent = label.title
@@ -506,7 +563,13 @@ function renderWorkspace() {
     ? 'Visual workspace for Claude Code. Diagrams and memory update live.'
     : 'Select or create a workspace to get started.'
 
-  // Memory file tab
+  // Org memory tab (SFMC Setup, People)
+  if (state.activeTopTab === 'orgMemory') {
+    void renderMemoryDocument(state.activeMemoryFile, true)
+    return
+  }
+
+  // Project memory tab
   if (state.activeTopTab === 'memory') {
     void renderMemoryDocument(state.activeMemoryFile)
     return
@@ -548,7 +611,9 @@ function renderWorkspace() {
 
 function saveCurrentEditState() {
   if (state.diagramMode !== 'edit') return
-  if (state.activeTopTab === 'memory') {
+  if (state.activeTopTab === 'orgMemory') {
+    state.orgMemory[state.activeMemoryFile] = els.diagramEditor.value
+  } else if (state.activeTopTab === 'memory') {
     state.memory[state.activeMemoryFile] = els.diagramEditor.value
   } else if (state.activeTopTab === 'diagram') {
     updateActiveViewFromEditor()
@@ -572,6 +637,33 @@ function updateActiveViewFromEditor() {
 async function saveCurrentTab() {
   if (!state.workspaceId) return
 
+  // Save org-level memory tab
+  if (state.activeTopTab === 'orgMemory') {
+    const filename = state.activeMemoryFile
+    const content = els.diagramEditor.value
+    state.orgMemory[filename] = content
+
+    const { data: existing } = await supabase
+      .from('org_memory_notes')
+      .select('id')
+      .eq('org_id', state.org.id)
+      .eq('filename', filename)
+      .single()
+
+    if (existing) {
+      await supabase.from('org_memory_notes').update({ content }).eq('id', existing.id)
+    } else {
+      await supabase.from('org_memory_notes').insert({
+        org_id: state.org.id, filename, content, permission: 'edit-all', owner_id: state.user.id
+      })
+    }
+
+    await refreshWorkspace()
+    setWorkspaceStatus(`Saved ${ORG_TAB_LABELS[filename]?.title || filename}.`)
+    return
+  }
+
+  // Save project-level memory tab
   if (state.activeTopTab === 'memory') {
     // Save memory file
     const filename = state.activeMemoryFile
@@ -694,7 +786,9 @@ els.editModeBtn.addEventListener('click', () => {
 })
 
 els.diagramEditor.addEventListener('input', () => {
-  if (state.activeTopTab === 'memory') {
+  if (state.activeTopTab === 'orgMemory') {
+    state.orgMemory[state.activeMemoryFile] = els.diagramEditor.value
+  } else if (state.activeTopTab === 'memory') {
     state.memory[state.activeMemoryFile] = els.diagramEditor.value
   } else if (state.activeTopTab === 'diagram') {
     state.previewMermaid = els.diagramEditor.value
