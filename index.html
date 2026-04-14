@@ -233,6 +233,22 @@
       border-color: rgba(143, 0, 0, 0.15);
     }
 
+    .tab-update-dot {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      margin-left: 5px;
+      vertical-align: middle;
+      animation: dotPulse 2s ease infinite;
+    }
+
+    @keyframes dotPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
     .view-tab.action-tab {
       flex: 0 0 auto;
     }
@@ -433,6 +449,116 @@
     .markdown-body a { color: var(--accent); }
     .markdown-body hr { border: none; border-top: 1px solid var(--line); margin: 16px 0; }
     .markdown-body blockquote { border-left: 3px solid var(--positive); margin: 8px 0; padding: 4px 12px; color: #666; }
+    /* ── Proactive prompt — a quiet system annotation, not UI ─────── */
+    /* Appears between thoughts, not during action.                   */
+    /* Feels like the system highlighted something unfilled,           */
+    /* not like a form demanding input.                                */
+
+    .delma-prompt {
+      margin: 2px 0 10px;
+      padding: 6px 10px;
+      background: transparent;
+      border: none;
+      opacity: 0;
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--muted);
+      position: relative;
+      max-width: 420px;
+      transition: opacity 200ms ease, background 200ms ease, color 200ms ease;
+    }
+
+    /* Phase 1: resolve into view (triggered by JS adding .visible) */
+    .delma-prompt.visible {
+      opacity: 0.55;
+      background: rgba(216, 207, 196, 0.08);
+    }
+
+    /* Phase 2: sharpen on hover/focus — user commits attention */
+    .delma-prompt:hover,
+    .delma-prompt:focus-within {
+      opacity: 1;
+      background: rgba(216, 207, 196, 0.15);
+      color: var(--ink-secondary);
+    }
+
+    .delma-prompt-question {
+      margin: 0 0 4px;
+      font-size: 12px;
+      color: inherit;
+    }
+
+    .delma-prompt-input {
+      width: 100%;
+      padding: 3px 0;
+      border: none;
+      border-bottom: 1px solid transparent;
+      background: transparent;
+      font: inherit;
+      font-size: 12px;
+      color: var(--ink);
+      outline: none;
+      transition: border-color 150ms ease;
+    }
+
+    .delma-prompt:focus-within .delma-prompt-input {
+      border-bottom-color: var(--line);
+    }
+
+    .delma-prompt-input::placeholder {
+      color: var(--muted);
+      opacity: 0.5;
+    }
+
+    .delma-prompt-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 6px;
+      margin-top: 3px;
+      opacity: 0;
+      transition: opacity 150ms ease;
+    }
+
+    .delma-prompt:focus-within .delma-prompt-actions {
+      opacity: 1;
+    }
+
+    .delma-prompt-actions button {
+      font-size: 10px;
+      padding: 2px 8px;
+      border-radius: 3px;
+      border: none;
+      cursor: pointer;
+      background: transparent;
+      color: var(--muted);
+      transition: color 120ms ease;
+    }
+
+    .delma-prompt-actions button:hover {
+      color: var(--ink-secondary);
+    }
+
+    .delma-prompt-dismiss {
+      position: absolute;
+      top: 3px;
+      right: 3px;
+      width: 14px;
+      height: 14px;
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      font-size: 11px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transition: opacity 120ms ease;
+    }
+
+    .delma-prompt:hover .delma-prompt-dismiss { opacity: 0.4; }
+    .delma-prompt-dismiss:hover { opacity: 0.8 !important; }
+
     .mermaid-inline { margin: 16px 0; padding: 20px; background: var(--bg); border-radius: 12px; border: 1px solid var(--line); text-align: center; }
     .mermaid-inline svg { max-width: 100%; height: auto; }
 

@@ -338,8 +338,50 @@ async function refreshWorkspace() {
 }
 
 // ── Supabase Realtime ────────────────────────────────────────────────────────
+// When Claude or another user writes to Delma:
+//   - If the changed tab is active → re-render with fade transition
+//   - If the changed tab is inactive → show a notification dot on the tab pill
 
 let realtimeChannel = null
+const tabsWithUpdates = new Set()
+
+function getTabKeyForChange(table, record) {
+  if (table === 'diagram_views') return `dia:${record.view_key}`
+  if (table === 'memory_notes') return `mem:${record.filename}`
+  if (table === 'org_memory_notes') return `org:${record.filename}`
+  return ''
+}
+
+function isCurrentTab(tabKey) {
+  if (state.activeTopTab === 'diagram') return tabKey === `dia:${state.activeViewKey}`
+  if (state.activeTopTab === 'memory') return tabKey === `mem:${state.activeMemoryFile}`
+  if (state.activeTopTab === 'orgMemory') return tabKey === `org:${state.activeMemoryFile}`
+  return false
+}
+
+function handleRealtimeChange(table, payload) {
+  const record = payload.new || payload.old || {}
+  const tabKey = getTabKeyForChange(table, record)
+  console.log('[delma realtime]', table, 'changed, tabKey:', tabKey)
+
+  if (isCurrentTab(tabKey)) {
+    // Active tab changed — re-render with fade
+    console.log('[delma realtime] active tab updated, fading in changes')
+    els.diagramOutput.style.transition = 'opacity 150ms ease'
+    els.diagramOutput.style.opacity = '0.3'
+    void refreshWorkspace().then(() => {
+      requestAnimationFrame(() => {
+        els.diagramOutput.style.opacity = '1'
+      })
+    })
+  } else {
+    // Different tab — mark it with a dot
+    console.log('[delma realtime] inactive tab updated, adding dot')
+    tabsWithUpdates.add(tabKey)
+    renderViewTabs()
+    void refreshWorkspace()
+  }
+}
 
 function setupRealtimeSubscription() {
   if (realtimeChannel) supabase.removeChannel(realtimeChannel)
@@ -351,14 +393,27 @@ function setupRealtimeSubscription() {
       schema: 'public',
       table: 'diagram_views',
       filter: `workspace_id=eq.${state.workspaceId}`
-    }, () => void refreshWorkspace())
+    }, (payload) => handleRealtimeChange('diagram_views', payload))
     .on('postgres_changes', {
       event: '*',
       schema: 'public',
       table: 'memory_notes',
       filter: `workspace_id=eq.${state.workspaceId}`
-    }, () => void refreshWorkspace())
+    }, (payload) => handleRealtimeChange('memory_notes', payload))
     .subscribe()
+
+  // Also watch org-level notes if we have an org
+  if (state.org?.id) {
+    supabase
+      .channel(`org-${state.org.id}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'org_memory_notes',
+        filter: `org_id=eq.${state.org.id}`
+      }, (payload) => handleRealtimeChange('org_memory_notes', payload))
+      .subscribe()
+  }
 }
 
 // ── Diagram Mode ─────────────────────────────────────────────────────────────
@@ -628,16 +683,16 @@ async function renderDiagram(mermaidCode) {
     console.log('[delma render] prepareFittedSvg result:', prepared ? { bounds: { w: Math.round(prepared.bounds.width), h: Math.round(prepared.bounds.height) } } : 'null')
     enableDiagramDragging(wrapper)
 
-    // Reveal first, then set zoom after layout settles
-    // The wrapper needs real dimensions before we can size the canvas correctly
+    // Wait two frames for layout to settle, set zoom, THEN reveal.
+    // This prevents the flash where the diagram is visible with wrong sizing.
     requestAnimationFrame(() => {
-      els.diagramOutput.style.opacity = '1'
-      els.diagramOutput.style.transition = 'opacity 150ms ease'
-      // Second frame: container now has real height
       requestAnimationFrame(() => {
         console.log('[delma render] post-layout wrapper size:', wrapper.clientWidth, 'x', wrapper.clientHeight)
         setZoom(1)
         console.log('[delma render] zoom set, currentZoom:', currentZoom)
+        // Reveal only after everything is ready
+        els.diagramOutput.style.transition = 'opacity 150ms ease'
+        els.diagramOutput.style.opacity = '1'
       })
     })
     let lastPinchDist = 0
@@ -743,6 +798,11 @@ const ORG_TAB_LABELS = {
 
 // ── Render ───────────────────────────────────────────────────────────────────
 
+function dotHtml(tabKey) {
+  if (!tabsWithUpdates.has(tabKey)) return ''
+  return '<span class="tab-update-dot"></span>'
+}
+
 function renderViewTabs() {
   els.viewTabs.textContent = ''
 
@@ -752,12 +812,14 @@ function renderViewTabs() {
     const label = ORG_TAB_LABELS[filename] || { title: filename, desc: '' }
     const row = state.orgMemoryRows.find(r => r.filename === filename)
     const editable = row ? canEditItem(row) : true
+    const orgTabKey = `org:${filename}`
     const isActive = state.activeTopTab === 'orgMemory' && state.activeMemoryFile === filename
     const btn = document.createElement('button')
     btn.className = `view-tab${isActive ? ' active' : ''}`
-    btn.innerHTML = `<div class="view-tab-title">${editable ? '' : '<span style="opacity:0.4;margin-right:3px;">&#128274;</span>'}${escapeHtml(label.title)}</div>`
+    btn.innerHTML = `<div class="view-tab-title">${editable ? '' : '<span style="opacity:0.4;margin-right:3px;">&#128274;</span>'}${escapeHtml(label.title)}${dotHtml(orgTabKey)}</div>`
     btn.addEventListener('click', () => {
       saveCurrentEditState()
+      tabsWithUpdates.delete(orgTabKey)
       state.activeTopTab = 'orgMemory'
       state.activeMemoryFile = filename
       renderWorkspace()
@@ -780,11 +842,13 @@ function renderViewTabs() {
     const btn = document.createElement('button')
     const key = view.view_key
     const editable = canEditItem(view)
+    const diaTabKey = `dia:${key}`
     const isActive = state.activeTopTab === 'diagram' && key === state.activeViewKey
     btn.className = `view-tab${isActive ? ' active' : ''}`
-    btn.innerHTML = `<div class="view-tab-title">${editable ? '' : '<span style="opacity:0.4;margin-right:3px;">&#128274;</span>'}${escapeHtml(view.title)}</div>`
+    btn.innerHTML = `<div class="view-tab-title">${editable ? '' : '<span style="opacity:0.4;margin-right:3px;">&#128274;</span>'}${escapeHtml(view.title)}${dotHtml(diaTabKey)}</div>`
     btn.addEventListener('click', () => {
       saveCurrentEditState()
+      tabsWithUpdates.delete(diaTabKey)
       state.activeTopTab = 'diagram'
       state.activeViewKey = key
       state.previewMermaid = view.mermaid || ''
@@ -799,12 +863,14 @@ function renderViewTabs() {
     const label = MEMORY_TAB_LABELS[filename] || { title: filename, desc: '' }
     const row = state.memoryRows.find(r => r.filename === filename)
     const editable = row ? canEditItem(row) : true
+    const memTabKey = `mem:${filename}`
     const isActive = state.activeTopTab === 'memory' && state.activeMemoryFile === filename
     const btn = document.createElement('button')
     btn.className = `view-tab${isActive ? ' active' : ''}`
-    btn.innerHTML = `<div class="view-tab-title">${editable ? '' : '<span style="opacity:0.4;margin-right:3px;">&#128274;</span>'}${escapeHtml(label.title)}</div>`
+    btn.innerHTML = `<div class="view-tab-title">${editable ? '' : '<span style="opacity:0.4;margin-right:3px;">&#128274;</span>'}${escapeHtml(label.title)}${dotHtml(memTabKey)}</div>`
     btn.addEventListener('click', () => {
       saveCurrentEditState()
+      tabsWithUpdates.delete(memTabKey)
       state.activeTopTab = 'memory'
       state.activeMemoryFile = filename
       renderWorkspace()
@@ -1312,4 +1378,172 @@ async function init() {
   console.log('[delma] init complete')
 }
 
-void init().catch(err => console.error('[delma] INIT CRASHED:', err))
+// ── Proactive Prompt Engine ──────────────────────────────────────────────────
+//
+// Every 5 minutes, reads the current tab content and asks DeepSeek if
+// anything is obviously missing. If yes, shows one quiet inline prompt
+// below the title. The user can answer (content appends to the tab),
+// or dismiss with X (gone for this tab this session).
+//
+// Rules:
+//   - One question at a time. Never stack.
+//   - Only appears when the screen is calm (no typing/scrolling for 3s).
+//   - Dismissed tabs are remembered for the session.
+//   - No history, no trace. Just a better document.
+
+const dismissedTabs = new Set()
+let promptTimer = null
+let idleTimer = null
+let lastActivity = Date.now()
+
+// Track user activity — only show prompts when idle
+document.addEventListener('keydown', () => { lastActivity = Date.now() })
+document.addEventListener('scroll', () => { lastActivity = Date.now() }, true)
+document.addEventListener('pointermove', () => { lastActivity = Date.now() })
+
+function getCurrentTabContent() {
+  if (state.activeTopTab === 'orgMemory') return state.orgMemory[state.activeMemoryFile] || ''
+  if (state.activeTopTab === 'memory') return state.memory[state.activeMemoryFile] || ''
+  if (state.activeTopTab === 'diagram') {
+    const view = getActiveView()
+    return view ? `${view.title}\n${view.description}\n${view.mermaid}` : ''
+  }
+  return ''
+}
+
+function getCurrentTabKey() {
+  if (state.activeTopTab === 'orgMemory') return `org:${state.activeMemoryFile}`
+  if (state.activeTopTab === 'memory') return `mem:${state.activeMemoryFile}`
+  if (state.activeTopTab === 'diagram') return `dia:${state.activeViewKey}`
+  return ''
+}
+
+async function askDeepSeekForGap(content, tabTitle) {
+  const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY
+  if (!apiKey) return null
+
+  try {
+    const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: 'deepseek-chat',
+        max_tokens: 80,
+        messages: [{
+          role: 'user',
+          content: `You are reviewing a project workspace tab called "${tabTitle}". Here is the current content:\n\n${content.slice(0, 2000)}\n\nIs there one specific piece of information that seems obviously missing or incomplete? If yes, respond with ONLY a short, natural question (one sentence, no quotes, no explanation). If the content seems complete enough, respond with exactly: NONE`
+        }]
+      })
+    })
+    if (!res.ok) return null
+    const data = await res.json()
+    const answer = data.choices?.[0]?.message?.content?.trim()
+    if (!answer || answer === 'NONE' || answer.length > 120) return null
+    return answer
+  } catch {
+    return null
+  }
+}
+
+function removeExistingPrompt() {
+  document.querySelector('.delma-prompt')?.remove()
+}
+
+function showPrompt(question, tabKey) {
+  removeExistingPrompt()
+
+  const container = els.diagramOutput.closest('.diagram-shell') || els.diagramOutput
+  const promptEl = document.createElement('div')
+  promptEl.className = 'delma-prompt'
+  promptEl.innerHTML = `
+    <button class="delma-prompt-dismiss" title="Dismiss">&times;</button>
+    <div class="delma-prompt-question">${escapeHtml(question)}</div>
+    <input class="delma-prompt-input" type="text" placeholder="Type your answer..." />
+    <div class="delma-prompt-actions">
+      <button class="prompt-save">Save</button>
+    </div>
+  `
+
+  // Insert above the content, inside the shell
+  container.insertBefore(promptEl, container.firstChild)
+
+  // Phase 1: resolve into view after a brief pause (between thoughts)
+  setTimeout(() => promptEl.classList.add('visible'), 50)
+
+  const input = promptEl.querySelector('.delma-prompt-input')
+  const saveBtn = promptEl.querySelector('.prompt-save')
+  const dismissBtn = promptEl.querySelector('.delma-prompt-dismiss')
+
+  // Save: append answer, prompt disappears, document gets better
+  saveBtn.addEventListener('click', async () => {
+    const answer = input.value.trim()
+    if (!answer) return
+
+    const note = `\n\n**${question}**\n${answer}`
+
+    if (state.activeTopTab === 'orgMemory') {
+      state.orgMemory[state.activeMemoryFile] = (state.orgMemory[state.activeMemoryFile] || '') + note
+      const { data: existing } = await supabase.from('org_memory_notes').select('id, content').eq('org_id', state.org.id).eq('filename', state.activeMemoryFile).single()
+      if (existing) await supabase.from('org_memory_notes').update({ content: existing.content + note }).eq('id', existing.id)
+    } else if (state.activeTopTab === 'memory') {
+      state.memory[state.activeMemoryFile] = (state.memory[state.activeMemoryFile] || '') + note
+      const { data: existing } = await supabase.from('memory_notes').select('id, content').eq('workspace_id', state.workspaceId).eq('filename', state.activeMemoryFile).single()
+      if (existing) await supabase.from('memory_notes').update({ content: existing.content + note }).eq('id', existing.id)
+    }
+
+    // Dissolve — no confirmation, the change IS the confirmation
+    promptEl.classList.remove('visible')
+    setTimeout(() => {
+      promptEl.remove()
+      renderWorkspace()
+    }, 250)
+  })
+
+  // Dismiss: fade out, remember for this tab this session
+  dismissBtn.addEventListener('click', () => {
+    dismissedTabs.add(tabKey)
+    promptEl.classList.remove('visible')
+    setTimeout(() => promptEl.remove(), 250)
+  })
+}
+
+async function maybeShowPrompt() {
+  if (!state.workspaceId) return
+  if (state.diagramMode === 'edit') return
+
+  const tabKey = getCurrentTabKey()
+  if (!tabKey || dismissedTabs.has(tabKey)) return
+
+  // Only show when idle (3 seconds of no activity)
+  if (Date.now() - lastActivity < 3000) return
+
+  const content = getCurrentTabContent()
+  if (!content || content.length < 20) return
+
+  const tabTitle = state.activeTopTab === 'orgMemory'
+    ? (ORG_TAB_LABELS[state.activeMemoryFile]?.title || state.activeMemoryFile)
+    : state.activeTopTab === 'memory'
+      ? (MEMORY_TAB_LABELS[state.activeMemoryFile]?.title || state.activeMemoryFile)
+      : (getActiveView()?.title || 'Architecture')
+
+  console.log('[delma prompt] checking for gaps in:', tabTitle)
+  const question = await askDeepSeekForGap(content, tabTitle)
+
+  if (question) {
+    console.log('[delma prompt] showing:', question)
+    showPrompt(question, tabKey)
+  } else {
+    console.log('[delma prompt] content seems complete')
+  }
+}
+
+function startPromptEngine() {
+  if (promptTimer) clearInterval(promptTimer)
+  // First check after 30 seconds, then every 5 minutes
+  setTimeout(() => {
+    maybeShowPrompt()
+    promptTimer = setInterval(maybeShowPrompt, 5 * 60 * 1000)
+  }, 30000)
+}
+
+void init().then(() => startPromptEngine()).catch(err => console.error('[delma] INIT CRASHED:', err))
