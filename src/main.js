@@ -31,7 +31,7 @@ mermaid.initialize({
   securityLevel: 'loose',
   theme: 'base',
   layout: 'elk',
-  flowchart: { curve: 'basis' },
+  flowchart: { curve: 'basis', padding: 16, nodeSpacing: 30, rankSpacing: 50 },
   themeVariables: {
     primaryColor: '#FBF7F2',       // node fill — light warm white
     primaryTextColor: '#1A1A1A',   // node text
