@@ -136,6 +136,23 @@
       background: #fff;
     }
 
+    .header-select {
+      padding: 7px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--ink);
+      cursor: pointer;
+      min-width: 120px;
+    }
+
+    .header-select:focus {
+      border-color: rgba(67, 0, 46, 0.28);
+      outline: none;
+    }
+
     .primary-btn,
     .secondary-btn {
       border-radius: 999px;
@@ -922,14 +939,15 @@
   <div class="app-shell">
     <main class="panel workspace-panel">
       <div class="workspace-header">
-        <div>
-          <div class="eyebrow">Delma</div>
-          <h1 id="workspace-title" class="workspace-title">System Map</h1>
-          <div id="workspace-copy" class="workspace-copy">Keep the shared SFMC and Salesforce map beside Claude while you work.</div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <div class="eyebrow" style="margin-right:4px;">Delma</div>
+          <select id="org-selector" class="header-select" aria-label="Organization"></select>
+          <span style="color:var(--muted);font-size:14px;">/</span>
+          <select id="project-selector" class="header-select" aria-label="Project"></select>
+          <button id="new-project-btn" class="secondary-btn" style="font-size:11px;padding:6px 10px;">+ New</button>
         </div>
-        <div class="controls">
-          <input id="project-dir" class="project-input" placeholder="Workspace name" />
-          <button id="connect-btn" class="secondary-btn">Open Workspace</button>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <button id="logout-btn" class="secondary-btn logout-btn" type="button">Log out</button>
         </div>
       </div>
 
@@ -937,17 +955,20 @@
         <div id="view-tabs" class="tab-bar"></div>
       </div>
 
-      <div class="diagram-meta">
+      <div class="diagram-meta" style="height:auto;padding:10px 20px 6px;">
         <div class="meta-block">
-          <div class="meta-label">Active View</div>
-          <div id="view-title" class="meta-title">Architecture</div>
-          <div id="view-description" class="meta-copy"></div>
+          <div id="view-title" class="meta-title" style="font-size:14px;"></div>
+          <div id="view-description" class="meta-copy" style="margin-top:2px;"></div>
         </div>
         <div class="mode-toggle" id="mode-toggle" aria-label="Diagram Mode">
           <button id="view-mode-btn" class="mode-btn active" type="button">View</button>
           <button id="edit-mode-btn" class="mode-btn" type="button">Edit</button>
         </div>
       </div>
+
+      <!-- Hidden elements used by JS but no longer in the visible header -->
+      <input id="project-dir" type="hidden" />
+      <button id="connect-btn" style="display:none;"></button>
 
       <div class="diagram-stage">
         <div class="diagram-shell">
@@ -958,19 +979,17 @@
 
       <div class="workspace-footer">
         <div class="status-strip">
-          <span id="sdk-status">Waiting For Workspace</span>
-          <span>—</span>
-          <span id="workspace-status">Workspace ready.</span>
+          <span id="workspace-status"></span>
         </div>
         <div class="footer-actions">
-          <button id="reset-example-btn" class="secondary-btn">Reset Diagram</button>
-          <button id="save-workspace-btn" class="secondary-btn">Save Changes</button>
+          <button id="reset-example-btn" class="secondary-btn" style="display:none;">Reset</button>
+          <button id="save-workspace-btn" class="secondary-btn">Save</button>
         </div>
       </div>
+      <span id="sdk-status" style="display:none;"></span>
     </main>
 
     <div class="hidden-helpers">
-      <button id="logout-btn" class="secondary-btn logout-btn" type="button" style="position:fixed;top:12px;right:16px;z-index:50;">Log out</button>
       <div id="memory-list" style="display:none;"></div>
       <div id="history-list" style="display:none;"></div>
       <div id="sdk-body" style="display:none;"></div>
@@ -997,6 +1016,8 @@
 
   <div class="hidden-ui" aria-hidden="true">
     <div id="project-pill"></div>
+    <h1 id="workspace-title" style="display:none;"></h1>
+    <div id="workspace-copy" style="display:none;"></div>
     <div id="history-pill"></div>
     <div id="diagram-toolbar-title"></div>
     <div id="diagram-toolbar-subtitle"></div>

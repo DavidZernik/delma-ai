@@ -68,8 +68,6 @@ const els = {
   saveViewBtn: document.getElementById('save-view-btn'),
   previewBtn: document.getElementById('preview-btn'),
   resetExampleBtn: document.getElementById('reset-example-btn'),
-  workspaceTitle: document.getElementById('workspace-title'),
-  workspaceCopy: document.getElementById('workspace-copy'),
   viewTabs: document.getElementById('view-tabs'),
   historyList: document.getElementById('history-list'),
   memoryList: document.getElementById('memory-list'),
@@ -554,15 +552,6 @@ async function renderMemoryDocument(filename, isOrg = false) {
 function renderWorkspace() {
   renderViewTabs()
 
-  // Show org name > workspace name in header
-  const orgLabel = state.org?.name ? `${state.org.name}` : ''
-  els.workspaceTitle.textContent = state.workspaceName
-    ? (orgLabel ? `${orgLabel} / ${state.workspaceName}` : state.workspaceName)
-    : (orgLabel || 'Delma Workspace')
-  els.workspaceCopy.textContent = state.workspaceId
-    ? 'Visual workspace for Claude Code. Diagrams and memory update live.'
-    : 'Select or create a workspace to get started.'
-
   // Org memory tab (SFMC Setup, People)
   if (state.activeTopTab === 'orgMemory') {
     void renderMemoryDocument(state.activeMemoryFile, true)
@@ -599,9 +588,7 @@ function renderWorkspace() {
 
   if (state.diagramMode !== 'edit') {
     const mermaidCode = state.previewMermaid || view.mermaid || ''
-    const md = view.description
-      ? `${view.description}\n\n\`\`\`mermaid\n${mermaidCode}\n\`\`\``
-      : `\`\`\`mermaid\n${mermaidCode}\n\`\`\``
+    const md = `\`\`\`mermaid\n${mermaidCode}\n\`\`\``
     els.diagramOutput.className = 'documentation-shell markdown-body'
     void renderMarkdownWithMermaid(els.diagramOutput, md)
   }
@@ -716,55 +703,77 @@ async function saveCurrentTab() {
   }
 }
 
-// ── Workspace Selector ───────────────────────────────────────────────────────
+// ── Org & Project Selectors ──────────────────────────────────────────────────
 
-function renderWorkspaceSelector() {
-  const dir = els.projectDir
-  if (!dir) return
+const orgSelector = document.getElementById('org-selector')
+const projectSelector = document.getElementById('project-selector')
+const newProjectBtn = document.getElementById('new-project-btn')
 
-  // Repurpose the project-dir input as workspace selector
-  dir.placeholder = 'Workspace name'
-  dir.value = ''
-
-  if (state.workspaces.length) {
-    dir.placeholder = `${state.workspaces.length} workspace(s) — type a name to create new`
+function renderOrgSelector() {
+  orgSelector.innerHTML = ''
+  if (!state.orgs.length) {
+    orgSelector.innerHTML = '<option value="">No organizations</option>'
+    return
+  }
+  for (const org of state.orgs) {
+    const opt = document.createElement('option')
+    opt.value = org.id
+    opt.textContent = org.name
+    if (state.org?.id === org.id) opt.selected = true
+    orgSelector.appendChild(opt)
   }
 }
 
-// ── Event Listeners ──────────────────────────────────────────────────────────
+function renderProjectSelector() {
+  projectSelector.innerHTML = ''
+  if (!state.workspaces.length) {
+    projectSelector.innerHTML = '<option value="">No projects</option>'
+    return
+  }
+  for (const ws of state.workspaces) {
+    const opt = document.createElement('option')
+    opt.value = ws.id
+    opt.textContent = ws.name
+    if (state.workspaceId === ws.id) opt.selected = true
+    projectSelector.appendChild(opt)
+  }
+}
 
-els.connectBtn.addEventListener('click', () => {
+orgSelector.addEventListener('change', () => {
   void (async () => {
-    const input = els.projectDir.value.trim()
-    if (!input) {
-      // If no name typed, open first workspace or show error
-      if (state.workspaces.length) {
-        await openWorkspace(state.workspaces[0].id)
-      } else {
-        els.projectDir.focus()
-        setWorkspaceStatus('Type a workspace name to create one.')
-      }
-      return
-    }
-
-    // Check if workspace exists
-    const existing = state.workspaces.find(w => w.name.toLowerCase() === input.toLowerCase())
-    if (existing) {
-      await openWorkspace(existing.id)
+    const orgId = orgSelector.value
+    state.org = state.orgs.find(o => o.id === orgId) || null
+    await loadWorkspaces()
+    renderProjectSelector()
+    if (state.workspaces.length) {
+      await openWorkspace(state.workspaces[0].id)
     } else {
-      const ws = await createWorkspace(input)
-      state.workspaces.push({ ...ws, role: 'owner' })
-      await openWorkspace(ws.id)
-      appendLog('Workspace Created', `Created "${ws.name}" with default diagrams and memory.`)
+      state.workspaceId = null
+      renderWorkspace()
     }
-
-    els.sdkStatus.textContent = 'Workspace Open'
-    els.connectBtn.textContent = 'Switch Workspace'
-  })().catch(err => {
-    setWorkspaceStatus(err.message)
-    appendLog('Error', err.message, 'error')
-  })
+  })().catch(err => setWorkspaceStatus(err.message))
 })
+
+projectSelector.addEventListener('change', () => {
+  void (async () => {
+    const wsId = projectSelector.value
+    if (wsId) await openWorkspace(wsId)
+  })().catch(err => setWorkspaceStatus(err.message))
+})
+
+newProjectBtn.addEventListener('click', () => {
+  const name = prompt('New project name:')
+  if (!name?.trim()) return
+  void (async () => {
+    const ws = await createWorkspace(name.trim())
+    state.workspaces.push({ ...ws, role: 'owner' })
+    renderProjectSelector()
+    await openWorkspace(ws.id)
+    setWorkspaceStatus(`Created "${ws.name}".`)
+  })().catch(err => setWorkspaceStatus(err.message))
+})
+
+// ── Event Listeners ──────────────────────────────────────────────────────────
 
 els.saveWorkspaceBtn.addEventListener('click', () => {
   void saveCurrentTab().catch(err => {
@@ -861,11 +870,10 @@ els.authForm.addEventListener('submit', (e) => {
     appendLog('Signed In', 'Workspace and memory tools available.')
     await loadOrgs()
     await loadWorkspaces()
-    renderWorkspaceSelector()
+    renderOrgSelector()
+    renderProjectSelector()
     if (state.workspaces.length) {
       await openWorkspace(state.workspaces[0].id)
-      els.sdkStatus.textContent = 'Workspace Open'
-      els.connectBtn.textContent = 'Switch Workspace'
     }
   })()
 })
@@ -873,7 +881,6 @@ els.authForm.addEventListener('submit', (e) => {
 els.logoutBtn.addEventListener('click', () => {
   void logout().then(() => {
     setWorkspaceStatus('Signed out.')
-    els.sdkStatus.textContent = 'Signed Out'
   })
 })
 
@@ -925,20 +932,14 @@ async function init() {
   if (user) {
     await loadOrgs()
     await loadWorkspaces()
-    renderWorkspaceSelector()
+    renderOrgSelector()
+    renderProjectSelector()
     if (state.workspaces.length) {
       await openWorkspace(state.workspaces[0].id)
-      els.sdkStatus.textContent = 'Workspace Open'
-      els.connectBtn.textContent = 'Switch Workspace'
     } else {
-      els.sdkStatus.textContent = 'No Workspaces'
-      setWorkspaceStatus('Type a workspace name and click Open to create one.')
+      setWorkspaceStatus('Create a project to get started.')
     }
-  } else {
-    els.sdkStatus.textContent = 'Sign In'
   }
-
-  appendLog('Delma v2', 'Supabase-backed visual workspace. Diagrams and memory sync live between you and Claude Code.')
 }
 
 void init()
