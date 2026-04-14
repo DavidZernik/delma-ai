@@ -93,6 +93,7 @@ const els = {
   memoryList: document.getElementById('memory-list'),
   viewTitle: document.getElementById('view-title'),
   viewDescription: document.getElementById('view-description'),
+  viewProvenance: document.getElementById('view-provenance'),
   viewSummary: document.getElementById('view-summary'),
   modeToggle: document.getElementById('mode-toggle'),
   viewModeBtn: document.getElementById('view-mode-btn'),
@@ -142,6 +143,18 @@ function canEditItem(item) {
     case 'view-admins': return false
     default: return false
   }
+}
+
+function timeAgo(dateStr) {
+  if (!dateStr) return ''
+  const diff = Date.now() - new Date(dateStr).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.floor(hrs / 24)
+  return `${days}d ago`
 }
 
 function escapeHtml(text) {
@@ -544,14 +557,18 @@ async function renderMemoryDocument(filename, isOrg = false) {
   const editable = row ? canEditItem(row) : true
 
   els.viewTitle.textContent = label.title
-  els.viewDescription.textContent = editable
-    ? label.desc
-    : `${label.desc} (read-only)`
+  els.viewDescription.textContent = label.desc
+  els.viewProvenance.textContent = row?.updated_at
+    ? `Last saved ${timeAgo(row.updated_at)}`
+    : ''
   els.resetExampleBtn.hidden = true
 
   // Hide Edit button if user can't edit this tab
   els.modeToggle.hidden = !editable
   if (!editable && state.diagramMode === 'edit') state.diagramMode = 'view'
+
+  // Save button only visible in Edit mode
+  els.saveWorkspaceBtn.hidden = state.diagramMode !== 'edit'
 
   if (state.diagramMode === 'edit' && editable) {
     els.diagramOutput.hidden = true
@@ -600,11 +617,15 @@ function renderWorkspace() {
   if (!editable && state.diagramMode === 'edit') state.diagramMode = 'view'
 
   els.viewTitle.textContent = view.title
-  els.viewDescription.textContent = editable
-    ? (view.description || '')
-    : `${view.description || ''} (read-only)`
+  els.viewDescription.textContent = view.description || ''
+  els.viewProvenance.textContent = view.updated_at
+    ? `Last saved ${timeAgo(view.updated_at)}`
+    : ''
   populateEditor(view)
   setDiagramMode(state.diagramMode)
+
+  // Save button only visible in Edit mode
+  els.saveWorkspaceBtn.hidden = state.diagramMode !== 'edit'
 
   if (state.diagramMode !== 'edit') {
     const mermaidCode = state.previewMermaid || view.mermaid || ''

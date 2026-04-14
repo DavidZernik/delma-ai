@@ -270,6 +270,13 @@
       max-width: 520px;
     }
 
+    .meta-provenance {
+      margin-top: 4px;
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.01em;
+    }
+
     .mode-toggle {
       display: inline-flex;
       align-items: center;
@@ -689,6 +696,10 @@
       display: inline-flex;
     }
 
+    /* ── Mobile: reference-first, not compressed desktop ────────────── */
+    /* Delma on mobile is for check-in and reference, not authoring.   */
+    /* Prioritize clarity of the current tab over layout fidelity.     */
+
     @media (max-width: 760px) {
       body {
         height: auto;
@@ -701,235 +712,52 @@
         min-height: 100vh;
       }
 
-      .controls {
-        justify-content: flex-start;
+      /* Header: show project identity, demote everything else */
+      .workspace-header {
+        padding: 12px 16px;
       }
 
-      .workspace-header,
-      .workspace-footer,
-      .composer-actions,
-      .diagram-meta,
-      .chat-header {
-        flex-direction: column;
-        align-items: flex-start;
-      }
+      .header-select { min-width: 80px; font-size: 12px; padding: 6px 8px; }
+      #new-project-btn { display: none; }
 
-      .diagram-meta {
-        height: auto;
-        overflow: visible;
-      }
+      .workspace-panel { min-height: auto; }
 
-      .project-input {
-        width: 100%;
-      }
-
-      .workspace-panel,
-      .chat-panel {
-        min-height: auto;
-      }
-
+      /* Diagram: scrollable artifact, not miniaturized canvas */
       .diagram-shell {
-        min-height: 420px;
+        min-height: auto;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
       }
 
-      #diagram-output {
-        min-height: 420px;
+      .diagram-shell svg {
+        min-width: 500px;
       }
+
+      /* Meta: compact */
+      .diagram-meta { padding: 12px 16px 8px; }
+      .meta-title { font-size: 18px; }
     }
 
     @media (max-width: 720px) {
-      .workspace-header,
-      .tab-row,
-      .diagram-meta,
-      .diagram-stage,
-      .workspace-footer,
-      .chat-header,
-      .messages,
-      .composer {
+      .tab-row, .diagram-stage, .workspace-footer {
         padding-left: 14px;
         padding-right: 14px;
       }
-
-      .tab-row {
-        gap: 10px;
-        padding-top: 10px;
-        padding-bottom: 10px;
-      }
-
-      .workspace-header,
-      .chat-header {
-        padding-top: 14px;
-        padding-bottom: 12px;
-      }
-
-      .workspace-copy,
-      .meta-copy,
-      .chat-copy,
-      .composer-hint {
-        max-width: none;
-      }
-
-      .workspace-title,
-      .chat-title {
-        font-size: 15px;
-      }
-
-      .tab-bar {
-        gap: 6px;
-      }
-
-      .view-tab {
-        padding: 7px 10px;
-      }
-
-      .diagram-meta {
-        gap: 10px;
-      }
-
-      .diagram-stage {
-        padding-top: 6px;
-        padding-bottom: 14px;
-      }
-
-      .diagram-shell {
-        min-height: 320px;
-        border-radius: 16px;
-        padding: 12px;
-      }
-
-      #diagram-output {
-        min-height: 100%;
-      }
-
-      .diagram-editor {
-        min-height: 100%;
-      }
-
-      .diagram-empty {
-        min-height: 260px;
-        padding: 20px;
-        font-size: 13px;
-      }
-
-      .workspace-footer {
-        gap: 12px;
-        padding-top: 10px;
-        padding-bottom: 14px;
-      }
-
-      .status-strip {
-        font-size: 12px;
-        gap: 8px;
-      }
-
-      .footer-actions {
-        width: 100%;
-        justify-content: stretch;
-      }
-
-      .footer-actions .secondary-btn,
-      .footer-actions .primary-btn {
-        flex: 1 1 100%;
-        justify-content: center;
-        text-align: center;
-      }
-
-      .messages {
-        gap: 16px;
-        padding-top: 18px;
-        padding-bottom: 10px;
-      }
-
-      .message {
-        font-size: 13px;
-        line-height: 1.58;
-      }
-
-      .composer {
-        padding-top: 12px;
-        padding-bottom: 14px;
-      }
-
-      .composer-shell {
-        border-radius: 16px;
-        padding: 14px 14px 10px;
-      }
-
-      .composer textarea {
-        min-height: 88px;
-        font-size: 14px;
-      }
-
-      .composer-actions {
-        gap: 10px;
-        margin-top: 12px;
-      }
-
-      .composer-toolbar {
-        width: 100%;
-        justify-content: space-between;
-        gap: 10px;
-      }
-
-      .composer-model {
-        font-size: 12px;
-      }
-
-      .chat-status {
-        width: 100%;
-        justify-content: space-between;
-      }
-
-      .auth-overlay {
-        padding: 14px;
-      }
-
-      .auth-card {
-        border-radius: 22px;
-        padding: 20px;
-      }
-
-      .auth-title {
-        font-size: 24px;
-      }
+      .tab-bar { gap: 6px; }
+      .view-tab { padding: 6px 10px; font-size: 11px; }
+      .diagram-shell { border-radius: 12px; padding: 16px; }
+      .diagram-stage { padding-top: 10px; padding-bottom: 14px; }
+      .meta-copy { display: none; }
+      .workspace-footer { padding: 8px 14px; }
+      .auth-overlay { padding: 14px; }
+      .auth-card { border-radius: 18px; padding: 20px; }
     }
 
     @media (max-width: 480px) {
-      .workspace-header,
-      .tab-row,
-      .diagram-meta,
-      .diagram-stage,
-      .workspace-footer,
-      .chat-header,
-      .messages,
-      .composer {
-        padding-left: 14px;
-        padding-right: 14px;
-      }
-
-      .eyebrow,
-      .meta-label {
-        font-size: 10px;
-      }
-
-      .workspace-title,
-      .chat-title {
-        font-size: 14px;
-      }
-
-      .project-input,
-      .secondary-btn,
-      .primary-btn {
-        width: 100%;
-      }
-
-      .controls {
-        width: 100%;
-      }
-
-      .controls .secondary-btn {
-        text-align: center;
-      }
+      .eyebrow { display: none; }
+      .header-select { font-size: 11px; min-width: 70px; }
+      .meta-title { font-size: 16px; }
+      .meta-provenance { font-size: 10px; }
 
       .tab-row {
         flex-direction: column;
@@ -1000,9 +828,10 @@
         <div class="meta-block">
           <div id="view-title" class="meta-title"></div>
           <div id="view-description" class="meta-copy"></div>
+          <div id="view-provenance" class="meta-provenance"></div>
         </div>
-        <div class="mode-toggle" id="mode-toggle" aria-label="Diagram Mode">
-          <button id="view-mode-btn" class="mode-btn active" type="button">View</button>
+        <div class="mode-toggle" id="mode-toggle" aria-label="Mode">
+          <button id="view-mode-btn" class="mode-btn active" type="button">Saved</button>
           <button id="edit-mode-btn" class="mode-btn" type="button">Edit</button>
         </div>
       </div>
