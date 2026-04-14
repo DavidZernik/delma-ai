@@ -312,6 +312,11 @@
       color: var(--accent);
     }
 
+    .mode-btn.primary {
+      background: var(--danger);
+      color: var(--danger-ink);
+    }
+
     .diagram-stage {
       min-height: 0;
       overflow: auto;
@@ -336,21 +341,31 @@
       box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03), 0 4px 16px rgba(0, 0, 0, 0.02);
     }
 
-    /* Diagram zoom container */
+    /* Diagram zoom container — tall enough to show meaningful content */
     .diagram-zoom-wrapper {
       overflow: auto;
       -webkit-overflow-scrolling: touch;
       position: relative;
       cursor: grab;
+      touch-action: pan-x pan-y;
+      user-select: none;
+      min-height: 350px;
+      max-height: 60vh;
     }
 
-    .diagram-zoom-wrapper:active { cursor: grabbing; }
+    .diagram-zoom-wrapper.dragging { cursor: grabbing; }
 
     .diagram-zoom-wrapper svg {
       min-width: 550px;
+      display: block;
       transform-origin: top left;
-      transition: transform 150ms ease;
-      animation: fadeInDiagram 200ms ease forwards;
+    }
+
+    .diagram-zoom-canvas {
+      position: relative;
+      width: fit-content;
+      min-width: 100%;
+      min-height: 100%;
     }
 
     @keyframes fadeInDiagram {
@@ -358,19 +373,15 @@
       to { opacity: 1; }
     }
 
-    /* Also hide inline mermaid blocks until rendered */
-    .mermaid-inline svg {
-      animation: fadeInDiagram 200ms ease forwards;
-    }
-
     .diagram-zoom-controls {
       position: absolute;
-      top: 8px;
-      right: 8px;
+      top: 4px;
+      right: 4px;
       display: flex;
       flex-direction: column;
       gap: 2px;
       z-index: 5;
+      align-items: flex-end;
     }
 
     .zoom-btn {
@@ -396,7 +407,8 @@
       font-size: 10px;
       text-align: center;
       color: var(--muted);
-      padding: 2px 0;
+      padding: 0;
+      margin: 0;
     }
 
     .documentation-shell {
@@ -922,7 +934,7 @@
           <div id="view-provenance" class="meta-provenance"></div>
         </div>
         <div class="mode-toggle" id="mode-toggle" aria-label="Mode">
-          <button id="view-mode-btn" class="mode-btn active" type="button">Saved</button>
+          <button id="view-mode-btn" class="mode-btn" type="button" hidden>Cancel</button>
           <button id="edit-mode-btn" class="mode-btn" type="button">Edit</button>
         </div>
       </div>
@@ -944,7 +956,7 @@
         </div>
         <div class="footer-actions">
           <button id="reset-example-btn" class="secondary-btn" style="display:none;">Reset</button>
-          <button id="save-workspace-btn" class="primary-btn">Save</button>
+          <button id="save-workspace-btn" class="primary-btn" style="display:none;">Save</button>
         </div>
       </div>
       <span id="sdk-status" style="display:none;"></span>

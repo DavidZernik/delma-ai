@@ -211,16 +211,17 @@ async function logout() {
 // ── Organization Loading ─────────────────────────────────────────────────────
 
 async function loadOrgs() {
-  if (!state.user) return
-  const { data } = await supabase
+  if (!state.user) { console.log('[delma] loadOrgs: no user'); return }
+  const { data, error } = await supabase
     .from('org_members')
     .select('org_id, role, organizations(id, name, slug)')
     .eq('user_id', state.user.id)
+  console.log('[delma] loadOrgs response:', { data, error: error?.message })
   state.orgs = (data || []).map(r => ({ ...r.organizations, orgRole: r.role }))
-  // Default to first org
   if (state.orgs.length && !state.org) {
     state.org = state.orgs[0]
   }
+  console.log('[delma] loadOrgs done:', state.orgs.length, 'orgs, active:', state.org?.name)
 }
 
 // ── Workspace CRUD ───────────────────────────────────────────────────────────
@@ -365,8 +366,12 @@ function setupRealtimeSubscription() {
 function setDiagramMode(mode) {
   state.diagramMode = mode
   els.modeToggle.hidden = false
-  els.viewModeBtn.classList.toggle('active', mode === 'view')
-  els.editModeBtn.classList.toggle('active', mode === 'edit')
+  els.viewModeBtn.hidden = mode !== 'edit'
+  els.viewModeBtn.textContent = 'Cancel'
+  els.viewModeBtn.classList.remove('active', 'primary')
+  els.editModeBtn.textContent = mode === 'edit' ? 'Save' : 'Edit'
+  els.editModeBtn.classList.toggle('primary', mode === 'edit')
+  els.editModeBtn.classList.toggle('active', mode === 'view')
   els.diagramOutput.hidden = mode === 'edit'
   els.diagramEditor.classList.toggle('visible', mode === 'edit')
 }
@@ -381,49 +386,260 @@ function getActiveView() {
 // ── Diagram Zoom State ──────────────────────────────────────────────────────
 
 let currentZoom = 1
-const ZOOM_MIN = 0.5
+const ZOOM_MIN = 0.1
 const ZOOM_MAX = 2.0
 const ZOOM_STEP = 0.15
+const SVG_CROP_PADDING = 50
+
+function getDiagramElements() {
+  const wrapper = document.querySelector('.diagram-zoom-wrapper')
+  const canvas = document.querySelector('.diagram-zoom-canvas')
+  const svg = wrapper?.querySelector('svg') || null
+  const label = document.querySelector('.zoom-level')
+  return { wrapper, canvas, svg, label }
+}
+
+function normalizeMermaidForRender(code) {
+  return String(code || '').replace(/^---\n[\s\S]*?\n---\n?/, '')
+}
+
+function applyDiagramBranding(svg) {
+  if (!svg) return
+
+  for (const node of svg.querySelectorAll('.node rect, .node polygon')) {
+    node.style.filter = 'drop-shadow(0 1px 3px rgba(0, 0, 0, 0.06))'
+    node.setAttribute('rx', '8')
+    node.setAttribute('ry', '8')
+  }
+
+  for (const edge of svg.querySelectorAll('.edgePath path.path')) {
+    edge.style.strokeWidth = '2.5px'
+  }
+
+  for (const marker of svg.querySelectorAll('marker path')) {
+    marker.style.fill = '#7A0000'
+  }
+
+  for (const label of svg.querySelectorAll('.nodeLabel')) {
+    label.style.fontSize = '14px'
+    label.style.fontWeight = '500'
+    label.style.color = '#1A1A1A'
+    label.style.fill = '#1A1A1A'
+  }
+}
+
+/**
+ * Measure the bounding union of a list of DOM elements relative to a container rect.
+ * Returns { offsetX, offsetY, width, height } or null if no valid rects.
+ */
+function measureRectUnion(elements, containerRect) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+  for (const el of elements) {
+    const r = el.getBoundingClientRect()
+    if (!r.width && !r.height) continue
+    minX = Math.min(minX, r.left)
+    minY = Math.min(minY, r.top)
+    maxX = Math.max(maxX, r.right)
+    maxY = Math.max(maxY, r.bottom)
+  }
+  if (!isFinite(minX)) return null
+  return {
+    offsetX: minX - containerRect.left,
+    offsetY: minY - containerRect.top,
+    width: maxX - minX,
+    height: maxY - minY
+  }
+}
+
+function getSvgContentBounds(svg) {
+  if (!svg?.querySelector) return null
+
+  const svgRect = svg.getBoundingClientRect()
+  const existingViewBox = svg.viewBox?.baseVal
+  const fallbackBounds = existingViewBox?.width && existingViewBox?.height
+    ? {
+        x: existingViewBox.x,
+        y: existingViewBox.y,
+        width: existingViewBox.width,
+        height: existingViewBox.height
+      }
+    : null
+
+  const foreignObjects = [...svg.querySelectorAll('foreignObject')]
+    .filter((el) => typeof el.getBoundingClientRect === 'function')
+
+  if (foreignObjects.length && fallbackBounds && svgRect.width && svgRect.height) {
+    const union = measureRectUnion(foreignObjects, svgRect)
+    if (union?.width && union?.height) {
+      const scaleX = fallbackBounds.width / svgRect.width
+      const scaleY = fallbackBounds.height / svgRect.height
+      return {
+        x: fallbackBounds.x + union.offsetX * scaleX - SVG_CROP_PADDING,
+        y: fallbackBounds.y + union.offsetY * scaleY - SVG_CROP_PADDING,
+        width: union.width * scaleX + SVG_CROP_PADDING * 2,
+        height: union.height * scaleY + SVG_CROP_PADDING * 2,
+        source: 'foreignObject',
+        debug: {
+          svgRect: { width: svgRect.width, height: svgRect.height },
+          fallbackBounds,
+          foreignObjectUnion: union
+        }
+      }
+    }
+  }
+
+  const graphRoot =
+    svg.querySelector('#graph0') ||
+    svg.querySelector('svg > g') ||
+    svg.querySelector('g')
+
+  if (!graphRoot?.getBBox) return fallbackBounds
+
+  const box = graphRoot.getBBox()
+  if (!box.width || !box.height) {
+    return fallbackBounds
+  }
+
+  return {
+    x: box.x - SVG_CROP_PADDING,
+    y: box.y - SVG_CROP_PADDING,
+    width: box.width + SVG_CROP_PADDING * 2,
+    height: box.height + SVG_CROP_PADDING * 2,
+    source: 'graphBBox',
+    debug: {
+      svgRect: { width: svgRect.width, height: svgRect.height },
+      graphBox: { x: box.x, y: box.y, width: box.width, height: box.height },
+      fallbackBounds
+    }
+  }
+}
+
+function prepareFittedSvg(svg, wrapper) {
+  const bounds = getSvgContentBounds(svg)
+  if (!bounds || !wrapper) return null
+
+  svg.setAttribute('viewBox', `${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`)
+  svg.setAttribute('width', String(bounds.width))
+  svg.setAttribute('height', String(bounds.height))
+  svg.dataset.baseWidth = String(bounds.width)
+  svg.dataset.baseHeight = String(bounds.height)
+
+  return { bounds }
+}
 
 function setZoom(level) {
   currentZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, level))
-  const svg = document.querySelector('.diagram-zoom-wrapper svg')
-  const label = document.querySelector('.zoom-level')
-  if (svg) svg.style.transform = `scale(${currentZoom})`
+
+  const { wrapper, canvas, svg, label } = getDiagramElements()
+  if (svg && canvas) {
+    const baseWidth = Number(svg.dataset.baseWidth || svg.viewBox.baseVal?.width || 0)
+    const baseHeight = Number(svg.dataset.baseHeight || svg.viewBox.baseVal?.height || 0)
+
+    svg.style.transform = `scale(${currentZoom})`
+    canvas.style.width = `${Math.max(baseWidth * currentZoom, wrapper?.clientWidth || 0)}px`
+    canvas.style.height = `${Math.max(baseHeight * currentZoom, wrapper?.clientHeight || 0)}px`
+  }
   if (label) label.textContent = `${Math.round(currentZoom * 100)}%`
 }
 
+
+function enableDiagramDragging(wrapper) {
+  if (!wrapper) return
+
+  let isDragging = false
+  let startX = 0
+  let startY = 0
+  let startScrollLeft = 0
+  let startScrollTop = 0
+
+  const stopDragging = () => {
+    isDragging = false
+    wrapper.classList.remove('dragging')
+  }
+
+  wrapper.addEventListener('pointerdown', (event) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return
+    if (event.target.closest('.diagram-zoom-controls')) return
+
+    isDragging = true
+    startX = event.clientX
+    startY = event.clientY
+    startScrollLeft = wrapper.scrollLeft
+    startScrollTop = wrapper.scrollTop
+    wrapper.classList.add('dragging')
+    wrapper.setPointerCapture?.(event.pointerId)
+  })
+
+  wrapper.addEventListener('pointermove', (event) => {
+    if (!isDragging) return
+    event.preventDefault()
+    wrapper.scrollLeft = startScrollLeft - (event.clientX - startX)
+    wrapper.scrollTop = startScrollTop - (event.clientY - startY)
+  })
+
+  wrapper.addEventListener('pointerup', stopDragging)
+  wrapper.addEventListener('pointercancel', stopDragging)
+  wrapper.addEventListener('lostpointercapture', stopDragging)
+}
+
 async function renderDiagram(mermaidCode) {
+  console.log('[delma render] renderDiagram called, code length:', mermaidCode?.length || 0)
   if (!mermaidCode?.trim()) {
+    console.log('[delma render] empty code, showing placeholder')
     els.diagramOutput.className = 'diagram-empty'
     els.diagramOutput.textContent = 'This view does not have Mermaid content yet.'
     return true
   }
   try {
     const renderId = `delma-diagram-${Date.now()}`
-    const { svg } = await mermaid.render(renderId, mermaidCode)
+    const normalizedCode = normalizeMermaidForRender(mermaidCode)
+    console.log('[delma render] normalized code:', normalizedCode.substring(0, 100) + '...')
+    console.log('[delma render] calling mermaid.render...')
+    const { svg } = await mermaid.render(renderId, normalizedCode)
+    console.log('[delma render] mermaid.render success, svg length:', svg?.length || 0)
     els.diagramOutput.className = ''
     els.diagramOutput.style.opacity = '0'
 
     // Wrap SVG in zoom container with controls
     currentZoom = 1
     els.diagramOutput.innerHTML = `
-      <div class="diagram-zoom-wrapper">${svg}</div>
+      <div class="diagram-zoom-wrapper">
+        <div class="diagram-zoom-canvas">${svg}</div>
+      </div>
       <div class="diagram-zoom-controls">
         <button class="zoom-btn" data-zoom="in" title="Zoom in">+</button>
         <div class="zoom-level">100%</div>
         <button class="zoom-btn" data-zoom="out" title="Zoom out">&minus;</button>
-        <button class="zoom-btn" data-zoom="fit" title="Reset" style="font-size:11px;margin-top:2px;">Fit</button>
       </div>
     `
 
     // Wire up zoom buttons
     els.diagramOutput.querySelector('[data-zoom="in"]').addEventListener('click', () => setZoom(currentZoom + ZOOM_STEP))
     els.diagramOutput.querySelector('[data-zoom="out"]').addEventListener('click', () => setZoom(currentZoom - ZOOM_STEP))
-    els.diagramOutput.querySelector('[data-zoom="fit"]').addEventListener('click', () => setZoom(1))
 
     // Pinch-to-zoom on touch
     const wrapper = els.diagramOutput.querySelector('.diagram-zoom-wrapper')
+    const svgEl = wrapper.querySelector('svg')
+    console.log('[delma render] svgEl found:', !!svgEl, 'wrapper size:', wrapper.clientWidth, 'x', wrapper.clientHeight)
+    applyDiagramBranding(svgEl)
+    console.log('[delma render] branding applied')
+    const prepared = prepareFittedSvg(svgEl, wrapper)
+    console.log('[delma render] prepareFittedSvg result:', prepared ? { fitScale: prepared.fitScale, bounds: { w: prepared.bounds.width, h: prepared.bounds.height, source: prepared.bounds.source } } : 'null')
+    console.log('[delma render] prepareFittedSvg result:', prepared ? { bounds: { w: Math.round(prepared.bounds.width), h: Math.round(prepared.bounds.height) } } : 'null')
+    enableDiagramDragging(wrapper)
+
+    // Reveal first, then set zoom after layout settles
+    // The wrapper needs real dimensions before we can size the canvas correctly
+    requestAnimationFrame(() => {
+      els.diagramOutput.style.opacity = '1'
+      els.diagramOutput.style.transition = 'opacity 150ms ease'
+      // Second frame: container now has real height
+      requestAnimationFrame(() => {
+        console.log('[delma render] post-layout wrapper size:', wrapper.clientWidth, 'x', wrapper.clientHeight)
+        setZoom(1)
+        console.log('[delma render] zoom set, currentZoom:', currentZoom)
+      })
+    })
     let lastPinchDist = 0
     wrapper.addEventListener('touchstart', (e) => {
       if (e.touches.length === 2) {
@@ -447,14 +663,9 @@ async function renderDiagram(mermaidCode) {
       }
     }, { passive: false })
 
-    // Reveal after render — prevents theme flash
-    requestAnimationFrame(() => {
-      els.diagramOutput.style.opacity = '1'
-      els.diagramOutput.style.transition = 'opacity 150ms ease'
-    })
-
     return true
   } catch (error) {
+    console.error('[delma render] MERMAID ERROR:', error.message, error)
     els.diagramOutput.className = 'diagram-error'
     els.diagramOutput.innerHTML = `<div class="diagram-error-title">Mermaid syntax error</div><pre class="diagram-error-detail">${escapeHtml(error.message)}</pre>`
     return false
@@ -462,7 +673,7 @@ async function renderDiagram(mermaidCode) {
 }
 
 async function validateCurrentMermaid() {
-  const code = els.diagramEditor.value || els.viewMermaid.value
+  const code = normalizeMermaidForRender(els.diagramEditor.value || els.viewMermaid.value)
   if (!code?.trim()) return true
   try {
     await mermaid.render(`delma-validate-${Date.now()}`, code)
@@ -630,9 +841,7 @@ async function renderMemoryDocument(filename, isOrg = false) {
   // Hide Edit button if user can't edit this tab
   els.modeToggle.hidden = !editable
   if (!editable && state.diagramMode === 'edit') state.diagramMode = 'view'
-
-  // Save button only visible in Edit mode
-  els.saveWorkspaceBtn.hidden = state.diagramMode !== 'edit'
+  if (!els.modeToggle.hidden) setDiagramMode(state.diagramMode)
 
   if (state.diagramMode === 'edit' && editable) {
     els.diagramOutput.hidden = true
@@ -651,23 +860,29 @@ async function renderMemoryDocument(filename, isOrg = false) {
 // ── Main renderWorkspace ────────────────────────────────────────────────────
 
 function renderWorkspace() {
+  console.log('[delma workspace] renderWorkspace called, activeTopTab:', state.activeTopTab, 'activeViewKey:', state.activeViewKey, 'activeMemoryFile:', state.activeMemoryFile)
+  console.log('[delma workspace] views:', state.views.length, 'memory:', Object.keys(state.memory), 'orgMemory:', Object.keys(state.orgMemory))
   renderViewTabs()
 
   // Org memory tab (SFMC Setup, People)
   if (state.activeTopTab === 'orgMemory') {
+    console.log('[delma workspace] rendering org memory tab:', state.activeMemoryFile)
     void renderMemoryDocument(state.activeMemoryFile, true)
     return
   }
 
   // Project memory tab
   if (state.activeTopTab === 'memory') {
+    console.log('[delma workspace] rendering project memory tab:', state.activeMemoryFile)
     void renderMemoryDocument(state.activeMemoryFile)
     return
   }
 
-  // Diagram tab — render as markdown with mermaid block
+  // Diagram tab
   const view = getActiveView()
+  console.log('[delma workspace] diagram tab, view:', view ? { key: view.view_key, title: view.title, mermaid_length: view.mermaid?.length } : 'null')
   if (!view) {
+    console.log('[delma workspace] no view, showing placeholder')
     els.diagramOutput.className = 'documentation-shell'
     els.diagramOutput.textContent = 'No view loaded.'
     return
@@ -688,11 +903,9 @@ function renderWorkspace() {
   populateEditor(view)
   setDiagramMode(state.diagramMode)
 
-  // Save button only visible in Edit mode
-  els.saveWorkspaceBtn.hidden = state.diagramMode !== 'edit'
-
   if (state.diagramMode !== 'edit') {
     const mermaidCode = state.previewMermaid || view.mermaid || ''
+    console.log('[delma workspace] rendering diagram, mermaid code length:', mermaidCode.length, 'first 80 chars:', mermaidCode.substring(0, 80))
     els.diagramOutput.className = ''
     void renderDiagram(mermaidCode)
   }
@@ -709,6 +922,23 @@ function saveCurrentEditState() {
   } else if (state.activeTopTab === 'diagram') {
     updateActiveViewFromEditor()
   }
+}
+
+function discardCurrentEditState() {
+  if (state.activeTopTab === 'orgMemory') {
+    els.diagramEditor.value = state.orgMemory[state.activeMemoryFile] || ''
+    return
+  }
+
+  if (state.activeTopTab === 'memory') {
+    els.diagramEditor.value = state.memory[state.activeMemoryFile] || ''
+    return
+  }
+
+  const view = getActiveView()
+  if (!view) return
+  state.previewMermaid = view.mermaid || ''
+  populateEditor(view)
 }
 
 function updateActiveViewFromEditor() {
@@ -879,20 +1109,36 @@ newProjectBtn.addEventListener('click', () => {
 
 // ── Event Listeners ──────────────────────────────────────────────────────────
 
-els.saveWorkspaceBtn.addEventListener('click', () => {
-  void saveCurrentTab().catch(err => {
-    setWorkspaceStatus(err.message)
-    appendLog('Save Failed', err.message, 'error')
-  })
-})
-
 els.viewModeBtn.addEventListener('click', () => {
-  saveCurrentEditState()
+  discardCurrentEditState()
   setDiagramMode('view')
   renderWorkspace()
+  setWorkspaceStatus('Changes discarded.')
 })
 
 els.editModeBtn.addEventListener('click', () => {
+  if (state.diagramMode === 'edit') {
+    void (async () => {
+      if (state.activeTopTab === 'diagram') {
+        const valid = await validateCurrentMermaid()
+        if (!valid) {
+          updateActiveViewFromEditor()
+          renderWorkspace()
+          setWorkspaceStatus('Fix the Mermaid syntax error before saving.')
+          return
+        }
+      }
+
+      await saveCurrentTab()
+      setDiagramMode('view')
+      renderWorkspace()
+    })().catch(err => {
+      setWorkspaceStatus(err.message)
+      appendLog('Save Failed', err.message, 'error')
+    })
+    return
+  }
+
   setDiagramMode('edit')
   renderWorkspace()
   setWorkspaceStatus('Edit mode — make changes, then save.')
@@ -1020,6 +1266,9 @@ flowchart LR
 // ── Init ─────────────────────────────────────────────────────────────────────
 
 async function init() {
+  console.log('[delma] init started')
+  console.log('[delma] els check:', Object.entries(els).map(([k, v]) => `${k}:${v ? 'OK' : 'NULL'}`).join(', '))
+
   els.sdkStatus.textContent = 'Checking auth...'
   els.connectBtn.textContent = 'Open Workspace'
   els.input.disabled = true
@@ -1029,21 +1278,38 @@ async function init() {
   if (els.authUsername) els.authUsername.placeholder = 'Email'
   if (els.projectDir) els.projectDir.placeholder = 'Workspace name'
 
-  // Show default templates before auth
+  console.log('[delma] rendering default workspace...')
   renderWorkspace()
 
+  console.log('[delma] checking auth...')
   const user = await checkAuth()
+  console.log('[delma] auth result:', user ? `uid=${user.id}, email=${user.email}` : 'not logged in')
+
   if (user) {
+    console.log('[delma] loading orgs...')
     await loadOrgs()
+    console.log('[delma] orgs loaded:', state.orgs.length, state.orgs.map(o => o.name))
+    console.log('[delma] active org:', state.org?.name || 'none')
+
+    console.log('[delma] loading workspaces...')
     await loadWorkspaces()
+    console.log('[delma] workspaces loaded:', state.workspaces.length, state.workspaces.map(w => w.name))
+
+    console.log('[delma] rendering org selector...')
     renderOrgSelector()
+    console.log('[delma] rendering project selector...')
     renderProjectSelector()
+
     if (state.workspaces.length) {
+      console.log('[delma] opening workspace:', state.workspaces[0].name, state.workspaces[0].id)
       await openWorkspace(state.workspaces[0].id)
+      console.log('[delma] workspace opened. views:', state.views.length, 'memory:', Object.keys(state.memory).length, 'orgMemory:', Object.keys(state.orgMemory).length)
     } else {
+      console.log('[delma] no workspaces found')
       setWorkspaceStatus('Create a project to get started.')
     }
   }
+  console.log('[delma] init complete')
 }
 
-void init()
+void init().catch(err => console.error('[delma] INIT CRASHED:', err))
