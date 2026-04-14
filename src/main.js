@@ -38,6 +38,8 @@ mermaid.initialize({
 const state = {
   user: null,
   userRole: 'member',   // 'owner' or 'member' — determines edit access
+  org: null,             // { id, name, slug } — current organization
+  orgs: [],              // all orgs user belongs to
   workspaceId: null,
   workspaceName: '',
   workspaces: [],
@@ -173,21 +175,40 @@ async function logout() {
   renderWorkspace()
 }
 
+// ── Organization Loading ─────────────────────────────────────────────────────
+
+async function loadOrgs() {
+  if (!state.user) return
+  const { data } = await supabase
+    .from('org_members')
+    .select('org_id, role, organizations(id, name, slug)')
+    .eq('user_id', state.user.id)
+  state.orgs = (data || []).map(r => ({ ...r.organizations, orgRole: r.role }))
+  // Default to first org
+  if (state.orgs.length && !state.org) {
+    state.org = state.orgs[0]
+  }
+}
+
 // ── Workspace CRUD ───────────────────────────────────────────────────────────
 
 async function loadWorkspaces() {
   if (!state.user) return
   const { data } = await supabase
     .from('workspace_members')
-    .select('workspace_id, role, workspaces(id, name, created_at)')
+    .select('workspace_id, role, workspaces(id, name, created_at, org_id)')
     .eq('user_id', state.user.id)
-  state.workspaces = (data || []).map(r => ({ ...r.workspaces, role: r.role }))
+  // Filter to current org if one is selected
+  const all = (data || []).map(r => ({ ...r.workspaces, role: r.role }))
+  state.workspaces = state.org
+    ? all.filter(w => w.org_id === state.org.id)
+    : all
 }
 
 async function createWorkspace(name) {
   const { data: ws, error } = await supabase
     .from('workspaces')
-    .insert({ name, created_by: state.user.id })
+    .insert({ name, created_by: state.user.id, org_id: state.org?.id || null })
     .select()
     .single()
   if (error) throw new Error(error.message)
@@ -366,6 +387,16 @@ function decodeHtmlEntities(str) {
   return el.value
 }
 
+/**
+ * Strip Mermaid YAML frontmatter (---\nconfig:...\n---) from display.
+ * Mermaid itself reads this config, but it looks ugly rendered as text.
+ * We keep it in the source for Mermaid to parse, but strip it from
+ * any text-based display.
+ */
+function stripMermaidConfig(code) {
+  return code.replace(/^---\n[\s\S]*?\n---\n?/, '').trim()
+}
+
 // ── Tab Labels for Memory Files ──────────────────────────────────────────────
 
 const MEMORY_TAB_LABELS = {
@@ -466,7 +497,11 @@ async function renderMemoryDocument(filename) {
 function renderWorkspace() {
   renderViewTabs()
 
-  els.workspaceTitle.textContent = state.workspaceName || 'Delma Workspace'
+  // Show org name > workspace name in header
+  const orgLabel = state.org?.name ? `${state.org.name}` : ''
+  els.workspaceTitle.textContent = state.workspaceName
+    ? (orgLabel ? `${orgLabel} / ${state.workspaceName}` : state.workspaceName)
+    : (orgLabel || 'Delma Workspace')
   els.workspaceCopy.textContent = state.workspaceId
     ? 'Visual workspace for Claude Code. Diagrams and memory update live.'
     : 'Select or create a workspace to get started.'
@@ -730,6 +765,7 @@ els.authForm.addEventListener('submit', (e) => {
     els.authPassword.value = ''
     setWorkspaceStatus('Signed in.')
     appendLog('Signed In', 'Workspace and memory tools available.')
+    await loadOrgs()
     await loadWorkspaces()
     renderWorkspaceSelector()
     if (state.workspaces.length) {
@@ -793,6 +829,7 @@ async function init() {
 
   const user = await checkAuth()
   if (user) {
+    await loadOrgs()
     await loadWorkspaces()
     renderWorkspaceSelector()
     if (state.workspaces.length) {
