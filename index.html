@@ -35,6 +35,8 @@
     html, body {
       margin: 0;
       min-height: 100%;
+      max-width: 100vw;
+      overflow-x: hidden;
       background: var(--bg);
       color: var(--ink);
       font-family: var(--sans);
@@ -200,6 +202,8 @@
       overflow-x: auto;
       scrollbar-width: none;
       min-width: 0;
+      max-width: 100%;
+      -webkit-overflow-scrolling: touch;
     }
 
     .tab-bar::-webkit-scrollbar {
@@ -320,13 +324,17 @@
       background: var(--panel);
       padding: 24px;
       box-sizing: border-box;
-      overflow-wrap: break-word;
-      word-wrap: break-word;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      overflow-x: hidden;
       box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03), 0 4px 16px rgba(0, 0, 0, 0.02);
     }
 
     .documentation-shell {
       width: 100%;
+      max-width: 100%;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
 
     .markdown-body h1 { font-size: 22px; font-weight: 700; margin: 24px 0 8px; letter-spacing: -0.02em; }
@@ -335,10 +343,10 @@
     .markdown-body p { margin: 6px 0; }
     .markdown-body ul, .markdown-body ol { margin: 6px 0; padding-left: 20px; }
     .markdown-body li { margin: 3px 0; }
-    .markdown-body code { background: #f3f3f3; padding: 2px 5px; border-radius: 4px; font-size: 12px; }
-    .markdown-body pre { background: #f6f6f6; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 12px; margin: 8px 0; }
-    .markdown-body pre code { background: none; padding: 0; }
-    .markdown-body table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+    .markdown-body code { background: #f3f3f3; padding: 2px 5px; border-radius: 4px; font-size: 11px; word-break: break-all; }
+    .markdown-body pre { background: #f6f6f6; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 11px; margin: 8px 0; max-width: 100%; }
+    .markdown-body pre code { background: none; padding: 0; word-break: normal; }
+    .markdown-body table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 12px; display: block; overflow-x: auto; }
     .markdown-body th, .markdown-body td { border: 1px solid #e0e0e0; padding: 6px 10px; text-align: left; }
     .markdown-body th { background: #f6f6f6; font-weight: 600; }
     .markdown-body a { color: var(--accent); }
@@ -375,11 +383,11 @@
       font-size: 12px !important;
       color: var(--ink-secondary) !important;
     }
-    .markdown-body details { margin: 12px 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-    .markdown-body details summary { padding: 10px 14px; cursor: pointer; font-weight: 600; font-size: 13px; background: #f9f9f9; user-select: none; }
-    .markdown-body details summary:hover { background: #f0f0f0; }
+    .markdown-body details { margin: 12px 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; max-width: 100%; }
+    .markdown-body details summary { padding: 10px 14px; cursor: pointer; font-weight: 600; font-size: 12px; background: var(--bg); user-select: none; color: var(--ink-secondary); }
+    .markdown-body details summary:hover { background: var(--chrome); }
     .markdown-body details[open] summary { border-bottom: 1px solid var(--line); }
-    .markdown-body details > *:not(summary) { padding: 0 14px; }
+    .markdown-body details > *:not(summary) { padding: 0 14px; overflow-wrap: anywhere; }
     .markdown-body details > ul, .markdown-body details > p { padding: 4px 14px; }
 
     .diagram-editor {
@@ -738,17 +746,27 @@
       .meta-title { font-size: 18px; }
     }
 
+    /* Session log and markdown docs: tighter line length for readability */
+    .documentation-shell.markdown-body {
+      max-width: 580px;
+      margin: 0 auto;
+    }
+
     @media (max-width: 720px) {
       .tab-row, .diagram-stage, .workspace-footer {
         padding-left: 14px;
         padding-right: 14px;
       }
-      .tab-bar { gap: 6px; }
+      .tab-bar { gap: 5px; }
       .view-tab { padding: 6px 10px; font-size: 11px; }
-      .diagram-shell { border-radius: 12px; padding: 16px; }
+      .diagram-shell { border-radius: 12px; padding: 14px; max-width: 100%; }
       .diagram-stage { padding-top: 10px; padding-bottom: 14px; }
       .meta-copy { display: none; }
-      .workspace-footer { padding: 8px 14px; }
+      .workspace-footer {
+        padding: 8px 14px;
+        padding-bottom: max(8px, env(safe-area-inset-bottom));
+      }
+      .documentation-shell.markdown-body { max-width: 100%; }
       .auth-overlay { padding: 14px; }
       .auth-card { border-radius: 18px; padding: 20px; }
     }
@@ -758,6 +776,8 @@
       .header-select { font-size: 11px; min-width: 70px; }
       .meta-title { font-size: 16px; }
       .meta-provenance { font-size: 10px; }
+      .diagram-shell { padding: 10px; }
+      .workspace-header { flex-wrap: wrap; gap: 8px; }
 
       .tab-row {
         flex-direction: column;
