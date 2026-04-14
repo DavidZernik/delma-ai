@@ -147,15 +147,20 @@
     }
 
     .header-select {
-      padding: 7px 12px;
+      padding: 7px 28px 7px 14px;
       border-radius: 999px;
       border: 1px solid var(--line);
-      background: #fff;
+      background: var(--panel);
       font-size: 13px;
       font-weight: 600;
       color: var(--ink);
       cursor: pointer;
       min-width: 120px;
+      appearance: none;
+      -webkit-appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%231A1A1A'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
     }
 
     .header-select:focus {
@@ -331,9 +336,56 @@
       box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03), 0 4px 16px rgba(0, 0, 0, 0.02);
     }
 
-    /* Diagram SVG: never shrink below readable size */
-    .diagram-shell svg {
+    /* Diagram zoom container */
+    .diagram-zoom-wrapper {
+      overflow: auto;
+      -webkit-overflow-scrolling: touch;
+      position: relative;
+      cursor: grab;
+    }
+
+    .diagram-zoom-wrapper:active { cursor: grabbing; }
+
+    .diagram-zoom-wrapper svg {
       min-width: 550px;
+      transform-origin: top left;
+      transition: transform 150ms ease;
+    }
+
+    .diagram-zoom-controls {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      z-index: 5;
+    }
+
+    .zoom-btn {
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--ink);
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+      transition: background 120ms ease;
+    }
+
+    .zoom-btn:hover { background: var(--chrome); }
+
+    .zoom-level {
+      font-size: 10px;
+      text-align: center;
+      color: var(--muted);
+      padding: 2px 0;
     }
 
     .documentation-shell {

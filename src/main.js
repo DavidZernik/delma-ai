@@ -378,6 +378,21 @@ function getActiveView() {
   return state.views.find(v => v.view_key === state.activeViewKey) || state.views[0] || null
 }
 
+// ── Diagram Zoom State ──────────────────────────────────────────────────────
+
+let currentZoom = 1
+const ZOOM_MIN = 0.5
+const ZOOM_MAX = 2.0
+const ZOOM_STEP = 0.15
+
+function setZoom(level) {
+  currentZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, level))
+  const svg = document.querySelector('.diagram-zoom-wrapper svg')
+  const label = document.querySelector('.zoom-level')
+  if (svg) svg.style.transform = `scale(${currentZoom})`
+  if (label) label.textContent = `${Math.round(currentZoom * 100)}%`
+}
+
 async function renderDiagram(mermaidCode) {
   if (!mermaidCode?.trim()) {
     els.diagramOutput.className = 'diagram-empty'
@@ -388,7 +403,49 @@ async function renderDiagram(mermaidCode) {
     const renderId = `delma-diagram-${Date.now()}`
     const { svg } = await mermaid.render(renderId, mermaidCode)
     els.diagramOutput.className = ''
-    els.diagramOutput.innerHTML = svg
+
+    // Wrap SVG in zoom container with controls
+    currentZoom = 1
+    els.diagramOutput.innerHTML = `
+      <div class="diagram-zoom-wrapper">${svg}</div>
+      <div class="diagram-zoom-controls">
+        <button class="zoom-btn" data-zoom="in" title="Zoom in">+</button>
+        <div class="zoom-level">100%</div>
+        <button class="zoom-btn" data-zoom="out" title="Zoom out">&minus;</button>
+        <button class="zoom-btn" data-zoom="fit" title="Reset" style="font-size:11px;margin-top:2px;">Fit</button>
+      </div>
+    `
+
+    // Wire up zoom buttons
+    els.diagramOutput.querySelector('[data-zoom="in"]').addEventListener('click', () => setZoom(currentZoom + ZOOM_STEP))
+    els.diagramOutput.querySelector('[data-zoom="out"]').addEventListener('click', () => setZoom(currentZoom - ZOOM_STEP))
+    els.diagramOutput.querySelector('[data-zoom="fit"]').addEventListener('click', () => setZoom(1))
+
+    // Pinch-to-zoom on touch
+    const wrapper = els.diagramOutput.querySelector('.diagram-zoom-wrapper')
+    let lastPinchDist = 0
+    wrapper.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 2) {
+        lastPinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY)
+      }
+    }, { passive: true })
+    wrapper.addEventListener('touchmove', (e) => {
+      if (e.touches.length === 2) {
+        const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY)
+        const delta = (dist - lastPinchDist) * 0.005
+        setZoom(currentZoom + delta)
+        lastPinchDist = dist
+      }
+    }, { passive: true })
+
+    // Scroll-to-zoom with ctrl/cmd
+    wrapper.addEventListener('wheel', (e) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault()
+        setZoom(currentZoom - e.deltaY * 0.002)
+      }
+    }, { passive: false })
+
     return true
   } catch (error) {
     els.diagramOutput.className = 'diagram-error'
