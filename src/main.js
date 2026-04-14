@@ -88,6 +88,10 @@ const els = {
   saveViewBtn: document.getElementById('save-view-btn'),
   previewBtn: document.getElementById('preview-btn'),
   resetExampleBtn: document.getElementById('reset-example-btn'),
+  editStrip: document.getElementById('edit-strip'),
+  editStripInput: document.getElementById('edit-strip-input'),
+  editStripSave: document.getElementById('edit-strip-save'),
+  editStripHint: document.getElementById('edit-strip-hint'),
   viewTabs: document.getElementById('view-tabs'),
   historyList: document.getElementById('history-list'),
   memoryList: document.getElementById('memory-list'),
@@ -429,6 +433,14 @@ function setDiagramMode(mode) {
   els.editModeBtn.classList.toggle('active', mode === 'view')
   els.diagramOutput.hidden = mode === 'edit'
   els.diagramEditor.classList.toggle('visible', mode === 'edit')
+
+  // Show/hide edit strip
+  els.editStrip.hidden = mode !== 'edit'
+  if (mode === 'edit') {
+    els.editStripInput.value = ''
+    els.editStripHint.textContent = ''
+    els.editStripHint.classList.remove('visible')
+  }
 }
 
 // ── View Helpers ─────────────────────────────────────────────────────────────
@@ -785,14 +797,12 @@ function stripMermaidConfig(code) {
 
 // Project-level tab labels (workspace-scoped)
 const MEMORY_TAB_LABELS = {
-  'project-details.md': { title: 'Project Details', desc: 'Campaign-specific IDs, journeys, automations, CloudPages.' },
-  'logic.md': { title: 'Campaign Logic', desc: 'Business rules, routing, how the campaign works.' },
+  'environment.md': { title: 'Environment', desc: 'IDs, credentials, DEs, journeys, automations — everything in one place.' },
   'session-log.md': { title: 'Session Log', desc: 'Current status, what\'s done, what\'s needed.' }
 }
 
 // Org-level tab labels (shared across all projects)
 const ORG_TAB_LABELS = {
-  'sfmc-setup.md': { title: 'SFMC Setup', desc: 'API credentials, send config, shared DEs. Same across all campaigns.' },
   'people.md': { title: 'People', desc: 'Team members, roles, ownership. Same across all projects.' }
 }
 
@@ -1173,6 +1183,80 @@ newProjectBtn.addEventListener('click', () => {
   })().catch(err => setWorkspaceStatus(err.message))
 })
 
+// ── Natural Language Edit ─────────────────────────────────────────────────────
+// User describes a change in plain English. DeepSeek rewrites the content.
+
+async function applyNaturalLanguageEdit(instruction) {
+  if (!instruction?.trim()) return
+
+  const currentContent = els.diagramEditor.value
+  const isMarkdown = state.activeTopTab === 'memory' || state.activeTopTab === 'orgMemory'
+  const contentType = isMarkdown ? 'markdown' : 'mermaid'
+
+  setWorkspaceStatus('Applying change...')
+
+  const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY
+  if (!apiKey) {
+    setWorkspaceStatus('DeepSeek API key not configured.')
+    return
+  }
+
+  try {
+    const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: 'deepseek-chat',
+        max_tokens: 2000,
+        messages: [{
+          role: 'user',
+          content: `You are editing a ${contentType} document. Apply this change: "${instruction}"\n\nCurrent content:\n\`\`\`\n${currentContent}\n\`\`\`\n\nRespond with ONLY the complete updated content. No explanation, no code fences, no commentary. Just the raw ${contentType} that should replace the current content.`
+        }]
+      })
+    })
+
+    if (!res.ok) {
+      setWorkspaceStatus('Edit failed — try again or edit manually.')
+      return
+    }
+
+    const data = await res.json()
+    let updated = data.choices?.[0]?.message?.content?.trim()
+    if (!updated) {
+      setWorkspaceStatus('No response — try again.')
+      return
+    }
+
+    // Strip any code fences DeepSeek might add despite instructions
+    updated = updated.replace(/^```(?:mermaid|markdown|md)?\n?/, '').replace(/\n?```$/, '')
+
+    // Apply to editor
+    els.diagramEditor.value = updated
+    els.editStripInput.value = ''
+    setWorkspaceStatus('Change applied — review and save.')
+  } catch (err) {
+    setWorkspaceStatus(`Edit error: ${err.message}`)
+  }
+}
+
+els.editStripSave.addEventListener('click', () => {
+  void applyNaturalLanguageEdit(els.editStripInput.value)
+})
+
+els.editStripInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    void applyNaturalLanguageEdit(els.editStripInput.value)
+  }
+})
+
+// When user starts typing in the NL input, de-emphasize any hint
+els.editStripInput.addEventListener('input', () => {
+  if (els.editStripInput.value.trim()) {
+    els.editStripHint.classList.remove('visible')
+  }
+})
+
 // ── Event Listeners ──────────────────────────────────────────────────────────
 
 els.viewModeBtn.addEventListener('click', () => {
@@ -1445,66 +1529,40 @@ async function askDeepSeekForGap(content, tabTitle) {
   }
 }
 
-function removeExistingPrompt() {
-  document.querySelector('.delma-prompt')?.remove()
-}
-
 function showPrompt(question, tabKey) {
-  removeExistingPrompt()
+  // Surface the hint in the edit strip (if in edit mode) or as a gentle
+  // pre-diagram note (if in view mode). Either way, one hint, no stacking.
 
-  const container = els.diagramOutput.closest('.diagram-shell') || els.diagramOutput
-  const promptEl = document.createElement('div')
-  promptEl.className = 'delma-prompt'
-  promptEl.innerHTML = `
-    <button class="delma-prompt-dismiss" title="Dismiss">&times;</button>
-    <div class="delma-prompt-question">${escapeHtml(question)}</div>
-    <input class="delma-prompt-input" type="text" placeholder="Add detail..." />
-    <div class="delma-prompt-actions">
-      <button class="prompt-save">Save</button>
-    </div>
-  `
-
-  // Insert above the content, inside the shell
-  container.insertBefore(promptEl, container.firstChild)
-
-  // Phase 1: resolve into view after a brief pause (between thoughts)
-  setTimeout(() => promptEl.classList.add('visible'), 50)
-
-  const input = promptEl.querySelector('.delma-prompt-input')
-  const saveBtn = promptEl.querySelector('.prompt-save')
-  const dismissBtn = promptEl.querySelector('.delma-prompt-dismiss')
-
-  // Save: append answer, prompt disappears, document gets better
-  saveBtn.addEventListener('click', async () => {
-    const answer = input.value.trim()
-    if (!answer) return
-
-    const note = `\n\n**${question}**\n${answer}`
-
-    if (state.activeTopTab === 'orgMemory') {
-      state.orgMemory[state.activeMemoryFile] = (state.orgMemory[state.activeMemoryFile] || '') + note
-      const { data: existing } = await supabase.from('org_memory_notes').select('id, content').eq('org_id', state.org.id).eq('filename', state.activeMemoryFile).single()
-      if (existing) await supabase.from('org_memory_notes').update({ content: existing.content + note }).eq('id', existing.id)
-    } else if (state.activeTopTab === 'memory') {
-      state.memory[state.activeMemoryFile] = (state.memory[state.activeMemoryFile] || '') + note
-      const { data: existing } = await supabase.from('memory_notes').select('id, content').eq('workspace_id', state.workspaceId).eq('filename', state.activeMemoryFile).single()
-      if (existing) await supabase.from('memory_notes').update({ content: existing.content + note }).eq('id', existing.id)
-    }
-
-    // Dissolve — no confirmation, the change IS the confirmation
-    promptEl.classList.remove('visible')
+  if (state.diagramMode === 'edit' && els.editStrip && !els.editStrip.hidden) {
+    // Edit mode: show hint in the left side of the edit strip
+    els.editStripHint.textContent = `Missing: ${question}`
+    els.editStripHint.title = question
+    setTimeout(() => els.editStripHint.classList.add('visible'), 50)
+    // Hint fades out after 30 seconds if not interacted with
     setTimeout(() => {
-      promptEl.remove()
-      renderWorkspace()
-    }, 250)
-  })
+      els.editStripHint.classList.remove('visible')
+      dismissedTabs.add(tabKey)
+    }, 30000)
+  } else {
+    // View mode: show as a subtle pre-content note
+    const container = els.diagramOutput.closest('.diagram-shell') || els.diagramOutput
+    const existing = container.querySelector('.delma-prompt')
+    if (existing) existing.remove()
 
-  // Dismiss: fade out, remember for this tab this session
-  dismissBtn.addEventListener('click', () => {
-    dismissedTabs.add(tabKey)
-    promptEl.classList.remove('visible')
-    setTimeout(() => promptEl.remove(), 250)
-  })
+    const promptEl = document.createElement('div')
+    promptEl.className = 'delma-prompt'
+    promptEl.textContent = `Missing: ${question}`
+    promptEl.style.cursor = 'default'
+    container.insertBefore(promptEl, container.firstChild)
+    setTimeout(() => promptEl.classList.add('visible'), 50)
+
+    // Auto-dismiss after 20 seconds
+    setTimeout(() => {
+      promptEl.classList.remove('visible')
+      setTimeout(() => promptEl.remove(), 300)
+      dismissedTabs.add(tabKey)
+    }, 20000)
+  }
 }
 
 async function maybeShowPrompt() {
