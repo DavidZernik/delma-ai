@@ -23,6 +23,8 @@ config()
 import { z } from 'zod'
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
+import { writeFile } from 'fs/promises'
+import { resolve } from 'path'
 import {
   createWorkspace,
   listWorkspaces,
@@ -38,6 +40,39 @@ import {
   logMcpCall,
   composeClaudeMd
 } from './delma-state.js'
+import { generateClaudeMd } from './lib/summarizer.js'
+
+// ── Auto-summarizer ──────────────────────────────────────────────────────────
+// After every write, re-summarize the workspace and write CLAUDE.md locally.
+// This keeps the always-loaded context fresh without burning tokens on
+// full tab content every turn.
+
+async function refreshClaudeMd() {
+  if (!activeWorkspaceId || !activeUserId) return
+  try {
+    const [views, memory] = await Promise.all([
+      readDiagramViews(activeWorkspaceId, activeUserId),
+      readMemoryMap(activeWorkspaceId, activeUserId)
+    ])
+
+    // Get workspace and org names for the summary header
+    const ws = await getWorkspace(activeWorkspaceId)
+    let orgName = ''
+    if (ws.org_id) {
+      const { supabase } = await import('./lib/supabase.js')
+      const { data: org } = await supabase.from('organizations').select('name').eq('id', ws.org_id).single()
+      orgName = org?.name || ''
+    }
+
+    const claudeMd = await generateClaudeMd(views, memory, orgName, ws.name)
+
+    // Write to working directory so Claude Code auto-loads it
+    const cwd = process.env.DELMA_PROJECT_DIR || process.cwd()
+    await writeFile(resolve(cwd, 'CLAUDE.md'), claudeMd, 'utf-8')
+  } catch {
+    // best-effort — don't crash the MCP server if summarization fails
+  }
+}
 
 const server = new McpServer({ name: 'delma', version: '2.0.0' })
 
@@ -95,6 +130,7 @@ server.registerTool(
     if (workspaceId) {
       activeWorkspaceId = workspaceId
       const ws = await getWorkspace(workspaceId)
+      void refreshClaudeMd()  // summarize workspace on open
       return text({ ok: true, workspace: { id: ws.id, name: ws.name } })
     }
 
@@ -104,11 +140,13 @@ server.registerTool(
       const found = all.find(w => w.name.toLowerCase() === name.toLowerCase())
       if (found) {
         activeWorkspaceId = found.id
+        void refreshClaudeMd()  // summarize workspace on open
         return text({ ok: true, workspace: { id: found.id, name: found.name } })
       }
       // Create
       const ws = await createWorkspace(name, activeUserId)
       activeWorkspaceId = ws.id
+      void refreshClaudeMd()  // summarize new workspace
       return text({ ok: true, created: true, workspace: { id: ws.id, name: ws.name } })
     }
 
@@ -197,6 +235,7 @@ server.registerTool(
     if (summary !== undefined) updates.summary = summary
     if (mermaid !== undefined) updates.mermaid = mermaid
     const view = await saveDiagramView(workspaceId, viewKey, updates, userId, reason)
+    void refreshClaudeMd()  // async — don't block the response
     return text({ ok: true, view })
   })
 )
@@ -235,6 +274,7 @@ server.registerTool(
     }
 
     await appendMemoryNote(workspaceId, file, note, heading, userId)
+    void refreshClaudeMd()  // async — don't block the response
     return text({ ok: true, file })
   })
 )
