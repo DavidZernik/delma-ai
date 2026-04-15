@@ -668,38 +668,17 @@
     }
 
     /* ── Change flash on view content ────────────────────────────── */
-    /* Strong red wash that fades slowly — very visible, clear "something updated" signal. */
-    .diagram-updated-flash {
-      position: relative;
-      animation: view-flash 4s ease-out;
+    /* Applied to the inner content container (.diagram-zoom-canvas for   */
+    /* diagrams, .markdown-body for prose) so the red wash lands ON the   */
+    /* content itself, not around it.                                     */
+    .content-updated-flash {
+      animation: content-flash 4s ease-out;
     }
 
-    .diagram-updated-flash::before {
-      content: '';
-      position: absolute;
-      inset: 0;
-      background: rgba(143, 0, 0, 0.18);
-      border-radius: inherit;
-      pointer-events: none;
-      animation: view-flash-bg 4s ease-out;
-      z-index: 0;
-    }
-
-    .diagram-updated-flash > * {
-      position: relative;
-      z-index: 1;
-    }
-
-    @keyframes view-flash {
-      0%   { box-shadow: inset 0 0 0 4px rgba(143, 0, 0, 0.55); }
-      30%  { box-shadow: inset 0 0 0 4px rgba(143, 0, 0, 0.45); }
-      100% { box-shadow: inset 0 0 0 4px transparent; }
-    }
-
-    @keyframes view-flash-bg {
-      0%   { background: rgba(143, 0, 0, 0.18); }
-      30%  { background: rgba(143, 0, 0, 0.14); }
-      100% { background: rgba(143, 0, 0, 0); }
+    @keyframes content-flash {
+      0%   { background-color: rgba(143, 0, 0, 0.22); }
+      15%  { background-color: rgba(143, 0, 0, 0.22); }
+      100% { background-color: rgba(143, 0, 0, 0); }
     }
 
     /* ── Change highlight in editor ───────────────────────────────── */

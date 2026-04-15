@@ -379,6 +379,16 @@ function isCurrentTab(tabKey) {
   return false
 }
 
+// Flash the actual content container (inside the SVG for diagrams,
+// on the markdown body for prose) so the red wash lands on the content.
+function flashContentUpdate() {
+  const canvas = els.diagramOutput.querySelector('.diagram-zoom-canvas')
+  const target = canvas || els.diagramOutput
+  target.classList.add('content-updated-flash')
+  console.log('[delma flash] applied to', canvas ? '.diagram-zoom-canvas' : 'diagramOutput')
+  setTimeout(() => target.classList.remove('content-updated-flash'), 4100)
+}
+
 function handleRealtimeChange(table, payload) {
   const record = payload.new || payload.old || {}
   const tabKey = getTabKeyForChange(table, record)
@@ -399,8 +409,7 @@ function handleRealtimeChange(table, payload) {
       requestAnimationFrame(() => {
         els.diagramOutput.style.transition = 'opacity 400ms ease'
         els.diagramOutput.style.opacity = '1'
-        els.diagramOutput.classList.add('diagram-updated-flash')
-        setTimeout(() => els.diagramOutput.classList.remove('diagram-updated-flash'), 4100)
+        flashContentUpdate()
         console.log('[delma realtime] view refreshed with flash')
       })
     }).catch(err => {
@@ -552,8 +561,7 @@ function renderActionBlock(question, modeClass, onApply) {
       requestAnimationFrame(() => {
         els.diagramOutput.style.transition = 'opacity 400ms ease'
         els.diagramOutput.style.opacity = '1'
-        els.diagramOutput.classList.add('diagram-updated-flash')
-        setTimeout(() => els.diagramOutput.classList.remove('diagram-updated-flash'), 4100)
+        flashContentUpdate()
         console.log('[delma apply] view rendered with flash, content visible')
       })
       setWorkspaceStatus('Updated.')
