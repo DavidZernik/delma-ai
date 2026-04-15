@@ -930,6 +930,63 @@
       border: 1px solid var(--line);
     }
 
+    /* ── Empty state for new orgs / no-project workspaces ──────────── */
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      min-height: 360px;
+      padding: 64px 32px;
+      gap: 16px;
+    }
+    .empty-state-icon {
+      font-size: 48px;
+      opacity: 0.7;
+    }
+    .empty-state-title {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--ink);
+      letter-spacing: -0.02em;
+    }
+    .empty-state-sub {
+      font-size: 14px;
+      color: var(--muted);
+      line-height: 1.5;
+      max-width: 420px;
+      margin-bottom: 8px;
+    }
+    .empty-state-cta {
+      padding: 12px 28px;
+      border: none;
+      border-radius: 999px;
+      background: var(--accent);
+      color: var(--accent-ink);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 140ms ease, transform 100ms ease;
+    }
+    .empty-state-cta:hover {
+      background: var(--accent-hover);
+    }
+    .empty-state-cta:active { transform: scale(0.97); }
+    .empty-state-input {
+      padding: 12px 18px;
+      border: 2px solid var(--accent);
+      border-radius: 999px;
+      background: #FFFFFF;
+      font: inherit;
+      font-size: 14px;
+      color: var(--ink);
+      outline: none;
+      width: 320px;
+      max-width: 90%;
+      text-align: center;
+    }
+
     /* ── Diagram walkthrough — plain-english explanation ─────────── */
     .diagram-walkthrough {
       margin-top: 20px;

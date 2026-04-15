@@ -1570,14 +1570,23 @@ function renderWorkspace() {
   }
 
   // Diagram tab
-  // Empty-org case: no workspace, show clear empty state instead of stale data
+  // Empty-org case: no workspace, show prominent CTA to create the first project
   if (!state.workspaceId) {
-    els.viewTitle.textContent = state.org?.name || ''
-    els.viewDescription.textContent = 'No projects yet. Use the project dropdown to create one.'
+    els.viewTitle.textContent = `Welcome to ${state.org?.name || 'your workspace'}`
+    els.viewDescription.textContent = 'No projects yet. Get started by creating one.'
     els.viewProvenance.textContent = ''
     els.modeToggle.hidden = true
     els.diagramOutput.className = ''
-    els.diagramOutput.innerHTML = `<div class="diagram-card markdown-body"><p style="color:var(--muted)">Create your first project to start populating tabs.</p></div>`
+    els.diagramOutput.innerHTML = `
+      <div class="diagram-card empty-state">
+        <div class="empty-state-icon">📁</div>
+        <div class="empty-state-title">Create your first project</div>
+        <div class="empty-state-sub">Projects hold your architecture, decisions, and configuration.<br/>Each project is its own workspace.</div>
+        <button id="empty-create-project-btn" class="empty-state-cta">+ Create project</button>
+      </div>
+    `
+    const btn = document.getElementById('empty-create-project-btn')
+    if (btn) btn.addEventListener('click', () => showInlineCreateProject(btn))
     revealDiagramOutput()
     return
   }
@@ -1930,12 +1939,46 @@ function renderProjectSelector() {
     placeholder: 'No projects',
     newLabel: '+ New project…',
     onSelect: async (wsId) => { await openWorkspace(wsId) },
-    onCreate: async (name) => {
-      const ws = await createWorkspace(name)
-      state.workspaces.push({ ...ws, role: 'owner' })
-      renderProjectSelector()
-      await openWorkspace(ws.id)
-      setWorkspaceStatus(`Created "${ws.name}".`)
+    onCreate: createProjectFromName
+  })
+}
+
+// Reusable project creation — used by the dropdown AND the empty-state CTA.
+async function createProjectFromName(name) {
+  const ws = await createWorkspace(name)
+  state.workspaces.push({ ...ws, role: 'owner' })
+  renderProjectSelector()
+  await openWorkspace(ws.id)
+  setWorkspaceStatus(`Created "${ws.name}".`)
+}
+
+// Inline name input shown in the empty-state CTA. Replaces the button with
+// a prompt-style input the user types into.
+function showInlineCreateProject(originalBtn) {
+  const wrap = originalBtn.parentElement
+  const input = document.createElement('input')
+  input.type = 'text'
+  input.className = 'empty-state-input'
+  input.placeholder = 'Project name (e.g. Birthday Campaign)'
+  originalBtn.replaceWith(input)
+  input.focus()
+
+  const submit = async () => {
+    const name = input.value.trim()
+    if (!name) return
+    input.disabled = true
+    try {
+      await createProjectFromName(name)
+    } catch (err) {
+      setWorkspaceStatus(err.message)
+      input.disabled = false
+    }
+  }
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); submit() }
+    if (e.key === 'Escape') {
+      input.replaceWith(originalBtn)
+      originalBtn.addEventListener('click', () => showInlineCreateProject(originalBtn), { once: true })
     }
   })
 }
