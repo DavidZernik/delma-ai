@@ -126,7 +126,26 @@ app.post('/api/create-org', async (req, res) => {
       .insert({ org_id: org.id, user_id: userId, role: 'admin' })
     if (memberErr) throw new Error(memberErr.message)
 
-    console.log('[server] org created:', org.id)
+    // Seed default org-level tabs (People + Playbook) so the new org has
+    // its full tab set immediately.
+    await sb.from('org_memory_notes').insert([
+      {
+        org_id: org.id,
+        filename: 'people.md',
+        content: '# People\n\nTeam members, roles, ownership.\n',
+        permission: 'edit-all',
+        owner_id: userId
+      },
+      {
+        org_id: org.id,
+        filename: 'playbook.md',
+        content: '# General Patterns and Docs\n\nHow work happens here. Processes, approval paths, unwritten rules, timing gotchas.\n',
+        permission: 'edit-all',
+        owner_id: userId
+      }
+    ])
+
+    console.log('[server] org created with People + Playbook seeded:', org.id)
     res.json({ ok: true, org })
   } catch (err) {
     console.error('[server] create-org failed:', err.message)

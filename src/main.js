@@ -262,16 +262,25 @@ async function createWorkspace(name) {
     })
   }
 
-  // Seed default memory
+  // Seed default memory tabs (current vocabulary only):
+  //   environment.md → "Files Locations and Keys"
+  //   decisions.md   → "Project Details"
+  // (people.md + playbook.md live at the org level, my-notes.md is global per-user)
   const memDefaults = {
-    'environment.md': { content: '# Environment\n\nTech stack, infrastructure, key identifiers.\n', visibility: 'shared' },
-    'logic.md': { content: '# Logic\n\nBusiness logic, architecture decisions.\n', visibility: 'shared' },
-    'people.md': { content: '# People\n\nOwnership, stakeholders, tribal knowledge.\n', visibility: 'shared' },
-    'session-log.md': { content: '# Session Log\n', visibility: 'private' }
+    'environment.md': {
+      content: '# Files Locations and Keys\n\nSFMC Business Unit, MIDs, Data Extensions, Journeys, Automations, CloudPages, and other project-specific IDs.\n',
+      visibility: 'shared',
+      permission: 'view-admins'
+    },
+    'decisions.md': {
+      content: '# Project Details\n\n## Decisions\n- _What\'s been decided._\n\n## Actions\n- _What needs to happen next._\n',
+      visibility: 'shared',
+      permission: 'edit-all'
+    }
   }
-  for (const [filename, { content, visibility }] of Object.entries(memDefaults)) {
+  for (const [filename, { content, visibility, permission }] of Object.entries(memDefaults)) {
     await supabase.from('memory_notes').insert({
-      workspace_id: ws.id, filename, content, visibility, owner_id: state.user.id
+      workspace_id: ws.id, filename, content, visibility, permission, owner_id: state.user.id
     })
   }
 

@@ -900,20 +900,24 @@
       box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
     }
 
-    /* Avatar placeholder — small outlined circle INLINE next to the name,
-       not stacked above. Same dimensions as the photo so layout doesn't
-       shift when a photo replaces it. */
+    /* Avatar placeholder — dashed circle inline next to the name. Reads as
+       'drop a photo here'. Same dimensions as a photo so no layout shift. */
     .avatar-placeholder,
     .mermaid-inline .avatar-placeholder,
     .diagram-zoom-canvas .avatar-placeholder {
       display: inline-block;
       vertical-align: middle;
-      width: 22px;
-      height: 22px;
-      border: 1.5px solid var(--line);
+      width: 36px;
+      height: 36px;
+      border: 2px dashed var(--line);
       border-radius: 50%;
-      margin: 0 6px 0 0;
+      margin: 0 8px 0 0;
       background: transparent;
+    }
+    /* Inline (in markdown body) — slightly smaller for the People tab list */
+    .markdown-body .avatar-placeholder {
+      width: 32px;
+      height: 32px;
     }
 
     /* Photo inside a Mermaid node — replaces the placeholder when dropped.
