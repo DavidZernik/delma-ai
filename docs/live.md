@@ -26,9 +26,12 @@ Claude Code  -->  Delma MCP Server  -->  Supabase (Postgres + Realtime)
                                          Delma Web App
                                      (Supabase Realtime subscriptions)
                                               |
-                                         DeepSeek API
-                                     (NL editing, proactive questions,
-                                      conversation sync patches)
+                              ┌───────────────┴───────────────┐
+                              |                               |
+                         DeepSeek API                  Claude Haiku 4.5
+                    (markdown patches,              (Mermaid diagram
+                     proactive gaps,                 structural edits,
+                     sync conversation)              via /api/chat proxy)
 ```
 
 Both Claude (via MCP) and the user (via web app) write to the same
@@ -213,17 +216,34 @@ full detail at session start, summary for persistence.
 ### Natural Language Editing
 
 Users can edit any tab using plain English. Type a description of the
-change, press Apply, and DeepSeek rewrites the content using a JSON
-patch format (fast — only outputs the diff, not the full document).
+change, press Apply, and an LLM rewrites the content.
 
-Flow: Apply → loading dots (three pulsing red dots in the action slot)
-→ DeepSeek returns JSON patches ({find, replace} format for speed)
+**Model routing by content type:**
+
+| Tab type | Model | Format | Why |
+|----------|-------|--------|-----|
+| Markdown (People, Environment, Session Log) | DeepSeek-V3 | JSON patches `{find, replace}` | Fast, cheap (~$0.0004/edit). Prose updates don't need structural reasoning. |
+| Mermaid diagram (Architecture) | Claude Haiku 4.5 | Full rewrite | Handles node removal + edge redirection + orphan cleanup holistically. ~$0.003/edit. |
+
+**Haiku system prompt** (for diagrams) explicitly tells the model:
+- If a node is removed, remove all edges to/from it
+- If a role is merged into another, redirect edges to the consolidated node
+- Remove orphaned nodes
+- Preserve existing style (flowchart TD vs LR, node shapes)
+
+**Flow**: Apply → loading dots (three pulsing red dots in the action slot)
+→ model returns updated content (patches or full rewrite)
 → editor highlights changed lines with red tint (1.5s pause)
 → auto-saves to Supabase → switches to view mode
 → content fades in with red border flash.
 
 Enter/Return key triggers Apply. Both proactive question answers
-and manual NL edits follow the same flow.
+and manual NL edits follow the same routing logic.
+
+**API proxy**: Claude Haiku calls go through `/api/chat` (server-side)
+so the `ANTHROPIC_API_KEY` stays off the client. DeepSeek calls go
+direct from the client using `VITE_DEEPSEEK_API_KEY` (acceptable risk
+for a cheap model with per-minute rate limits).
 
 ### Proactive Questions
 
@@ -296,7 +316,9 @@ Console logs with prefixes trace every operation:
 | `[delma refresh]` | Frontend | Supabase fetch timing + error checking |
 | `[delma prompt]` | Frontend | Proactive engine ticks, questions, dismissals |
 | `[delma gap]` | Frontend | DeepSeek gap analysis (timing + responses) |
-| `[delma patch]` | Frontend | Patch-based editing (timing + patch details) |
+| `[delma patch]` | Frontend | DeepSeek patch-based editing (markdown tabs) |
+| `[delma haiku]` | Frontend | Claude Haiku full-rewrite editing (diagrams) |
+| `[delma edit]` | Frontend | Edit routing (which model was chosen) |
 | `[mcp]` | Server | All MCP tool calls with timing |
 | `[mcp sync]` | Server | Conversation sync patches |
 | `[delma-state]` | Server | Supabase CRUD operations + errors |
