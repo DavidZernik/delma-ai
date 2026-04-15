@@ -358,10 +358,47 @@ async function refreshWorkspace() {
     state.activeViewKey = state.views[0]?.view_key || null
   }
 
+  // Load global My Notes (per-user, follows across orgs/projects).
+  // Falls back gracefully if the user_notes table isn't migrated yet.
+  await loadGlobalNotes()
+
   const active = getActiveView()
   state.previewMermaid = active?.mermaid || ''
   console.log('[delma refresh] done in', Math.round(performance.now() - t0), 'ms | views:', state.views.length, 'memory:', Object.keys(state.memory).length, 'orgMemory:', Object.keys(state.orgMemory).length, 'activeView:', active?.view_key, 'mermaidLen:', state.previewMermaid.length)
   renderWorkspace()
+}
+
+// ── Global My Notes (per-user, not per-project) ─────────────────────────────
+async function loadGlobalNotes() {
+  if (!state.user) { state.globalNotes = ''; return }
+  const { data, error } = await supabase
+    .from('user_notes')
+    .select('content')
+    .eq('user_id', state.user.id)
+    .maybeSingle()
+  if (error) {
+    console.warn('[delma notes] user_notes table not ready:', error.message)
+    state.globalNotes = ''
+    state.globalNotesUnavailable = true
+    return
+  }
+  state.globalNotes = data?.content || ''
+  state.globalNotesUnavailable = false
+  console.log('[delma notes] loaded global notes,', state.globalNotes.length, 'chars')
+}
+
+async function saveGlobalNotes(content) {
+  if (!state.user) return
+  console.log('[delma notes] saving global notes,', content.length, 'chars')
+  const { error } = await supabase
+    .from('user_notes')
+    .upsert({ user_id: state.user.id, content, updated_at: new Date().toISOString() })
+  if (error) {
+    console.error('[delma notes] save failed:', error.message)
+    setWorkspaceStatus(`Couldn't save notes: ${error.message}`)
+    return
+  }
+  state.globalNotes = content
 }
 
 // ── Supabase Realtime ────────────────────────────────────────────────────────
@@ -1103,8 +1140,8 @@ function stripMermaidConfig(code) {
 const MEMORY_TAB_LABELS = {
   // Order here = order in the tab bar (right of Project High Level diagram tab)
   'decisions.md': { title: 'Project Details', desc: 'Decisions made + actions needed. Outline form.' },
-  'environment.md': { title: 'Files Locations and Keys', desc: 'IDs, credentials, DEs, journeys, automations — everything in one place.' },
-  'my-notes.md': { title: 'My Notes', desc: 'Personal scratchpad — only you see this.' }
+  'environment.md': { title: 'Files Locations and Keys', desc: 'IDs, credentials, DEs, journeys, automations — everything in one place.' }
+  // my-notes.md removed — now lives in user_notes table (global per user, not per project)
 }
 
 // Org-level tab labels (shared across all projects)
@@ -1196,6 +1233,24 @@ function renderViewTabs() {
       tabsWithUpdates.delete(memTabKey)
       state.activeTopTab = 'memory'
       state.activeMemoryFile = filename
+      renderWorkspace()
+    })
+    els.viewTabs.appendChild(btn)
+  }
+
+  // ── Global My Notes — separator + tab on the far right ─────────────
+  if (state.user) {
+    const sep2 = document.createElement('span')
+    sep2.style.cssText = 'width:1px;height:20px;background:rgba(0,0,0,0.12);flex-shrink:0;'
+    els.viewTabs.appendChild(sep2)
+
+    const isActive = state.activeTopTab === 'myNotes'
+    const btn = document.createElement('button')
+    btn.className = `view-tab${isActive ? ' active' : ''}`
+    btn.innerHTML = `<div class="view-tab-title">My Notes</div>`
+    btn.addEventListener('click', () => {
+      saveCurrentEditState()
+      state.activeTopTab = 'myNotes'
       renderWorkspace()
     })
     els.viewTabs.appendChild(btn)
@@ -1330,6 +1385,46 @@ function wirePhotoDropZone(zone, filename, isOrg, row) {
   })
 }
 
+// Render the global My Notes (per-user). Stored in user_notes table —
+// follows the user across all orgs and projects.
+async function renderGlobalMyNotes() {
+  els.viewTitle.textContent = 'My Notes'
+  els.viewDescription.textContent = 'Personal scratchpad — only you see this. Follows you across all orgs and projects.'
+  els.viewProvenance.textContent = ''
+  els.resetExampleBtn.hidden = true
+  els.modeToggle.hidden = false
+
+  if (state.globalNotesUnavailable) {
+    els.diagramOutput.hidden = false
+    els.diagramEditor.classList.remove('visible')
+    els.diagramOutput.className = ''
+    els.diagramOutput.innerHTML = `
+      <div class="diagram-card markdown-body">
+        <p>Your notes table isn't ready yet. Run the migration in your Supabase SQL editor to enable My Notes:</p>
+        <pre>supabase/migrations/006_user_notes.sql</pre>
+      </div>
+    `
+    return
+  }
+
+  const content = state.globalNotes || ''
+  if (state.diagramMode === 'edit') {
+    els.diagramOutput.hidden = true
+    els.diagramEditor.classList.add('visible')
+    els.diagramEditor.value = content
+    setDiagramMode('edit')
+  } else {
+    els.diagramOutput.hidden = false
+    els.diagramEditor.classList.remove('visible')
+    els.diagramOutput.className = ''
+    els.diagramOutput.innerHTML = `<div class="diagram-card markdown-body"><div class="markdown-content"></div></div>`
+    const card = els.diagramOutput.querySelector('.diagram-card')
+    const contentEl = card.querySelector('.markdown-content')
+    await renderMarkdownWithMermaid(contentEl, content.trim() || '_(empty — click Edit to add notes)_')
+    setDiagramMode('view')
+  }
+}
+
 async function renderMemoryDocument(filename, isOrg = false) {
   const content = isOrg ? (state.orgMemory[filename] || '') : (state.memory[filename] || '')
   const label = (isOrg ? ORG_TAB_LABELS[filename] : MEMORY_TAB_LABELS[filename]) || { title: filename, desc: '' }
@@ -1453,6 +1548,12 @@ function renderWorkspace() {
   // Hide before ANY render so we never see the old content swap to new.
   hideDiagramOutput()
 
+  // Global My Notes (per-user, follows across orgs/projects)
+  if (state.activeTopTab === 'myNotes') {
+    void renderGlobalMyNotes().then(revealDiagramOutput)
+    return
+  }
+
   // Org memory tab (People, Playbook)
   if (state.activeTopTab === 'orgMemory') {
     void renderMemoryDocument(state.activeMemoryFile, true).then(revealDiagramOutput)
@@ -1558,6 +1659,13 @@ function triggerClaudeMdRefresh() {
 }
 
 async function saveCurrentTab() {
+  // Global My Notes (no workspace required — follows the user)
+  if (state.activeTopTab === 'myNotes') {
+    console.log('[delma save] saving global my notes')
+    await saveGlobalNotes(els.diagramEditor.value)
+    setWorkspaceStatus('Notes saved.')
+    return
+  }
   if (!state.workspaceId) return
   console.log('[delma save] saving tab:', state.activeTopTab, state.activeMemoryFile || state.activeViewKey)
 
