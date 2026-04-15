@@ -338,20 +338,18 @@
       background: var(--bg);
     }
 
+    /* No outer card — content sits directly on the cream page background.
+       Individual blocks (prose, diagram) are their own white cards. */
     .diagram-shell {
       width: 100%;
       max-width: 780px;
-      min-height: 400px; /* consistent card height across all tabs so switching doesn't jump */
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      background: var(--panel);
-      padding: 24px;
+      min-height: 400px;
+      background: transparent;
+      border: none;
+      padding: 0;
       box-sizing: border-box;
       overflow-wrap: anywhere;
       word-break: break-word;
-      overflow-x: auto;
-      -webkit-overflow-scrolling: touch;
-      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03), 0 4px 16px rgba(0, 0, 0, 0.02);
     }
 
     /* Normalize first/last child margins inside the content area so every
@@ -362,7 +360,7 @@
     #diagram-output.markdown-body > h1:first-child,
     #diagram-output.markdown-body > h2:first-child { margin-top: 0; }
 
-    /* Diagram zoom container — tall enough to show meaningful content */
+    /* Diagram is its own white card sitting directly on cream. */
     .diagram-zoom-wrapper {
       overflow: auto;
       -webkit-overflow-scrolling: touch;
@@ -372,6 +370,11 @@
       user-select: none;
       min-height: 350px;
       max-height: 60vh;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 16px;
+      box-sizing: border-box;
     }
 
     .diagram-zoom-wrapper.dragging { cursor: grabbing; }
@@ -575,23 +578,22 @@
       opacity: 1;
     }
 
-    /* View mode: white card with a confident red left stripe. Soft rose tint
-       only appears BRIEFLY on fade-in (see .action-slot-inner.just-appeared). */
+    /* View mode: white card, thin red left stripe. Documentation feel. */
     .action-slot-inner.mode-view {
       background: var(--panel);
-      border: 1px solid var(--line);
-      border-left: 3px solid var(--accent);
-      border-radius: 8px;
+      border-left: 2px solid var(--accent);
+      border-radius: 6px;
       padding: 14px 18px 12px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
     }
 
-    /* Edit mode: subtle cream tint so it reads as "thinking space" without
-       being a dominant color. Input itself stays white for actionable feel. */
+    /* Edit mode: white card too — input stays white and actionable. */
     .action-slot-inner.mode-edit {
-      background: var(--panel-soft);
-      border: 1px solid var(--line);
-      border-radius: 10px;
+      background: var(--panel);
+      border-left: 2px solid var(--accent);
+      border-radius: 6px;
       padding: 14px 18px 12px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
     }
 
     .action-slot-label {
@@ -695,15 +697,16 @@
     }
 
     /* ── Inline prose around the diagram (above + below the SVG) ──── */
+    /* White card, thin dark red left border, red title. Documentation feel. */
     .diagram-prose {
       font-size: 14px;
       line-height: 1.55;
       color: var(--ink);
       padding: 16px 20px;
       background: var(--panel);
-      border: 1px solid var(--line);
-      border-left: 3px solid var(--accent);
-      border-radius: 8px;
+      border-left: 2px solid var(--accent);
+      border-radius: 6px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
     }
     .diagram-prose.above { margin-bottom: 18px; }
     .diagram-prose.below { margin-top: 18px; }
@@ -713,14 +716,15 @@
     .diagram-prose strong { font-weight: 600; }
     .diagram-prose ul, .diagram-prose ol { margin: 8px 0; padding-left: 20px; }
 
-    /* ── Diagram walkthrough — plain-english explanation below SVG ── */
+    /* ── Diagram walkthrough — plain-english explanation ─────────── */
+    /* White card, thin dark red left border, red title. */
     .diagram-walkthrough {
       margin-top: 20px;
       padding: 18px 20px;
       background: var(--panel);
-      border: 1px solid var(--line);
-      border-left: 3px solid var(--accent);
-      border-radius: 8px;
+      border-left: 2px solid var(--accent);
+      border-radius: 6px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
     }
 
     .walkthrough-label {
