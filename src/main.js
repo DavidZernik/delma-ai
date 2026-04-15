@@ -835,6 +835,21 @@ async function renderDiagram(mermaidCode) {
     els.diagramOutput.textContent = 'This view does not have Mermaid content yet.'
     return true
   }
+
+  // NEW FORMAT: if the content is markdown-with-inline-mermaid (starts with
+  // "#" heading or contains a ```mermaid fence), render like other markdown
+  // tabs. Prose + diagram live in ONE editable document. No zoom controls.
+  const isMarkdownFormat = /^(?:\s*---\n[\s\S]*?\n---\s*)?\s*(#|```mermaid)/.test(mermaidCode)
+  if (isMarkdownFormat) {
+    console.log('[delma render] diagram is markdown-with-inline-mermaid, rendering as markdown')
+    els.diagramOutput.className = 'documentation-shell markdown-body'
+    els.diagramOutput.style.opacity = '1'
+    await renderMarkdownWithMermaid(els.diagramOutput, mermaidCode)
+    return true
+  }
+
+  // LEGACY FORMAT: pure Mermaid (backward compat). Render with zoom controls.
+  console.log('[delma render] diagram is pure Mermaid, using zoom renderer')
   try {
     const renderId = `delma-diagram-${Date.now()}`
     const normalizedCode = normalizeMermaidForRender(mermaidCode)
@@ -842,15 +857,8 @@ async function renderDiagram(mermaidCode) {
     els.diagramOutput.className = ''
     els.diagramOutput.style.opacity = '0'
 
-    // Plain-english walkthrough goes ABOVE the diagram — read it first, then look.
     currentZoom = 1
-    const view = getActiveView()
-    const walkthrough = view?.summary?.trim()
     els.diagramOutput.innerHTML = `
-      <div class="diagram-walkthrough" ${walkthrough ? '' : 'hidden'}>
-        <div class="walkthrough-label">How it works</div>
-        <div class="walkthrough-body markdown-body">${walkthrough ? marked.parse(walkthrough) : ''}</div>
-      </div>
       <div class="diagram-zoom-wrapper">
         <div class="diagram-zoom-canvas">${svg}</div>
       </div>
@@ -1156,14 +1164,6 @@ function renderWorkspace() {
     console.log('[delma render] view mode render, mermaidLen:', mermaidCode.length, 'first60:', mermaidCode.substring(0, 60))
     els.diagramOutput.className = ''
     void renderDiagram(mermaidCode)
-
-    // If this diagram has no walkthrough yet, generate one now (first-load case)
-    if (mermaidCode.trim() && !view.summary?.trim() && view.id) {
-      console.log('[delma render] no walkthrough yet, generating for', view.title)
-      regenerateWalkthrough(view.id, mermaidCode, view.title).catch(err =>
-        console.error('[delma render] walkthrough gen failed:', err)
-      )
-    }
   }
 }
 
@@ -1419,14 +1419,14 @@ async function routeAndPatchFact(input, questionContext = null) {
   // Build snapshot of all tabs with their content + metadata
   const tabs = []
 
-  // Diagrams
+  // Diagrams — stored as markdown-with-inline-mermaid
   for (const v of state.views) {
     if (!v.mermaid) continue
     tabs.push({
       key: `diagram:${v.view_key}`,
-      type: 'mermaid',
+      type: 'markdown-with-mermaid',
       title: v.title,
-      scope: 'System architecture — automations, DEs, SQL, journeys, emails, cloudpages, decision splits. NOT people or roles.',
+      scope: 'Architecture document — plain-english prose explaining how the system works, PLUS an inline Mermaid diagram in a ```mermaid fence. Scope: automations, DEs, SQL, journeys, emails, cloudpages, decision splits. NOT people or roles.',
       content: v.mermaid,
       id: v.id,
       table: 'diagram_views'
@@ -1502,16 +1502,23 @@ Rules:
 - If the input replaces existing info on a tab (e.g. "Keyona IS the PM, there is no separate PM"), remove the stale info rather than duplicating.
 - If the input doesn't belong on any tab, return [].
 
-MERMAID DIAGRAM RULES:
-- If you remove a node, also remove its edges. Reroute edges to consolidated nodes as needed.
-- **EVERY node label MUST include a short plain-english description** as its last line, prefixed with "— " (em-dash + space). This helps non-technical readers understand what each node does.
-- Example node label (multi-line):
-    Auto["Automation
-    Birthday_Daily_Send_Refresh
-    5 AM CT daily
-    — kicks off every morning"]
-- The em-dash line should be short (3-8 words), human, no jargon.
-- Preserve existing descriptions when editing; only rewrite them if outdated.
+ARCHITECTURE DIAGRAM RULES (tabs typed "markdown-with-mermaid"):
+- The full document is markdown with an inline \`\`\`mermaid code fence.
+- Typical structure:
+    ## How it works
+    Plain-english paragraphs explaining the flow...
+
+    ## Diagram
+    \`\`\`mermaid
+    flowchart TD
+      ...
+    \`\`\`
+- Keep BOTH sections in sync. If you change the diagram, update the prose to match. If the user adds information, update both if relevant.
+- In the Mermaid block:
+  - If you remove a node, also remove its edges.
+  - **EVERY node label MUST include a plain-english description** as its last line, prefixed with "— " (em-dash + space). 3-8 words, human, no jargon.
+  - Example: Auto["Automation\\nBirthday_Daily_Send_Refresh\\n5 AM CT daily\\n— kicks off every morning"]
+- Return the COMPLETE markdown document (both prose and fenced Mermaid) as newContent.
 
 Return JSON array of updates. For each updated tab, return the COMPLETE new content:
 [
@@ -1568,12 +1575,17 @@ Return the JSON array of updates.`
         continue
       }
 
-      // Validate Mermaid before saving
-      if (tab.type === 'mermaid') {
+      // Validate Mermaid blocks before saving
+      if (tab.type === 'markdown-with-mermaid' || tab.type === 'mermaid') {
         try {
+          // Extract Mermaid from inline ```mermaid fence if present, else treat
+          // whole content as Mermaid (legacy format)
+          const fenceMatch = u.newContent.match(/```mermaid\n([\s\S]*?)\n```/)
+          const mermaidOnly = fenceMatch
+            ? fenceMatch[1]
+            : u.newContent.replace(/^---\n[\s\S]*?\n---\n?/, '')
           const testId = `validate-router-${Date.now()}`
-          const cleaned = u.newContent.replace(/^---\n[\s\S]*?\n---\n?/, '')
-          await mermaid.render(testId, cleaned)
+          await mermaid.render(testId, mermaidOnly)
         } catch (parseErr) {
           console.error('[delma router] invalid Mermaid for', u.tab, ':', parseErr.message)
           continue
@@ -1582,10 +1594,6 @@ Return the JSON array of updates.`
 
       if (tab.table === 'diagram_views') {
         await supabase.from('diagram_views').update({ mermaid: u.newContent }).eq('id', tab.id)
-        // Fire-and-forget walkthrough regeneration (don't block the UI update)
-        regenerateWalkthrough(tab.id, u.newContent, tab.title).catch(err =>
-          console.error('[delma walkthrough] regen failed:', err)
-        )
       } else if (tab.table === 'memory_notes') {
         await supabase.from('memory_notes').update({ content: u.newContent }).eq('workspace_id', state.workspaceId).eq('filename', tab.filename)
       } else if (tab.table === 'org_memory_notes') {
@@ -1601,54 +1609,6 @@ Return the JSON array of updates.`
   } catch (err) {
     console.error('[delma router] fetch error:', err)
     return { updatedTabs: [] }
-  }
-}
-
-// ── Diagram walkthrough — plain-english explanation below the SVG ──────────
-// Generated after every diagram update. Lives in diagram_views.summary.
-// Non-blocking: the diagram shows immediately, walkthrough streams in.
-
-async function regenerateWalkthrough(diagramId, mermaid, diagramTitle) {
-  console.log('[delma walkthrough] regenerating for', diagramTitle, 'mermaidLen:', mermaid.length)
-  const t0 = performance.now()
-
-  try {
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5',
-        max_tokens: 800,
-        system: `You explain technical diagrams to non-technical project managers. Given a Mermaid flowchart, write a short plain-english walkthrough of how it works.
-
-Rules:
-- 3-6 short sentences or bullets. No jargon unless you define it inline.
-- Describe what happens in sequence, like telling a story.
-- Reference node names in bold so the reader can map prose to diagram.
-- If timing or triggers are in the diagram, mention them.
-- Do NOT describe what Mermaid is or how it renders. Focus on the system.
-- Return plain markdown. No heading, no preamble like "This diagram shows...". Just the walkthrough.`,
-        user: `Diagram: ${diagramTitle}
-
-\`\`\`mermaid
-${mermaid}
-\`\`\`
-
-Write the plain-english walkthrough.`
-      })
-    })
-
-    console.log('[delma walkthrough] response status:', res.status, 'in', Math.round(performance.now() - t0), 'ms')
-    if (!res.ok) { console.error('[delma walkthrough] API error'); return }
-
-    const data = await res.json()
-    const text = data.content?.[0]?.text?.trim()
-    if (!text) { console.log('[delma walkthrough] empty response'); return }
-
-    await supabase.from('diagram_views').update({ summary: text }).eq('id', diagramId)
-    console.log('[delma walkthrough] saved to diagram_views.summary, length:', text.length, 'total ms:', Math.round(performance.now() - t0))
-  } catch (err) {
-    console.error('[delma walkthrough] error:', err)
   }
 }
 
