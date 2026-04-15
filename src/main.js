@@ -1442,6 +1442,60 @@ Example: [{"find":"old line","replace":"new line"}]`
   }
 }
 
+// ── Claude Haiku full-rewrite (for Mermaid diagrams) ───────────────────────
+// Diagrams need structural reasoning (remove nodes, redirect edges, fix orphans).
+// Patch format struggles with deletions; full rewrite with a precise model handles it.
+
+async function claudeHaikuDiagramEdit(currentContent, instruction) {
+  console.log('[delma haiku] diagram edit starting, contentLen:', currentContent.length)
+  const t0 = performance.now()
+
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5',
+        max_tokens: 2000,
+        system: `You are editing a Mermaid flowchart diagram. Think holistically:
+- If a node is removed, also remove all edges pointing to or from it.
+- If a role is being merged into another, redirect edges to the consolidated node.
+- Orphaned nodes (no edges) should be removed unless they are standalone roots.
+- Preserve the existing style (flowchart TD vs LR, node shapes, labels).
+Respond with ONLY valid Mermaid syntax. No prose, no code fences, no explanation.`,
+        user: `Apply this change: "${instruction}"
+
+Current diagram:
+${currentContent}
+
+Return the complete updated Mermaid. Think carefully about node AND edge changes.`
+      })
+    })
+
+    console.log('[delma haiku] response status:', res.status, 'in', Math.round(performance.now() - t0), 'ms')
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      console.error('[delma haiku] error:', err)
+      setWorkspaceStatus('Diagram edit failed.')
+      return null
+    }
+
+    const data = await res.json()
+    let updated = data.content?.[0]?.text?.trim()
+    if (!updated) { console.log('[delma haiku] empty response'); return null }
+
+    // Strip any code fences (Haiku usually won't add them but be safe)
+    updated = updated.replace(/^```(?:mermaid)?\n?/, '').replace(/\n?```$/, '')
+
+    console.log('[delma haiku] done in', Math.round(performance.now() - t0), 'ms, updatedLen:', updated.length)
+    return updated
+  } catch (err) {
+    console.error('[delma haiku] fetch error:', err)
+    setWorkspaceStatus(`Edit error: ${err.message}`)
+    return null
+  }
+}
+
 async function applyNaturalLanguageEdit(instruction) {
   if (!instruction?.trim()) return
 
@@ -1449,7 +1503,12 @@ async function applyNaturalLanguageEdit(instruction) {
   const isMarkdown = state.activeTopTab === 'memory' || state.activeTopTab === 'orgMemory'
   const contentType = isMarkdown ? 'markdown' : 'mermaid'
 
-  const updated = await deepSeekPatchEdit(currentContent, instruction, contentType)
+  // Route diagrams through Haiku (full rewrite, structural reasoning)
+  // Route markdown through DeepSeek patches (fast, cheap, fine for prose)
+  console.log('[delma edit] routing:', isMarkdown ? 'DeepSeek patches' : 'Haiku full rewrite')
+  const updated = isMarkdown
+    ? await deepSeekPatchEdit(currentContent, instruction, contentType)
+    : await claudeHaikuDiagramEdit(currentContent, instruction)
   if (!updated) return
 
   // Diff: find which lines changed
@@ -1784,13 +1843,15 @@ function showPrompt(question, tabKey) {
       return
     }
 
-    // Ask DeepSeek to integrate the answer via patch
+    // Route diagrams through Haiku (structural), markdown through DeepSeek patches (fast)
     const isMermaid = state.activeTopTab === 'diagram'
     const contentType = isMermaid ? 'mermaid diagram' : 'markdown document'
-    const instruction = `The user was asked: "${q}" and answered: "${answer}". Integrate this answer into the content.`
+    const instruction = `The user was asked: "${q}" and answered: "${answer}". Integrate this answer into the content. If the answer contradicts or replaces existing information, remove the old information rather than duplicating it.`
 
-    console.log('[delma onApply] calling deepSeekPatchEdit, table:', table)
-    let updated = await deepSeekPatchEdit(currentContent, instruction, contentType)
+    console.log('[delma onApply] routing:', isMermaid ? 'Haiku' : 'DeepSeek patches', 'table:', table)
+    let updated = isMermaid
+      ? await claudeHaikuDiagramEdit(currentContent, instruction)
+      : await deepSeekPatchEdit(currentContent, instruction, contentType)
     if (!updated) { setWorkspaceStatus('Update failed.'); return }
 
     try {
