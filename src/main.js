@@ -1650,7 +1650,7 @@ async function saveCurrentTab() {
 
 const orgSelector = document.getElementById('org-selector')
 const projectSelector = document.getElementById('project-selector')
-const newProjectBtn = document.getElementById('new-project-btn')
+// (removed: + New project is now an option inside the project dropdown)
 
 function renderOrgSelector() {
   orgSelector.innerHTML = ''
@@ -1671,15 +1671,24 @@ function renderProjectSelector() {
   projectSelector.innerHTML = ''
   if (!state.workspaces.length) {
     projectSelector.innerHTML = '<option value="">No projects</option>'
-    return
+  } else {
+    for (const ws of state.workspaces) {
+      const opt = document.createElement('option')
+      opt.value = ws.id
+      opt.textContent = ws.name
+      if (state.workspaceId === ws.id) opt.selected = true
+      projectSelector.appendChild(opt)
+    }
   }
-  for (const ws of state.workspaces) {
-    const opt = document.createElement('option')
-    opt.value = ws.id
-    opt.textContent = ws.name
-    if (state.workspaceId === ws.id) opt.selected = true
-    projectSelector.appendChild(opt)
-  }
+  // Always include "+ New project…" as the last option
+  const sep = document.createElement('option')
+  sep.disabled = true
+  sep.textContent = '──────────'
+  projectSelector.appendChild(sep)
+  const newOpt = document.createElement('option')
+  newOpt.value = '__new__'
+  newOpt.textContent = '+ New project…'
+  projectSelector.appendChild(newOpt)
 }
 
 orgSelector.addEventListener('change', () => {
@@ -1698,23 +1707,61 @@ orgSelector.addEventListener('change', () => {
 })
 
 projectSelector.addEventListener('change', () => {
+  const wsId = projectSelector.value
+  if (wsId === '__new__') {
+    showNewProjectInput()
+    // Reset the dropdown back to the active workspace so it doesn't stay on "+ New"
+    if (state.workspaceId) projectSelector.value = state.workspaceId
+    return
+  }
   void (async () => {
-    const wsId = projectSelector.value
     if (wsId) await openWorkspace(wsId)
   })().catch(err => setWorkspaceStatus(err.message))
 })
 
-newProjectBtn.addEventListener('click', () => {
-  const name = prompt('New project name:')
-  if (!name?.trim()) return
-  void (async () => {
-    const ws = await createWorkspace(name.trim())
-    state.workspaces.push({ ...ws, role: 'owner' })
-    renderProjectSelector()
-    await openWorkspace(ws.id)
-    setWorkspaceStatus(`Created "${ws.name}".`)
-  })().catch(err => setWorkspaceStatus(err.message))
-})
+// Inline name input that appears next to the selectors. No browser prompt().
+function showNewProjectInput() {
+  // Reuse if already showing
+  if (document.getElementById('new-project-input')) {
+    document.getElementById('new-project-input').focus()
+    return
+  }
+  const input = document.createElement('input')
+  input.id = 'new-project-input'
+  input.type = 'text'
+  input.placeholder = 'Project name'
+  input.style.cssText = 'margin-left:8px;padding:8px 12px;border:1.5px solid var(--accent);border-radius:999px;background:#FFFFFF;color:var(--ink);font:inherit;font-size:13px;outline:none;min-width:200px;'
+  projectSelector.parentElement.appendChild(input)
+  input.focus()
+
+  const submit = async () => {
+    const name = input.value.trim()
+    if (!name) { input.remove(); return }
+    input.disabled = true
+    input.style.opacity = '0.6'
+    try {
+      const ws = await createWorkspace(name)
+      state.workspaces.push({ ...ws, role: 'owner' })
+      renderProjectSelector()
+      await openWorkspace(ws.id)
+      setWorkspaceStatus(`Created "${ws.name}".`)
+      input.remove()
+    } catch (err) {
+      setWorkspaceStatus(err.message)
+      input.disabled = false
+      input.style.opacity = '1'
+    }
+  }
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); submit() }
+    if (e.key === 'Escape') input.remove()
+  })
+  input.addEventListener('blur', () => {
+    // Only submit on blur if the user typed something; otherwise just close
+    if (input.value.trim()) submit()
+    else input.remove()
+  })
+}
 
 // ── Natural Language Edit ─────────────────────────────────────────────────────
 // User describes a change in plain English. DeepSeek rewrites the content.
