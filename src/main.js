@@ -413,6 +413,9 @@ function handleRealtimeChange(table, payload) {
   const tabKey = getTabKeyForChange(table, record)
   console.log('[delma realtime] change:', table, tabKey, 'current:', isCurrentTab(tabKey), 'mode:', state.diagramMode)
 
+  // Any external change also resets dismissed + starts grace window
+  noteTabChanged(tabKey)
+
   if (isCurrentTab(tabKey)) {
     if (state.diagramMode === 'edit') {
       // In edit mode — don't overwrite the editor, but show a notification
@@ -1264,6 +1267,9 @@ async function saveCurrentTab() {
   if (!state.workspaceId) return
   console.log('[delma save] saving tab:', state.activeTopTab, state.activeMemoryFile || state.activeViewKey)
 
+  // Reset dismissed flag + start grace window for this tab
+  noteTabChanged(getCurrentTabKey())
+
   // Save org-level memory tab
   if (state.activeTopTab === 'orgMemory') {
     const filename = state.activeMemoryFile
@@ -1651,6 +1657,8 @@ Return the JSON array of updates.`
 
       console.log('[delma router] updated:', u.tab, 'newLen:', u.newContent.length)
       updatedTabs.push({ key: u.tab, title: tab.title })
+      // Reset any dismissed question and start the grace window
+      noteTabChanged(u.tab)
     }
 
     console.log('[delma router] done in', Math.round(performance.now() - t0), 'ms, updated', updatedTabs.length, 'tab(s)')
@@ -1885,9 +1893,24 @@ async function init() {
 //   - No history, no trace. Just a better document.
 
 const dismissedTabs = new Set()
+// When a tab's content changes, we clear its dismissed flag AND record the
+// change time so we don't fire a gap question instantly — the user deserves
+// a grace window to see their own edit first.
+const tabChangedAt = new Map() // tabKey -> timestamp
+const TAB_CHANGE_GRACE_MS = 60 * 1000
 let promptTimer = null
 let idleTimer = null
 let lastActivity = Date.now()
+
+// Called whenever a tab's content changes (router, realtime, manual save).
+// Clears the dismissed flag so a fresh gap question can fire after grace.
+function noteTabChanged(tabKey) {
+  if (!tabKey) return
+  const wasDismissed = dismissedTabs.has(tabKey)
+  dismissedTabs.delete(tabKey)
+  tabChangedAt.set(tabKey, Date.now())
+  console.log('[delma prompt] tab changed:', tabKey, 'wasDismissed:', wasDismissed, 'grace until:', new Date(Date.now() + TAB_CHANGE_GRACE_MS).toLocaleTimeString())
+}
 
 // Track user activity — only show prompts when idle
 document.addEventListener('keydown', () => { lastActivity = Date.now() })
@@ -1996,6 +2019,14 @@ async function maybeShowPrompt() {
 
   const tabKey = getCurrentTabKey()
   if (!tabKey || dismissedTabs.has(tabKey)) { console.log('[delma prompt] skipped (no tab or dismissed):', tabKey); return }
+
+  // Grace period after a content change — let the user see their own edit first.
+  const changedAt = tabChangedAt.get(tabKey)
+  if (changedAt && Date.now() - changedAt < TAB_CHANGE_GRACE_MS) {
+    const remainMs = TAB_CHANGE_GRACE_MS - (Date.now() - changedAt)
+    console.log('[delma prompt] skipped (in ' + Math.round(remainMs / 1000) + 's grace after edit)')
+    return
+  }
 
   if (Date.now() - lastActivity < 3000) { console.log('[delma prompt] skipped (user active)'); return }
 
