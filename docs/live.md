@@ -213,37 +213,38 @@ full detail at session start, summary for persistence.
 
 ## 9. Web App Features
 
-### Natural Language Editing
+### Natural Language Editing — Unified Fact Router
 
-Users can edit any tab using plain English. Type a description of the
-change, press Apply, and an LLM rewrites the content.
+All user input (proactive question answers + manual NL edits) flows
+through a single **fact router** that uses Claude Haiku 4.5 via the
+`/api/chat` proxy.
 
-**Model routing by content type:**
+**How it works:**
+1. The router sees ALL workspace tabs (diagrams, project memory, org memory) with their scope definitions.
+2. It decides which tab(s) the user's input belongs on — 0, 1, or many.
+3. It returns full updated content per affected tab as JSON:
+   `[{ "tab": "org:people.md", "newContent": "..." }, ...]`
+4. Each tab is validated (Mermaid parseability for diagrams), then saved to Supabase.
+5. Realtime pushes changes to all connected clients.
 
-| Tab type | Model | Format | Why |
-|----------|-------|--------|-----|
-| Markdown (People, Environment, Session Log) | DeepSeek-V3 | JSON patches `{find, replace}` | Fast, cheap (~$0.0004/edit). Prose updates don't need structural reasoning. |
-| Mermaid diagram (Architecture) | Claude Haiku 4.5 | Full rewrite | Handles node removal + edge redirection + orphan cleanup holistically. ~$0.003/edit. |
+**Rules baked into the system prompt:**
+- Respect each tab's scope. Never put people info on an Architecture diagram. Never put technical IDs on a People tab.
+- **Corrections**: when a user replaces stale info, remove the old entry — don't duplicate.
+- **Ambiguous references**: don't invent names for pronouns like "he"/"she".
+- **Diagrams**: removing a node removes its edges; reroute when merging.
+- **Out of scope**: if the input doesn't belong anywhere, return `[]`.
 
-**Haiku system prompt** (for diagrams) explicitly tells the model:
-- If a node is removed, remove all edges to/from it
-- If a role is merged into another, redirect edges to the consolidated node
-- Remove orphaned nodes
-- Preserve existing style (flowchart TD vs LR, node shapes)
+**Cost**: ~$0.005 per input (single Haiku call seeing all tabs).
 
-**Flow**: Apply → loading dots (three pulsing red dots in the action slot)
-→ model returns updated content (patches or full rewrite)
-→ editor highlights changed lines with red tint (1.5s pause)
-→ auto-saves to Supabase → switches to view mode
-→ content fades in with red border flash.
+**UX flow**: Apply → loading dots → router runs → status bar shows
+"Updated: People, Session Log" → Realtime refreshes the UI with
+the red border flash on affected tabs.
 
-Enter/Return key triggers Apply. Both proactive question answers
-and manual NL edits follow the same routing logic.
+**API proxy**: All Haiku calls go through `/api/chat` (server-side)
+so `ANTHROPIC_API_KEY` stays off the client.
 
-**API proxy**: Claude Haiku calls go through `/api/chat` (server-side)
-so the `ANTHROPIC_API_KEY` stays off the client. DeepSeek calls go
-direct from the client using `VITE_DEEPSEEK_API_KEY` (acceptable risk
-for a cheap model with per-minute rate limits).
+**Test harness**: `server/test-router.js` runs 14 scored test cases
+against the router. Current score: 100/100 average.
 
 ### Proactive Questions
 
@@ -316,9 +317,9 @@ Console logs with prefixes trace every operation:
 | `[delma refresh]` | Frontend | Supabase fetch timing + error checking |
 | `[delma prompt]` | Frontend | Proactive engine ticks, questions, dismissals |
 | `[delma gap]` | Frontend | DeepSeek gap analysis (timing + responses) |
-| `[delma patch]` | Frontend | DeepSeek patch-based editing (markdown tabs) |
-| `[delma haiku]` | Frontend | Claude Haiku full-rewrite editing (diagrams) |
-| `[delma edit]` | Frontend | Edit routing (which model was chosen) |
+| `[delma router]` | Frontend | Unified fact router — tabs seen, routing decision, patches applied |
+| `[delma edit]` | Frontend | Manual NL edit entry point |
+| `[delma onApply]` | Frontend | Proactive question answer entry point |
 | `[mcp]` | Server | All MCP tool calls with timing |
 | `[mcp sync]` | Server | Conversation sync patches |
 | `[delma-state]` | Server | Supabase CRUD operations + errors |
