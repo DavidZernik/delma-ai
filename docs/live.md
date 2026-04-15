@@ -182,34 +182,57 @@ every tool call with timing on the server side.
 
 ---
 
-## 8. Context Loading
+## 8. Context Loading & Bidirectional Sync
 
-Context flows into Claude Code through two mechanisms at different
-stages of a conversation:
+Context flows into Claude Code through three mechanisms working together
+to maintain true bidirectional sync between the web app and the chat:
 
 ### Session start: full content (via hook)
 
-A Claude Code hook (`hooks/load-workspace.sh`) runs once at session
-start and loads the full workspace content from Supabase — all tabs
-dumped to stdout. Claude has every detail before the first message.
+`hooks/load-workspace.sh` runs once at session start and loads the full
+workspace content from Supabase — all tabs dumped to stdout. Claude has
+every detail before the first message.
 
 ### Ongoing: summary in CLAUDE.md (auto-updated)
 
-After every MCP write, `refreshClaudeMd()` reads all tabs, sends
-them to DeepSeek, and writes a condensed summary to CLAUDE.md locally.
-Claude Code auto-loads CLAUDE.md, so it always has the latest workspace
-context without dumping raw content each turn.
+After every MCP write OR web app save, `refreshClaudeMd()` (server-side)
+reads all tabs, sends them to the summarizer (DeepSeek → Haiku fallback),
+and writes a condensed summary to CLAUDE.md locally. Two trigger points:
 
-This matters because Claude Code compacts earlier messages as the
-context window fills. The full tab content from the hook gets
-compacted away, but CLAUDE.md survives — so Claude retains the
-summary even in long conversations.
+1. **MCP writes** — `server/mcp.js` calls `refreshClaudeMd()` after
+   every `save_diagram_view`, `append_memory_note`, or
+   `sync_conversation_summary`.
+2. **Web app saves** — frontend calls `POST /api/refresh-claude-md`
+   after every Save and after every router write. Server runs the same
+   summarizer and updates the file.
 
-### Tradeoff
+### Per-message: smart hook injects fresh content (only when changed)
 
-Summaries are token-efficient but lose detail. Full content is
-accurate but burns context. The current approach balances this:
-full detail at session start, summary for persistence.
+`hooks/inject-claude-md.sh` is a `UserPromptSubmit` hook registered in
+`.claude/settings.json`. Before every user message:
+
+1. Reads CLAUDE.md mtime
+2. Compares to the last-injected mtime (stored in `.claude/.delma-last-injected-mtime`)
+3. **If unchanged**: exits silently (zero token cost — most messages)
+4. **If changed**: injects fresh CLAUDE.md content wrapped in
+   `<delma-fresh-context>` with a one-line "X seconds ago" timestamp,
+   plus a fallback instruction telling Claude to call `get_workspace_state`
+   if it suspects further drift
+
+### Net result: true bidirectional sync
+
+- **Claude → Web app**: MCP write → Supabase → Realtime websocket pushes
+  to all open browsers (instant)
+- **Web app → Claude**: Save → server refreshes CLAUDE.md → next user
+  message → hook injects fresh content (~1-10s end-to-end)
+- **Mid-session drift**: Claude can call `get_workspace_state` for fresh
+  data on demand
+
+### Cost model
+
+- Most messages: zero token overhead (file unchanged → hook injects nothing)
+- After any web edit: one fresh CLAUDE.md injection (~500 tokens)
+- ~$0.0015 per fresh injection at Sonnet pricing — negligible
 
 ---
 
@@ -362,6 +385,8 @@ Console logs with prefixes trace every operation:
 | `[delma reveal]` | Frontend | Hide / reveal cycle for tab content |
 | `[delma inline-zoom]` | Frontend | Zoom on markdown tabs (text + diagrams together) |
 | `[delma fit]` | Frontend | SVG natural width vs wrapper width measurements |
+| `[delma claude-md]` | Frontend | CLAUDE.md refresh trigger after web saves |
+| `[server]` | Server | /api/refresh-claude-md endpoint timing |
 | `[mcp]` | Server | All MCP tool calls with timing |
 | `[mcp sync]` | Server | Conversation sync patches |
 | `[delma-state]` | Server | Supabase CRUD operations + errors |
