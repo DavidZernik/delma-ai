@@ -1197,6 +1197,89 @@ function populateEditor(view) {
 
 // ── Render a memory file as a readable document ─────────────────────────────
 
+// Drag-drop photo zone for the People tab. Drops upload to Supabase Storage
+// and append a markdown image reference to the People content. The user is
+// asked for the person's name via a prompt so we know who the photo is for.
+function wirePhotoDropZone(zone, filename, isOrg, row) {
+  if (!zone) return
+
+  const handleFile = async (file) => {
+    if (!file?.type?.startsWith('image/')) {
+      setWorkspaceStatus('Drop an image file (PNG, JPG, WebP).')
+      return
+    }
+    const personName = window.prompt('Whose photo is this? (e.g. "Keyona Abbott")')
+    if (!personName?.trim()) return
+
+    setWorkspaceStatus(`Uploading photo for ${personName}...`)
+    console.log('[delma photo] uploading', file.name, file.size, 'bytes for', personName)
+
+    // Slug for filename — lowercase, no spaces, timestamped
+    const ext = file.name.split('.').pop().toLowerCase()
+    const slug = personName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+    const path = `${state.org.id}/${slug}-${Date.now()}.${ext}`
+
+    const { error: uploadErr } = await supabase.storage
+      .from('people-photos')
+      .upload(path, file, { upsert: false, contentType: file.type })
+
+    if (uploadErr) {
+      console.error('[delma photo] upload failed:', uploadErr)
+      setWorkspaceStatus(`Upload failed: ${uploadErr.message}`)
+      return
+    }
+
+    const { data: urlData } = supabase.storage.from('people-photos').getPublicUrl(path)
+    const photoUrl = urlData.publicUrl
+    console.log('[delma photo] uploaded, public URL:', photoUrl)
+
+    // Append photo to the People markdown using a structured pattern
+    // the renderer + router both understand:
+    //   <!-- photo:Keyona Abbott -->
+    //   ![Keyona Abbott](https://...)
+    const currentContent = isOrg ? state.orgMemory[filename] || '' : state.memory[filename] || ''
+    const photoBlock = `\n\n<!-- photo:${personName} -->\n![${personName}](${photoUrl})\n`
+    const newContent = currentContent.trimEnd() + photoBlock
+
+    const table = isOrg ? 'org_memory_notes' : 'memory_notes'
+    const filter = isOrg
+      ? { org_id: state.org.id, filename }
+      : { workspace_id: state.workspaceId, filename }
+
+    const { error: saveErr } = await supabase.from(table).update({ content: newContent })
+      .match(filter)
+
+    if (saveErr) {
+      console.error('[delma photo] save failed:', saveErr)
+      setWorkspaceStatus(`Save failed: ${saveErr.message}`)
+      return
+    }
+
+    setWorkspaceStatus(`Photo added for ${personName}.`)
+    console.log('[delma photo] saved to', filename)
+    // Realtime will refresh the view automatically
+  }
+
+  zone.addEventListener('dragover', (e) => {
+    e.preventDefault()
+    zone.classList.add('drag-over')
+  })
+  zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'))
+  zone.addEventListener('drop', (e) => {
+    e.preventDefault()
+    zone.classList.remove('drag-over')
+    const file = e.dataTransfer?.files?.[0]
+    if (file) handleFile(file)
+  })
+  zone.addEventListener('click', () => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = 'image/*'
+    input.onchange = () => input.files?.[0] && handleFile(input.files[0])
+    input.click()
+  })
+}
+
 async function renderMemoryDocument(filename, isOrg = false) {
   const content = isOrg ? (state.orgMemory[filename] || '') : (state.memory[filename] || '')
   const label = (isOrg ? ORG_TAB_LABELS[filename] : MEMORY_TAB_LABELS[filename]) || { title: filename, desc: '' }
@@ -1228,9 +1311,21 @@ async function renderMemoryDocument(filename, isOrg = false) {
     // Wrap markdown in a .diagram-card so every tab matches Architecture's
     // visual treatment (white card on cream, dark red border).
     els.diagramOutput.className = ''
-    els.diagramOutput.innerHTML = `<div class="diagram-card markdown-body"></div>`
+    // People tab gets a photo drop zone above the markdown content.
+    const dropZoneHtml = (isOrg && filename === 'people.md')
+      ? `<div class="people-drop-zone" id="people-drop">
+           <div class="drop-zone-label">Drag a photo here to add it to a person</div>
+         </div>`
+      : ''
+    els.diagramOutput.innerHTML = `<div class="diagram-card markdown-body">${dropZoneHtml}<div class="markdown-content"></div></div>`
     const card = els.diagramOutput.querySelector('.diagram-card')
-    await renderMarkdownWithMermaid(card, content.trim() || '*(empty)*')
+    const contentEl = card.querySelector('.markdown-content')
+    await renderMarkdownWithMermaid(contentEl, content.trim() || '*(empty)*')
+
+    // Wire the drop zone if present
+    if (isOrg && filename === 'people.md') {
+      wirePhotoDropZone(card.querySelector('#people-drop'), filename, isOrg, row)
+    }
   }
 }
 
@@ -1659,6 +1754,16 @@ INLINE DIAGRAM RULE (for any markdown tab — People, Playbook, My Notes, etc.):
   hierarchy, or multi-step relationship, include a \`\`\`mermaid code fence.
 - Don't force diagrams when prose is clearer (simple lists, single facts).
 - ALWAYS wrap labels in DOUBLE QUOTES inside the shape brackets.
+
+PEOPLE TAB photo references — IMPORTANT:
+The People document may contain photo blocks like this:
+  <!-- photo:Keyona Abbott -->
+  ![Keyona Abbott](https://...supabase.../people-photos/...png)
+
+These represent uploaded photos. ALWAYS preserve them verbatim when
+updating the document. Do not remove or rewrite them. If you mention a
+person who has a photo block, place their content NEAR their photo so
+they read together.
 
 PEOPLE TAB vocabulary (org charts, reporting structures):
 
