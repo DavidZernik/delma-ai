@@ -1678,6 +1678,69 @@ ARCHITECTURE DIAGRAM RULES (tabs typed "markdown-with-mermaid"):
     \`\`\`
 - Keep BOTH sections in sync.
 
+SFMC NODE VOCABULARY — pick the right shape + class for each concept:
+
+| Concept                          | Shape syntax        | classDef class |
+|----------------------------------|---------------------|----------------|
+| Data Extension (any DE)          | NodeId[(label)]     | :::de          |
+| Source DE (read-only / external) | NodeId[(label)]     | :::deSource    |
+| SQL / Query Activity             | NodeId[[label]]     | :::sql         |
+| Automation                       | NodeId{{label}}     | :::automation  |
+| Journey                          | NodeId([label])     | :::journey     |
+| Email asset                      | NodeId[/label/]     | :::email       |
+| CloudPage                        | NodeId[\\label\\]    | :::cloudpage   |
+| Decision split                   | NodeId{label}       | :::decision    |
+| Endpoint / Result                | NodeId([label])     | :::endpoint    |
+
+OPTIONAL EMOJI ICONS at the start of the technical label make scanning faster:
+- 💾 Data Extension
+- ⚙️ Automation
+- 🔍 SQL / Query
+- ⚡ Journey
+- 📧 Email
+- 🌐 CloudPage
+- 🔀 Decision
+
+Required classDef block at the END of the diagram (always include all of these):
+  classDef de fill:#F2F6FA,stroke:#7FA0BD,stroke-width:1.5px,color:#0F0A0A
+  classDef deSource fill:#EAF1F7,stroke:#7FA0BD,stroke-width:1.5px,color:#0F0A0A
+  classDef sql fill:#FCF8E8,stroke:#C9B864,stroke-width:1.5px,color:#0F0A0A
+  classDef automation fill:#F4F1EC,stroke:#A89887,stroke-width:1.5px,color:#0F0A0A
+  classDef journey fill:#FBEBEB,stroke:#C28080,stroke-width:1.5px,color:#0F0A0A
+  classDef email fill:#FAF1E5,stroke:#C9A878,stroke-width:1.5px,color:#0F0A0A
+  classDef cloudpage fill:#F2EBF5,stroke:#A18BB5,stroke-width:1.5px,color:#0F0A0A
+  classDef decision fill:#FFFFFF,stroke:#8F0000,stroke-width:2px,color:#0F0A0A
+  classDef endpoint fill:#FFFFFF,stroke:#888,stroke-width:1.5px,color:#0F0A0A
+
+Note classDef (already required, keep it):
+  classDef note fill:transparent,stroke:transparent,color:#6B5A5A,font-style:italic,font-size:12px
+
+LAYER SUBGRAPHS — group nodes by their role in the flow when it makes sense.
+Use clear English titles. Apply transparent style to the group container so
+groups read as airy regions, not boxes:
+
+  subgraph source_layer ["Patient Source"]
+    Source
+  end
+  subgraph filter_layer ["Daily Filter"]
+    Auto
+    Query
+  end
+  subgraph engagement_layer ["Email + Quiz"]
+    Journey
+    Email
+    CloudPage
+  end
+  ...
+  style source_layer fill:transparent,stroke:#E8D8D2,stroke-dasharray:4 4
+  style filter_layer fill:transparent,stroke:#E8D8D2,stroke-dasharray:4 4
+  ... (repeat for each layer subgraph)
+
+Note: layer subgraphs are SEPARATE from the per-node pair subgraphs that
+hold the floating labels. Each technical node still lives in its own pair_
+subgraph for the floating annotation; the layer subgraph wraps multiple
+pair subgraphs.
+
 FLOATING-LABEL DIAGRAM PATTERN (use for every node):
 Each technical node is paired with a borderless, italic "annotation"
 node sitting next to it. The pair lives inside an invisible subgraph
