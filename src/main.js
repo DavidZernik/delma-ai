@@ -1646,122 +1646,157 @@ async function saveCurrentTab() {
   triggerClaudeMdRefresh()
 }
 
-// ── Org & Project Selectors ──────────────────────────────────────────────────
+// ── Custom Branded Dropdown — used for both Org and Project selectors ───────
+//
+// Replaces native <select> so the open panel matches our cream/white/red
+// brand instead of the OS-native chrome. Last item is "+ New …" which
+// transforms the trigger into an inline input.
 
 const orgSelector = document.getElementById('org-selector')
 const projectSelector = document.getElementById('project-selector')
-// (removed: + New project is now an option inside the project dropdown)
+
+// Track which dropdown is currently open so click-outside closes it
+let __openDropdown = null
+document.addEventListener('click', (e) => {
+  if (__openDropdown && !__openDropdown.contains(e.target)) {
+    __openDropdown.classList.remove('open')
+    __openDropdown = null
+  }
+})
+
+// Render a branded dropdown into `container`. Items: [{id, label}], plus
+// optional "+ New" handler that opens an inline input.
+function renderBrandDropdown(container, { items, activeId, placeholder, onSelect, newLabel, onCreate }) {
+  container.innerHTML = ''
+  const active = items.find(i => i.id === activeId) || items[0]
+  const triggerLabel = active?.label || placeholder || '—'
+
+  const trigger = document.createElement('button')
+  trigger.type = 'button'
+  trigger.className = 'brand-dropdown-trigger'
+  trigger.innerHTML = `<span class="brand-dropdown-label">${escapeHtml(triggerLabel)}</span>`
+  container.appendChild(trigger)
+
+  const panel = document.createElement('div')
+  panel.className = 'brand-dropdown-panel'
+  container.appendChild(panel)
+
+  for (const item of items) {
+    const opt = document.createElement('button')
+    opt.type = 'button'
+    opt.className = `brand-dropdown-item${item.id === activeId ? ' active' : ''}`
+    opt.textContent = item.label
+    opt.addEventListener('click', (e) => {
+      e.stopPropagation()
+      container.classList.remove('open')
+      __openDropdown = null
+      onSelect(item.id)
+    })
+    panel.appendChild(opt)
+  }
+
+  if (onCreate) {
+    const newOpt = document.createElement('button')
+    newOpt.type = 'button'
+    newOpt.className = 'brand-dropdown-item new'
+    newOpt.textContent = newLabel || '+ New…'
+    newOpt.addEventListener('click', (e) => {
+      e.stopPropagation()
+      // Replace panel content with an inline input
+      panel.innerHTML = ''
+      const input = document.createElement('input')
+      input.type = 'text'
+      input.className = 'brand-dropdown-input'
+      input.placeholder = 'Name'
+      panel.appendChild(input)
+      input.focus()
+
+      const submit = async () => {
+        const name = input.value.trim()
+        if (!name) { container.classList.remove('open'); __openDropdown = null; return }
+        input.disabled = true
+        try {
+          await onCreate(name)
+        } catch (err) {
+          setWorkspaceStatus(err.message)
+        }
+        container.classList.remove('open')
+        __openDropdown = null
+      }
+      input.addEventListener('keydown', (ev) => {
+        ev.stopPropagation()
+        if (ev.key === 'Enter') { ev.preventDefault(); submit() }
+        if (ev.key === 'Escape') { container.classList.remove('open'); __openDropdown = null }
+      })
+    })
+    panel.appendChild(newOpt)
+  }
+
+  trigger.addEventListener('click', (e) => {
+    e.stopPropagation()
+    if (container.classList.contains('open')) {
+      container.classList.remove('open')
+      __openDropdown = null
+    } else {
+      if (__openDropdown) __openDropdown.classList.remove('open')
+      container.classList.add('open')
+      __openDropdown = container
+    }
+  })
+}
 
 function renderOrgSelector() {
-  orgSelector.innerHTML = ''
-  if (!state.orgs.length) {
-    orgSelector.innerHTML = '<option value="">No organizations</option>'
-    return
-  }
-  for (const org of state.orgs) {
-    const opt = document.createElement('option')
-    opt.value = org.id
-    opt.textContent = org.name
-    if (state.org?.id === org.id) opt.selected = true
-    orgSelector.appendChild(opt)
-  }
+  renderBrandDropdown(orgSelector, {
+    items: state.orgs.map(o => ({ id: o.id, label: o.name })),
+    activeId: state.org?.id,
+    placeholder: 'No organizations',
+    newLabel: '+ New organization…',
+    onSelect: async (orgId) => {
+      state.org = state.orgs.find(o => o.id === orgId) || null
+      await loadWorkspaces()
+      renderProjectSelector()
+      if (state.workspaces.length) {
+        await openWorkspace(state.workspaces[0].id)
+      } else {
+        state.workspaceId = null
+        renderWorkspace()
+      }
+    },
+    onCreate: async (name) => {
+      // Create new org via Supabase
+      const { data: org, error } = await supabase.from('organizations').insert({ name, slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-') }).select().single()
+      if (error) throw new Error(error.message)
+      // Add current user as owner
+      await supabase.from('org_members').insert({ org_id: org.id, user_id: state.user.id, role: 'owner' })
+      state.orgs.push({ ...org, orgRole: 'owner' })
+      state.org = state.orgs[state.orgs.length - 1]
+      await loadWorkspaces()
+      renderOrgSelector()
+      renderProjectSelector()
+      setWorkspaceStatus(`Created organization "${name}".`)
+    }
+  })
 }
 
 function renderProjectSelector() {
-  projectSelector.innerHTML = ''
-  if (!state.workspaces.length) {
-    projectSelector.innerHTML = '<option value="">No projects</option>'
-  } else {
-    for (const ws of state.workspaces) {
-      const opt = document.createElement('option')
-      opt.value = ws.id
-      opt.textContent = ws.name
-      if (state.workspaceId === ws.id) opt.selected = true
-      projectSelector.appendChild(opt)
-    }
-  }
-  // Always include "+ New project…" as the last option
-  const sep = document.createElement('option')
-  sep.disabled = true
-  sep.textContent = '──────────'
-  projectSelector.appendChild(sep)
-  const newOpt = document.createElement('option')
-  newOpt.value = '__new__'
-  newOpt.textContent = '+ New project…'
-  projectSelector.appendChild(newOpt)
-}
-
-orgSelector.addEventListener('change', () => {
-  void (async () => {
-    const orgId = orgSelector.value
-    state.org = state.orgs.find(o => o.id === orgId) || null
-    await loadWorkspaces()
-    renderProjectSelector()
-    if (state.workspaces.length) {
-      await openWorkspace(state.workspaces[0].id)
-    } else {
-      state.workspaceId = null
-      renderWorkspace()
-    }
-  })().catch(err => setWorkspaceStatus(err.message))
-})
-
-projectSelector.addEventListener('change', () => {
-  const wsId = projectSelector.value
-  if (wsId === '__new__') {
-    showNewProjectInput()
-    // Reset the dropdown back to the active workspace so it doesn't stay on "+ New"
-    if (state.workspaceId) projectSelector.value = state.workspaceId
-    return
-  }
-  void (async () => {
-    if (wsId) await openWorkspace(wsId)
-  })().catch(err => setWorkspaceStatus(err.message))
-})
-
-// Inline name input that appears next to the selectors. No browser prompt().
-function showNewProjectInput() {
-  // Reuse if already showing
-  if (document.getElementById('new-project-input')) {
-    document.getElementById('new-project-input').focus()
-    return
-  }
-  const input = document.createElement('input')
-  input.id = 'new-project-input'
-  input.type = 'text'
-  input.placeholder = 'Project name'
-  input.style.cssText = 'margin-left:8px;padding:8px 12px;border:1.5px solid var(--accent);border-radius:999px;background:#FFFFFF;color:var(--ink);font:inherit;font-size:13px;outline:none;min-width:200px;'
-  projectSelector.parentElement.appendChild(input)
-  input.focus()
-
-  const submit = async () => {
-    const name = input.value.trim()
-    if (!name) { input.remove(); return }
-    input.disabled = true
-    input.style.opacity = '0.6'
-    try {
+  renderBrandDropdown(projectSelector, {
+    items: state.workspaces.map(w => ({ id: w.id, label: w.name })),
+    activeId: state.workspaceId,
+    placeholder: 'No projects',
+    newLabel: '+ New project…',
+    onSelect: async (wsId) => { await openWorkspace(wsId) },
+    onCreate: async (name) => {
       const ws = await createWorkspace(name)
       state.workspaces.push({ ...ws, role: 'owner' })
       renderProjectSelector()
       await openWorkspace(ws.id)
       setWorkspaceStatus(`Created "${ws.name}".`)
-      input.remove()
-    } catch (err) {
-      setWorkspaceStatus(err.message)
-      input.disabled = false
-      input.style.opacity = '1'
     }
-  }
-  input.addEventListener('keydown', e => {
-    if (e.key === 'Enter') { e.preventDefault(); submit() }
-    if (e.key === 'Escape') input.remove()
-  })
-  input.addEventListener('blur', () => {
-    // Only submit on blur if the user typed something; otherwise just close
-    if (input.value.trim()) submit()
-    else input.remove()
   })
 }
+
+// (Selection + create handlers now live inside renderBrandDropdown calls
+//  in renderOrgSelector / renderProjectSelector — no separate change events.)
 
 // ── Natural Language Edit ─────────────────────────────────────────────────────
 // User describes a change in plain English. DeepSeek rewrites the content.
