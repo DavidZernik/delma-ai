@@ -5,7 +5,10 @@
 import express from 'express'
 import { config } from 'dotenv'
 import { fileURLToPath } from 'url'
-import { dirname, join } from 'path'
+import { dirname, join, resolve } from 'path'
+import { writeFile } from 'fs/promises'
+import { createClient } from '@supabase/supabase-js'
+import { generateClaudeMd } from './lib/summarizer.js'
 
 // override: true ensures .env values beat any empty shell env vars
 // (e.g. ANTHROPIC_API_KEY="" set globally by Claude Desktop)
@@ -85,6 +88,48 @@ app.post('/api/chat', async (req, res) => {
     return res.status(response.status).json({ error: text })
   }
   res.json(await response.json())
+})
+
+// ── Refresh CLAUDE.md on demand (called by web app after Save) ──────────────
+// Closes the bidirectional sync gap: web edits → file refresh → next message
+// Claude sends will see fresh state via UserPromptSubmit hook.
+
+const sb = createClient(process.env.SUPABASE_URL || '', process.env.SUPABASE_SERVICE_ROLE_KEY || '', {
+  auth: { autoRefreshToken: false, persistSession: false }
+})
+
+app.post('/api/refresh-claude-md', async (req, res) => {
+  const { workspaceId } = req.body
+  if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' })
+  console.log('[server] refresh-claude-md for workspace:', workspaceId)
+  const t0 = Date.now()
+
+  try {
+    const [{ data: views }, { data: memoryRows }, { data: ws }] = await Promise.all([
+      sb.from('diagram_views').select('*').eq('workspace_id', workspaceId),
+      sb.from('memory_notes').select('*').eq('workspace_id', workspaceId),
+      sb.from('workspaces').select('name, org_id').eq('id', workspaceId).single()
+    ])
+
+    let orgName = ''
+    if (ws?.org_id) {
+      const { data: org } = await sb.from('organizations').select('name').eq('id', ws.org_id).single()
+      orgName = org?.name || ''
+    }
+
+    const memoryMap = {}
+    for (const row of memoryRows || []) memoryMap[row.filename] = row.content
+
+    const claudeMd = await generateClaudeMd(views || [], memoryMap, orgName, ws?.name || '')
+    const cwd = process.env.DELMA_PROJECT_DIR || process.cwd()
+    await writeFile(resolve(cwd, 'CLAUDE.md'), claudeMd, 'utf-8')
+
+    console.log('[server] CLAUDE.md refreshed in', Date.now() - t0, 'ms,', claudeMd.length, 'chars')
+    res.json({ ok: true, length: claudeMd.length, ms: Date.now() - t0 })
+  } catch (err) {
+    console.error('[server] refresh failed:', err.message)
+    res.status(500).json({ error: err.message })
+  }
 })
 
 // ── Static Files (production) ────────────────────────────────────────────────

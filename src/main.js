@@ -1537,6 +1537,19 @@ function updateActiveViewFromEditor() {
 
 // ── Save to Supabase ─────────────────────────────────────────────────────────
 
+// Fire-and-forget refresh of CLAUDE.md so the next message Claude Code
+// sends will see the latest workspace state via the UserPromptSubmit hook.
+function triggerClaudeMdRefresh() {
+  if (!state.workspaceId) return
+  fetch('/api/refresh-claude-md', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workspaceId: state.workspaceId })
+  }).then(r => r.json()).then(data => {
+    console.log('[delma claude-md] refreshed:', data.length, 'chars in', data.ms, 'ms')
+  }).catch(err => console.error('[delma claude-md] refresh failed:', err))
+}
+
 async function saveCurrentTab() {
   if (!state.workspaceId) return
   console.log('[delma save] saving tab:', state.activeTopTab, state.activeMemoryFile || state.activeViewKey)
@@ -1621,6 +1634,9 @@ async function saveCurrentTab() {
     await refreshWorkspace()
     setWorkspaceStatus('Saved.')
   }
+
+  // Refresh CLAUDE.md so Claude Code sees the change on its next message.
+  triggerClaudeMdRefresh()
 }
 
 // ── Org & Project Selectors ──────────────────────────────────────────────────
@@ -2109,6 +2125,7 @@ Return the JSON array of updates.`
     }
 
     console.log('[delma router] done in', Math.round(performance.now() - t0), 'ms, updated', updatedTabs.length, 'tab(s)')
+    if (updatedTabs.length) triggerClaudeMdRefresh()
     return { updatedTabs }
   } catch (err) {
     console.error('[delma router] fetch error:', err)

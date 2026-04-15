@@ -8,10 +8,25 @@
       "WebFetch(domain:x.com)",
       "Bash(git commit:*)",
       "Bash(adaptive execution\" — hierarchy is stable, sequence adapts:*)",
-      "Bash(wc -l /Users/davidzernik/Desktop/delma/src/*.js)"
+      "Bash(wc -l /Users/davidzernik/Desktop/delma/src/*.js)",
+      "Bash(lsof -ti:3001 -ti:5173 -ti:5174)",
+      "Bash(ls -la /Users/davidzernik/Desktop/delma/src/*.js)"
     ],
     "additionalDirectories": [
       "/Users/davidzernik/Desktop"
+    ]
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/hooks/inject-claude-md.sh"
+          }
+        ]
+      }
     ]
   }
 }
