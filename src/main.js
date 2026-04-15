@@ -825,12 +825,13 @@ function setZoom(level) {
   }
   if (label) label.textContent = `${Math.round(currentZoom * 100)}%`
 
-  // Also scale the prose text in the same card so zoom feels unified.
+  // Also scale the prose text — use CSS zoom so it cascades to nested
+  // elements (h2, h3, p, strong, ul) which have their own font-sizes that
+  // would otherwise be unaffected by setting font-size on the parent.
   const card = document.querySelector('.diagram-card')
   if (card) {
     for (const prose of card.querySelectorAll('.diagram-prose')) {
-      prose.style.fontSize = `${14 * currentZoom}px`
-      prose.style.lineHeight = '1.55'
+      prose.style.zoom = String(currentZoom)
     }
   }
 }
