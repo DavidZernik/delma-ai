@@ -1493,11 +1493,11 @@ async function routeAndPatchFact(input, questionContext = null) {
     if (!row.content) continue
     const scope =
       row.filename === 'environment.md'
-        ? 'SFMC IDs, DE names, journey/automation keys, technical config. NOT people or business rules.'
+        ? 'SFMC IDs, DE names, journey/automation keys, technical config. NOT people or business rules. Mermaid diagrams welcome for data flow or schema relationships.'
       : row.filename === 'session-log.md'
-        ? 'Session log — shared status, decisions, pending items. Narrative history of the project.'
+        ? 'Session log — shared status, decisions, pending items. Narrative history of the project. Mostly prose; diagrams rare.'
       : row.filename === 'my-notes.md'
-        ? 'Personal private notes — only the current user sees this. Questions, reminders, half-baked thoughts. Route here only if the input is explicitly personal ("my note to self", "remind me to…") rather than shared project info.'
+        ? 'Personal private notes — only the current user sees this. Questions, reminders, half-baked thoughts, personal mental models. Route here only if the input is explicitly personal ("my note to self", "remind me to…"). Mermaid diagrams welcome for task dependencies, personal workflows, or quick sketches.'
       : 'General project note.'
     tabs.push({
       key: `memory:${row.filename}`,
@@ -1516,9 +1516,9 @@ async function routeAndPatchFact(input, questionContext = null) {
     if (!row.content) continue
     const scope =
       row.filename === 'people.md'
-        ? 'Team members, roles, ownership. NOT system architecture or IDs.'
+        ? 'Team members, roles, ownership. NOT system architecture or IDs. Mermaid org-chart diagrams welcome.'
       : row.filename === 'playbook.md'
-        ? 'How work actually happens here: business processes, approval paths, unwritten rules, cultural norms, timing gotchas ("no Friday launches", "legal needs 48h"). NOT specific people details, NOT technical IDs.'
+        ? 'How work actually happens here: business processes, approval paths, unwritten rules, cultural norms, timing gotchas ("no Friday launches", "legal needs 48h"). NOT specific people details, NOT technical IDs. Mermaid diagrams welcome for approval flows, escalation paths, or decision trees.'
       : 'Org-level note.'
     tabs.push({
       key: `org:${row.filename}`,
@@ -1556,6 +1556,15 @@ Rules:
 - Respect each tab's scope. Never put people info on an architecture diagram. Never put technical IDs on a People tab.
 - If the input replaces existing info on a tab (e.g. "Keyona IS the PM, there is no separate PM"), remove the stale info rather than duplicating.
 - If the input doesn't belong on any tab, return [].
+
+INLINE DIAGRAM RULE (for any markdown tab — Playbook, People, My Notes, etc.):
+- If the content describes a flow, sequence, approval chain, decision tree,
+  hierarchy, or multi-step relationship, consider including a \`\`\`mermaid
+  code fence alongside the prose. The fence renders as an inline diagram.
+- Don't force diagrams when prose is clearer (simple lists, single facts,
+  reminders).
+- When you do include one, use the same em-dash node-label style:
+  NodeId["Short technical name\\n— plain-english description"]
 
 ARCHITECTURE DIAGRAM RULES (tabs typed "markdown-with-mermaid"):
 - The full document is markdown with an inline \`\`\`mermaid code fence.

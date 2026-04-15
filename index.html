@@ -340,6 +340,7 @@
     .diagram-shell {
       width: 100%;
       max-width: 780px;
+      min-height: 400px; /* consistent card height across all tabs so switching doesn't jump */
       border: 1px solid var(--line);
       border-radius: 14px;
       background: var(--panel);
@@ -351,6 +352,14 @@
       -webkit-overflow-scrolling: touch;
       box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03), 0 4px 16px rgba(0, 0, 0, 0.02);
     }
+
+    /* Normalize first/last child margins inside the content area so every
+       tab has identical top/bottom spacing, regardless of whether it starts
+       with an h1, a prose block, or a diagram. */
+    #diagram-output > *:first-child { margin-top: 0 !important; }
+    #diagram-output > *:last-child { margin-bottom: 0 !important; }
+    #diagram-output.markdown-body > h1:first-child,
+    #diagram-output.markdown-body > h2:first-child { margin-top: 0; }
 
     /* Diagram zoom container — tall enough to show meaningful content */
     .diagram-zoom-wrapper {
