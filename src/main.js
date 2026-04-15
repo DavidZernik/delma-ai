@@ -1599,7 +1599,7 @@ INLINE DIAGRAM RULE (for any markdown tab — Playbook, People, My Notes, etc.):
 
 ARCHITECTURE DIAGRAM RULES (tabs typed "markdown-with-mermaid"):
 - The full document is markdown with an inline \`\`\`mermaid code fence.
-- Typical structure:
+- Structure:
     ## How it works
     Plain-english paragraphs explaining the flow. Reference each node by
     its technical name in **bold** so non-technical readers can map prose
@@ -1610,14 +1610,48 @@ ARCHITECTURE DIAGRAM RULES (tabs typed "markdown-with-mermaid"):
     flowchart TD
       ...
     \`\`\`
-- Keep BOTH sections in sync. If the diagram changes, the prose must too.
-- The "How it works" prose IS the human explanation. Do NOT add em-dash
-  plain-english lines inside the Mermaid nodes — keep node labels concise
-  and technical (name + key detail only). The prose covers the rest.
-- Example node label (concise):
+- Keep BOTH sections in sync.
+
+FLOATING-LABEL DIAGRAM PATTERN (use for every node):
+Each technical node is paired with a borderless, italic "annotation"
+node sitting next to it. The pair lives inside an invisible subgraph
+with direction LR so the label sits to the RIGHT of the technical node.
+
+  subgraph pair_<id> [" "]
+    direction LR
+    <id>["<technical label>"]
+    <id>_note["plain-english description"]:::note
+  end
+
+Then connect technical nodes to each other via their original IDs
+(NOT the subgraph IDs). Example:
+
+  subgraph pair_auto [" "]
+    direction LR
     Auto["Automation\\nBirthday_Daily_Send_Refresh\\n5 AM CT daily"]
-- If you remove a node from the diagram, also remove its edges.
-- Return the COMPLETE markdown document (both prose and fenced Mermaid) as newContent.
+    Auto_note["kicks off every morning"]:::note
+  end
+  subgraph pair_query [" "]
+    direction LR
+    Query["SQL: Birthday_Daily_Filter"]
+    Query_note["narrows to today's birthdays"]:::note
+  end
+  Auto --> Query
+
+At the END of the diagram add these style declarations (one
+\`style pair_<id>\` line per subgraph):
+  classDef note fill:transparent,stroke:transparent,color:#6B5A5A,font-style:italic,font-size:12px
+  style pair_auto fill:transparent,stroke:transparent
+  style pair_query fill:transparent,stroke:transparent
+  ... (one per pair)
+
+Notes:
+- Description text: 3-8 words, human, no jargon.
+- Pair every node — including decision diamonds.
+- If you remove a node, remove its subgraph wrapper, its _note pair,
+  the corresponding style line, and any edges to/from it.
+
+Return the COMPLETE markdown document (both prose and fenced Mermaid) as newContent.
 
 Return JSON array of updates. For each updated tab, return the COMPLETE new content:
 [
