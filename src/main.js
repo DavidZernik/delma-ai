@@ -923,12 +923,41 @@ async function renderDiagram(mermaidCode) {
 }
 
 async function validateCurrentMermaid() {
-  const code = normalizeMermaidForRender(els.diagramEditor.value || els.viewMermaid.value)
-  if (!code?.trim()) return true
+  const raw = els.diagramEditor.value || els.viewMermaid.value
+  if (!raw?.trim()) return true
+
+  // Handle the two storage formats:
+  //   1. Markdown with inline ```mermaid fence — validate only the fenced code.
+  //      If there's no fence, the doc is prose-only (still valid).
+  //   2. Pure Mermaid (legacy) — validate the whole thing.
+  const fenceMatch = raw.match(/```mermaid\n([\s\S]*?)\n```/)
+  const isMarkdown = /^\s*(#|```mermaid)/.test(raw)
+
+  if (isMarkdown) {
+    if (!fenceMatch) {
+      console.log('[delma validate] markdown with no mermaid fence — OK')
+      return true
+    }
+    const mermaidCode = normalizeMermaidForRender(fenceMatch[1])
+    console.log('[delma validate] extracted mermaid from fence, len:', mermaidCode.length)
+    try {
+      await mermaid.render(`delma-validate-${Date.now()}`, mermaidCode)
+      return true
+    } catch (err) {
+      console.error('[delma validate] mermaid parse error:', err.message)
+      return false
+    }
+  }
+
+  // Legacy: whole content is Mermaid
+  const code = normalizeMermaidForRender(raw)
   try {
     await mermaid.render(`delma-validate-${Date.now()}`, code)
     return true
-  } catch { return false }
+  } catch (err) {
+    console.error('[delma validate] legacy mermaid parse error:', err.message)
+    return false
+  }
 }
 
 // ── Markdown + Mermaid Renderer ──────────────────────────────────────────────
@@ -1634,10 +1663,13 @@ els.viewModeBtn.addEventListener('click', () => {
 })
 
 els.editModeBtn.addEventListener('click', () => {
+  console.log('[delma save-btn] clicked, mode:', state.diagramMode, 'tab:', state.activeTopTab)
   if (state.diagramMode === 'edit') {
     void (async () => {
       if (state.activeTopTab === 'diagram') {
+        console.log('[delma save-btn] validating diagram content...')
         const valid = await validateCurrentMermaid()
+        console.log('[delma save-btn] validation result:', valid)
         if (!valid) {
           updateActiveViewFromEditor()
           renderWorkspace()
@@ -1646,10 +1678,13 @@ els.editModeBtn.addEventListener('click', () => {
         }
       }
 
+      console.log('[delma save-btn] calling saveCurrentTab...')
       await saveCurrentTab()
+      console.log('[delma save-btn] save done, switching to view')
       setDiagramMode('view')
       renderWorkspace()
     })().catch(err => {
+      console.error('[delma save-btn] error:', err)
       setWorkspaceStatus(err.message)
       appendLog('Save Failed', err.message, 'error')
     })
