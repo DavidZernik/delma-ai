@@ -861,11 +861,13 @@ async function renderDiagram(mermaidCode) {
     proseBelow = fenceMatch[3].trim()
     console.log('[delma render] split: proseAbove len=' + proseAbove.length + ', mermaid len=' + mermaidOnly.length + ', proseBelow len=' + proseBelow.length)
   } else if (isMarkdownFormat) {
-    // Markdown with no mermaid fence — prose only
+    // Markdown with no mermaid fence — prose only, still in a card
     console.log('[delma render] markdown prose only, no diagram')
-    els.diagramOutput.className = 'documentation-shell markdown-body'
+    els.diagramOutput.className = ''
     els.diagramOutput.style.opacity = '1'
-    await renderMarkdownWithMermaid(els.diagramOutput, mermaidCode)
+    els.diagramOutput.innerHTML = `<div class="diagram-card markdown-body"></div>`
+    const card = els.diagramOutput.querySelector('.diagram-card')
+    await renderMarkdownWithMermaid(card, mermaidCode)
     return true
   } else {
     console.log('[delma render] pure Mermaid (legacy), no prose')
@@ -1172,8 +1174,12 @@ async function renderMemoryDocument(filename, isOrg = false) {
     els.diagramOutput.hidden = false
     els.diagramEditor.classList.remove('visible')
     console.log('[delma render] view mode markdown, file:', filename, 'contentLen:', content.length, 'first60:', content.substring(0, 60))
-    els.diagramOutput.className = 'documentation-shell markdown-body'
-    await renderMarkdownWithMermaid(els.diagramOutput, content.trim() || '*(empty)*')
+    // Wrap markdown in a .diagram-card so every tab matches Architecture's
+    // visual treatment (white card on cream, dark red border).
+    els.diagramOutput.className = ''
+    els.diagramOutput.innerHTML = `<div class="diagram-card markdown-body"></div>`
+    const card = els.diagramOutput.querySelector('.diagram-card')
+    await renderMarkdownWithMermaid(card, content.trim() || '*(empty)*')
   }
 }
 
