@@ -278,6 +278,7 @@ async function createWorkspace(name) {
 
 async function openWorkspace(workspaceId) {
   state.workspaceId = workspaceId
+  dismissedTabs.clear()  // Reset dismissed prompts for new workspace
   await refreshWorkspace()
   setupRealtimeSubscription()
 
@@ -466,11 +467,19 @@ function renderActionBlock(question, modeClass, onApply) {
     if (onApply) {
       await onApply(value, question)
       removeActionBlock()
+      // Fade in the updated content so user sees what changed
+      els.diagramOutput.style.transition = 'none'
+      els.diagramOutput.style.opacity = '0.3'
       renderWorkspace()
+      requestAnimationFrame(() => {
+        els.diagramOutput.style.transition = 'opacity 400ms ease'
+        els.diagramOutput.style.opacity = '1'
+      })
     } else {
       await applyNaturalLanguageEdit(value)
       input.value = ''
       inner.classList.remove('typing')
+      setWorkspaceStatus('Change applied — review below, then save.')
     }
   }
 
@@ -1631,17 +1640,81 @@ function showPrompt(question, tabKey) {
   const modeClass = state.diagramMode === 'edit' ? 'mode-edit' : 'mode-view'
 
   // Answer handler for proactive questions
+  // Uses DeepSeek to intelligently update the content (including Mermaid diagrams)
+  // instead of just appending raw text.
   async function onApply(answer, q) {
-    const note = `\n\n**${q}**\n${answer}`
+    // Get current content
+    let currentContent = ''
+    let table = ''
+    let idField = ''
+    let idValue = ''
 
     if (state.activeTopTab === 'orgMemory') {
-      state.orgMemory[state.activeMemoryFile] = (state.orgMemory[state.activeMemoryFile] || '') + note
       const { data: ex } = await supabase.from('org_memory_notes').select('id, content').eq('org_id', state.org.id).eq('filename', state.activeMemoryFile).single()
-      if (ex) await supabase.from('org_memory_notes').update({ content: ex.content + note }).eq('id', ex.id)
+      if (!ex) return
+      currentContent = ex.content
+      table = 'org_memory_notes'
+      idField = 'id'
+      idValue = ex.id
     } else if (state.activeTopTab === 'memory') {
-      state.memory[state.activeMemoryFile] = (state.memory[state.activeMemoryFile] || '') + note
       const { data: ex } = await supabase.from('memory_notes').select('id, content').eq('workspace_id', state.workspaceId).eq('filename', state.activeMemoryFile).single()
-      if (ex) await supabase.from('memory_notes').update({ content: ex.content + note }).eq('id', ex.id)
+      if (!ex) return
+      currentContent = ex.content
+      table = 'memory_notes'
+      idField = 'id'
+      idValue = ex.id
+    } else if (state.activeTopTab === 'diagram') {
+      const view = getActiveView()
+      if (!view) return
+      currentContent = view.mermaid || ''
+      table = 'diagram_views'
+      idField = 'id'
+      idValue = view.id
+    } else {
+      return
+    }
+
+    // Ask DeepSeek to integrate the answer into the existing content
+    const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY
+    if (!apiKey) return
+
+    setWorkspaceStatus('Updating...')
+
+    try {
+      const isMermaid = state.activeTopTab === 'diagram'
+      const contentType = isMermaid ? 'mermaid diagram' : 'markdown document (which may contain mermaid code blocks)'
+
+      const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: 'deepseek-chat',
+          max_tokens: 2000,
+          messages: [{
+            role: 'user',
+            content: `You are editing a ${contentType}. The user was asked: "${q}" and answered: "${answer}".\n\nIntegrate this answer into the existing content. If there are mermaid diagrams, update the diagram nodes/edges to reflect the new information. Also update any prose sections.\n\nCurrent content:\n\`\`\`\n${currentContent}\n\`\`\`\n\nRespond with ONLY the complete updated content. No explanation, no code fences, no commentary.`
+          }]
+        })
+      })
+
+      if (!res.ok) { setWorkspaceStatus('Update failed.'); return }
+      const data = await res.json()
+      let updated = data.choices?.[0]?.message?.content?.trim()
+      if (!updated) { setWorkspaceStatus('No response.'); return }
+
+      // Strip code fences
+      updated = updated.replace(/^```(?:mermaid|markdown|md)?\n?/, '').replace(/\n?```$/, '')
+
+      // Save to Supabase
+      if (table === 'diagram_views') {
+        await supabase.from(table).update({ mermaid: updated }).eq(idField, idValue)
+      } else {
+        await supabase.from(table).update({ content: updated }).eq(idField, idValue)
+      }
+
+      setWorkspaceStatus('Updated.')
+    } catch (err) {
+      setWorkspaceStatus(`Error: ${err.message}`)
     }
   }
 
@@ -1660,15 +1733,16 @@ function showPrompt(question, tabKey) {
 }
 
 async function maybeShowPrompt() {
-  if (!state.workspaceId) return
-  if (state.diagramMode === 'edit') return
+  console.log('[delma prompt] maybeShowPrompt called, workspaceId:', !!state.workspaceId, 'diagramMode:', state.diagramMode)
+  if (!state.workspaceId) { console.log('[delma prompt] no workspace'); return }
+  if (state.diagramMode === 'edit') { console.log('[delma prompt] in edit mode, skipping'); return }
 
   const tabKey = getCurrentTabKey()
+  console.log('[delma prompt] tabKey:', tabKey, 'dismissed:', dismissedTabs.has(tabKey))
   if (!tabKey || dismissedTabs.has(tabKey)) return
 
-  // Only show when idle (3 seconds of no activity)
   // DEBUG: reduced from 3000ms to 500ms for faster testing
-  if (Date.now() - lastActivity < 500) return
+  if (Date.now() - lastActivity < 500) { console.log('[delma prompt] user active, skipping'); return }
 
   const content = getCurrentTabContent()
   if (!content || content.length < 20) return

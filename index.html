@@ -545,16 +545,10 @@
     /* No layout shift on the diagram. The slot is always there.    */
 
     .action-slot {
-      max-height: 0;
-      overflow: hidden;
-      transition: max-height 300ms ease;
       display: flex;
       justify-content: center;
       padding: 0 max(20px, calc((100% - 1000px) / 2));
-    }
-
-    .action-slot.open {
-      max-height: 120px;
+      min-height: 72px;
     }
 
     .action-slot-inner {
@@ -562,7 +556,7 @@
       max-width: 780px;
       padding: 12px 0 8px;
       opacity: 0;
-      transition: opacity 350ms ease 100ms;
+      transition: opacity 400ms ease;
     }
 
     .action-slot.open .action-slot-inner {
