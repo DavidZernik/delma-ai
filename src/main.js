@@ -1244,7 +1244,7 @@ els.editStripSave.addEventListener('click', () => {
 })
 
 els.editStripInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') {
+  if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault()
     void applyNaturalLanguageEdit(els.editStripInput.value)
   }

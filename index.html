@@ -457,25 +457,22 @@
 
     .edit-strip {
       display: flex;
+      flex-direction: column;
       align-items: center;
-      gap: 10px;
-      padding: 6px max(20px, calc((100% - 1000px) / 2));
+      padding: 16px max(20px, calc((100% - 1000px) / 2)) 14px;
       background: var(--chrome);
       border-bottom: 1px solid var(--line);
-      font-size: 12px;
     }
 
     .edit-strip-hint {
-      flex-shrink: 1;
-      min-width: 0;
+      width: 100%;
+      max-width: 640px;
       color: var(--muted);
       font-size: 11px;
       opacity: 0;
       transition: opacity 250ms ease, color 200ms ease;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 260px;
+      margin-bottom: 6px;
+      text-align: left;
     }
 
     .edit-strip-hint.visible {
@@ -488,38 +485,44 @@
     }
 
     .edit-strip-input-row {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      flex: 1;
-      min-width: 0;
+      width: 100%;
+      max-width: 640px;
+      position: relative;
     }
 
     .edit-strip-input {
-      flex: 1;
-      padding: 5px 10px;
+      width: 100%;
+      padding: 12px 60px 12px 14px;
       border: 1px solid var(--line);
-      border-radius: 6px;
+      border-radius: 10px;
       background: var(--panel);
       font: inherit;
-      font-size: 12px;
+      font-size: 13px;
       color: var(--ink);
       outline: none;
-      min-width: 0;
+      min-height: 48px;
+      resize: none;
+      line-height: 1.5;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+      transition: border-color 150ms ease, box-shadow 150ms ease;
     }
 
     .edit-strip-input:focus {
       border-color: rgba(143, 0, 0, 0.25);
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
     }
 
     .edit-strip-input::placeholder {
       color: var(--muted);
-      opacity: 0.5;
+      opacity: 0.6;
     }
 
     .edit-strip-btn {
-      padding: 5px 12px;
-      border-radius: 6px;
+      position: absolute;
+      right: 8px;
+      bottom: 8px;
+      padding: 6px 14px;
+      border-radius: 7px;
       border: none;
       background: var(--ink);
       color: var(--panel);
@@ -527,6 +530,7 @@
       font-weight: 600;
       cursor: pointer;
       white-space: nowrap;
+      transition: background 120ms ease;
     }
 
     .edit-strip-btn:hover {
@@ -1153,8 +1157,8 @@
       <div id="edit-strip" class="edit-strip" hidden>
         <div class="edit-strip-hint" id="edit-strip-hint"></div>
         <div class="edit-strip-input-row">
-          <input id="edit-strip-input" class="edit-strip-input" type="text" placeholder="Describe a change..." />
-          <button id="edit-strip-save" class="edit-strip-btn">Save</button>
+          <textarea id="edit-strip-input" class="edit-strip-input" rows="2" placeholder="Describe a change..."></textarea>
+          <button id="edit-strip-save" class="edit-strip-btn">Apply</button>
         </div>
       </div>
 
