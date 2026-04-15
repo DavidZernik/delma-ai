@@ -548,7 +548,9 @@
       display: flex;
       justify-content: center;
       padding: 0 max(20px, calc((100% - 1000px) / 2));
-      min-height: 72px;
+      /* Reserve enough height for label + question + input row + padding.   */
+      /* Prevents layout shift when a proactive question appears.            */
+      min-height: 130px;
     }
 
     .action-slot-inner {
@@ -578,10 +580,21 @@
       padding: 14px 18px 12px;
     }
 
+    .action-slot-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--accent);
+      opacity: 0.75;
+      margin: 0 0 6px;
+    }
+
     .action-slot-question {
-      font-size: 13px;
-      color: var(--ink-secondary);
-      margin: 0 0 8px;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--ink);
+      margin: 0 0 10px;
       line-height: 1.4;
       transition: opacity 200ms ease;
     }

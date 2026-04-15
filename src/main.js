@@ -496,9 +496,14 @@ function removeActionBlock() {
 
 function renderActionBlock(question, modeClass, onApply) {
   const placeholder = modeClass === 'mode-edit' ? 'Describe a change...' : 'Add detail...'
+  // Short context label shown above the question, so users know what this row is.
+  const title = modeClass === 'mode-edit'
+    ? 'Edit this tab'
+    : 'Improve your workspace'
 
   actionSlot.innerHTML = `
     <div class="action-slot-inner ${modeClass}">
+      <div class="action-slot-label">${title}</div>
       <div class="action-slot-question">${escapeHtml(question)}</div>
       <div class="action-slot-row">
         <input class="action-slot-input" type="text" placeholder="${placeholder}" />
