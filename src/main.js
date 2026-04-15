@@ -1060,14 +1060,14 @@ function stripMermaidConfig(code) {
 // Project-level tab labels (workspace-scoped)
 const MEMORY_TAB_LABELS = {
   'environment.md': { title: 'Environment', desc: 'IDs, credentials, DEs, journeys, automations — everything in one place.' },
-  'decisions.md': { title: 'Decisions', desc: 'Decisions made + actions needed. Outline form.' },
+  'decisions.md': { title: 'Project Logs', desc: 'Decisions made + actions needed. Outline form.' },
   'my-notes.md': { title: 'My Notes', desc: 'Personal scratchpad — only you see this.' }
 }
 
 // Org-level tab labels (shared across all projects)
 const ORG_TAB_LABELS = {
   'people.md': { title: 'People', desc: 'Team members, roles, ownership. Same across all projects.' },
-  'playbook.md': { title: 'Playbook', desc: 'How work actually happens here. Processes, approvals, unwritten rules.' }
+  'playbook.md': { title: 'General Patterns and Docs', desc: 'How work happens across projects. Processes, approvals, unwritten rules.' }
 }
 
 // ── Render ───────────────────────────────────────────────────────────────────
