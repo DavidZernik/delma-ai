@@ -808,30 +808,33 @@
       box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
     }
 
-    /* Avatar placeholder — outlined circle inside Mermaid people nodes.
-       Same dimensions as the photo so the layout doesn't shift when a
-       photo is dropped to replace it. */
+    /* Avatar placeholder — small outlined circle INLINE next to the name,
+       not stacked above. Same dimensions as the photo so layout doesn't
+       shift when a photo replaces it. */
     .avatar-placeholder,
     .mermaid-inline .avatar-placeholder,
     .diagram-zoom-canvas .avatar-placeholder {
-      display: block;
-      width: 40px;
-      height: 40px;
+      display: inline-block;
+      vertical-align: middle;
+      width: 22px;
+      height: 22px;
       border: 1.5px solid var(--line);
       border-radius: 50%;
-      margin: 0 auto 6px;
-      background: var(--bg);
+      margin: 0 6px 0 0;
+      background: transparent;
     }
 
-    /* Photo inside a Mermaid node — replaces the placeholder when dropped */
+    /* Photo inside a Mermaid node — replaces the placeholder when dropped.
+       Same inline placement + dimensions so nothing shifts. */
     .mermaid-inline .node-photo,
     .diagram-zoom-canvas .node-photo {
-      display: block;
-      width: 40px;
-      height: 40px;
+      display: inline-block;
+      vertical-align: middle;
+      width: 22px;
+      height: 22px;
       border-radius: 50%;
       object-fit: cover;
-      margin: 0 auto 6px;
+      margin: 0 6px 0 0;
       border: 1px solid var(--line);
     }
 
