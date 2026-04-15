@@ -680,6 +680,36 @@
       40% { opacity: 1; transform: scale(1.2); }
     }
 
+    /* ── Diagram walkthrough — plain-english explanation below SVG ── */
+    .diagram-walkthrough {
+      margin-top: 20px;
+      padding: 18px 20px;
+      background: rgba(216, 207, 196, 0.18);
+      border-left: 3px solid rgba(143, 0, 0, 0.35);
+      border-radius: 8px;
+    }
+
+    .walkthrough-label {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--accent);
+      opacity: 0.75;
+      margin: 0 0 8px;
+    }
+
+    .walkthrough-body {
+      font-size: 14px;
+      line-height: 1.55;
+      color: var(--ink);
+    }
+
+    .walkthrough-body p { margin: 6px 0; }
+    .walkthrough-body strong { font-weight: 600; }
+    .walkthrough-body ul, .walkthrough-body ol { margin: 8px 0; padding-left: 20px; }
+    .walkthrough-body li { margin: 4px 0; }
+
     /* ── Change flash on view content ────────────────────────────── */
     /* Applied to the <svg> element for diagrams (so the red wash hugs    */
     /* the diagram bounds, not the padded canvas) or to the diagramOutput */

@@ -842,8 +842,10 @@ async function renderDiagram(mermaidCode) {
     els.diagramOutput.className = ''
     els.diagramOutput.style.opacity = '0'
 
-    // Wrap SVG in zoom container with controls
+    // Wrap SVG in zoom container with controls, plus a plain-english walkthrough below
     currentZoom = 1
+    const view = getActiveView()
+    const walkthrough = view?.summary?.trim()
     els.diagramOutput.innerHTML = `
       <div class="diagram-zoom-wrapper">
         <div class="diagram-zoom-canvas">${svg}</div>
@@ -852,6 +854,10 @@ async function renderDiagram(mermaidCode) {
         <button class="zoom-btn" data-zoom="in" title="Zoom in">+</button>
         <div class="zoom-level">100%</div>
         <button class="zoom-btn" data-zoom="out" title="Zoom out">&minus;</button>
+      </div>
+      <div class="diagram-walkthrough" ${walkthrough ? '' : 'hidden'}>
+        <div class="walkthrough-label">How it works</div>
+        <div class="walkthrough-body markdown-body">${walkthrough ? marked.parse(walkthrough) : ''}</div>
       </div>
     `
 
@@ -1148,6 +1154,14 @@ function renderWorkspace() {
     console.log('[delma render] view mode render, mermaidLen:', mermaidCode.length, 'first60:', mermaidCode.substring(0, 60))
     els.diagramOutput.className = ''
     void renderDiagram(mermaidCode)
+
+    // If this diagram has no walkthrough yet, generate one now (first-load case)
+    if (mermaidCode.trim() && !view.summary?.trim() && view.id) {
+      console.log('[delma render] no walkthrough yet, generating for', view.title)
+      regenerateWalkthrough(view.id, mermaidCode, view.title).catch(err =>
+        console.error('[delma render] walkthrough gen failed:', err)
+      )
+    }
   }
 }
 
@@ -1545,6 +1559,10 @@ Return the JSON array of updates.`
 
       if (tab.table === 'diagram_views') {
         await supabase.from('diagram_views').update({ mermaid: u.newContent }).eq('id', tab.id)
+        // Fire-and-forget walkthrough regeneration (don't block the UI update)
+        regenerateWalkthrough(tab.id, u.newContent, tab.title).catch(err =>
+          console.error('[delma walkthrough] regen failed:', err)
+        )
       } else if (tab.table === 'memory_notes') {
         await supabase.from('memory_notes').update({ content: u.newContent }).eq('workspace_id', state.workspaceId).eq('filename', tab.filename)
       } else if (tab.table === 'org_memory_notes') {
@@ -1560,6 +1578,54 @@ Return the JSON array of updates.`
   } catch (err) {
     console.error('[delma router] fetch error:', err)
     return { updatedTabs: [] }
+  }
+}
+
+// ── Diagram walkthrough — plain-english explanation below the SVG ──────────
+// Generated after every diagram update. Lives in diagram_views.summary.
+// Non-blocking: the diagram shows immediately, walkthrough streams in.
+
+async function regenerateWalkthrough(diagramId, mermaid, diagramTitle) {
+  console.log('[delma walkthrough] regenerating for', diagramTitle, 'mermaidLen:', mermaid.length)
+  const t0 = performance.now()
+
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5',
+        max_tokens: 800,
+        system: `You explain technical diagrams to non-technical project managers. Given a Mermaid flowchart, write a short plain-english walkthrough of how it works.
+
+Rules:
+- 3-6 short sentences or bullets. No jargon unless you define it inline.
+- Describe what happens in sequence, like telling a story.
+- Reference node names in bold so the reader can map prose to diagram.
+- If timing or triggers are in the diagram, mention them.
+- Do NOT describe what Mermaid is or how it renders. Focus on the system.
+- Return plain markdown. No heading, no preamble like "This diagram shows...". Just the walkthrough.`,
+        user: `Diagram: ${diagramTitle}
+
+\`\`\`mermaid
+${mermaid}
+\`\`\`
+
+Write the plain-english walkthrough.`
+      })
+    })
+
+    console.log('[delma walkthrough] response status:', res.status, 'in', Math.round(performance.now() - t0), 'ms')
+    if (!res.ok) { console.error('[delma walkthrough] API error'); return }
+
+    const data = await res.json()
+    const text = data.content?.[0]?.text?.trim()
+    if (!text) { console.log('[delma walkthrough] empty response'); return }
+
+    await supabase.from('diagram_views').update({ summary: text }).eq('id', diagramId)
+    console.log('[delma walkthrough] saved to diagram_views.summary, length:', text.length, 'total ms:', Math.round(performance.now() - t0))
+  } catch (err) {
+    console.error('[delma walkthrough] error:', err)
   }
 }
 
