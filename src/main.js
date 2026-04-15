@@ -959,14 +959,16 @@ async function renderDiagram(mermaidCode) {
     prepareFittedSvg(svgEl, wrapper)
     enableDiagramDragging(wrapper)
 
-    // Two rAFs for layout to settle, then set zoom, then reveal as one fade.
-    requestAnimationFrame(() => {
+    // Wait for layout to settle BEFORE resolving the promise. This way the
+    // outer renderWorkspace().then(reveal) fires only after the diagram is
+    // fully prepared — no flashes of unstyled or unsized content.
+    await new Promise(resolve => {
       requestAnimationFrame(() => {
-        setZoom(1)
-        console.log('[delma render] revealing diagram, total prep ms:', Math.round(performance.now() - t0))
-        els.diagramOutput.style.visibility = 'visible'
-        els.diagramOutput.style.transition = 'opacity 200ms ease'
-        els.diagramOutput.style.opacity = '1'
+        requestAnimationFrame(() => {
+          setZoom(1)
+          console.log('[delma render] diagram fully prepared, total prep ms:', Math.round(performance.now() - t0))
+          resolve()
+        })
       })
     })
     let lastPinchDist = 0
