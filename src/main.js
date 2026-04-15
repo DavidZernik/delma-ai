@@ -502,7 +502,7 @@ function renderActionBlock(question, modeClass, onApply) {
   // Short context label shown above the question, so users know what this row is.
   const title = modeClass === 'mode-edit'
     ? 'Edit this tab'
-    : 'Improve your workspace'
+    : 'Improve the diagram'
 
   actionSlot.innerHTML = `
     <div class="action-slot-inner ${modeClass}">
@@ -1204,18 +1204,40 @@ async function renderMemoryDocument(filename, isOrg = false) {
 
 // ── Main renderWorkspace ────────────────────────────────────────────────────
 
+// Hide diagramOutput before any render so users never see partial states.
+// Caller must invoke revealDiagramOutput() after rendering completes.
+function hideDiagramOutput() {
+  els.diagramOutput.style.transition = 'none'
+  els.diagramOutput.style.opacity = '0'
+  els.diagramOutput.style.visibility = 'hidden'
+}
+
+function revealDiagramOutput() {
+  // Two rAFs ensure the new layout has settled before we fade in.
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      els.diagramOutput.style.visibility = 'visible'
+      els.diagramOutput.style.transition = 'opacity 200ms ease'
+      els.diagramOutput.style.opacity = '1'
+    })
+  })
+}
+
 function renderWorkspace() {
   renderViewTabs()
 
-  // Org memory tab (SFMC Setup, People)
+  // Hide before ANY render so we never see the old content swap to new.
+  hideDiagramOutput()
+
+  // Org memory tab (People, Playbook)
   if (state.activeTopTab === 'orgMemory') {
-    void renderMemoryDocument(state.activeMemoryFile, true)
+    void renderMemoryDocument(state.activeMemoryFile, true).then(revealDiagramOutput)
     return
   }
 
   // Project memory tab
   if (state.activeTopTab === 'memory') {
-    void renderMemoryDocument(state.activeMemoryFile)
+    void renderMemoryDocument(state.activeMemoryFile).then(revealDiagramOutput)
     return
   }
 
@@ -1224,12 +1246,12 @@ function renderWorkspace() {
   if (!view) {
     els.diagramOutput.className = 'documentation-shell'
     els.diagramOutput.textContent = 'No view loaded.'
+    revealDiagramOutput()
     return
   }
 
   const editable = canEditItem(view)
 
-  // Hide Edit button if user can't edit this diagram
   els.modeToggle.hidden = !editable
   els.resetExampleBtn.hidden = !editable
   if (!editable && state.diagramMode === 'edit') state.diagramMode = 'view'
@@ -1246,7 +1268,11 @@ function renderWorkspace() {
     const mermaidCode = state.previewMermaid || view.mermaid || ''
     console.log('[delma render] view mode render, mermaidLen:', mermaidCode.length, 'first60:', mermaidCode.substring(0, 60))
     els.diagramOutput.className = ''
-    void renderDiagram(mermaidCode)
+    // renderDiagram handles its own internal hide/reveal cycle.
+    void renderDiagram(mermaidCode).then(revealDiagramOutput)
+  } else {
+    // Edit mode — show the textarea immediately
+    revealDiagramOutput()
   }
 }
 
