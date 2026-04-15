@@ -962,15 +962,18 @@ async function renderDiagram(mermaidCode) {
     // Wait for layout to settle BEFORE resolving the promise. This way the
     // outer renderWorkspace().then(reveal) fires only after the diagram is
     // fully prepared — no flashes of unstyled or unsized content.
+    console.log('[delma render] waiting two rAFs for layout to settle...')
     await new Promise(resolve => {
       requestAnimationFrame(() => {
+        console.log('[delma render] rAF 1 done')
         requestAnimationFrame(() => {
           setZoom(1)
-          console.log('[delma render] diagram fully prepared, total prep ms:', Math.round(performance.now() - t0))
+          console.log('[delma render] rAF 2 done — setZoom applied, total prep ms:', Math.round(performance.now() - t0))
           resolve()
         })
       })
     })
+    console.log('[delma render] renderDiagram resolving — outer reveal will fire next')
     let lastPinchDist = 0
     wrapper.addEventListener('touchstart', (e) => {
       if (e.touches.length === 2) {
@@ -1237,19 +1240,25 @@ async function renderMemoryDocument(filename, isOrg = false) {
 
 // Hide diagramOutput before any render so users never see partial states.
 // Caller must invoke revealDiagramOutput() after rendering completes.
+let __renderSeq = 0
 function hideDiagramOutput() {
+  __renderSeq += 1
+  console.log(`[delma reveal] HIDE #${__renderSeq} — visibility:hidden, opacity:0`)
   els.diagramOutput.style.transition = 'none'
   els.diagramOutput.style.opacity = '0'
   els.diagramOutput.style.visibility = 'hidden'
 }
 
 function revealDiagramOutput() {
+  const seq = __renderSeq
+  console.log(`[delma reveal] REVEAL queued for #${seq}`)
   // Two rAFs ensure the new layout has settled before we fade in.
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
       els.diagramOutput.style.visibility = 'visible'
       els.diagramOutput.style.transition = 'opacity 200ms ease'
       els.diagramOutput.style.opacity = '1'
+      console.log(`[delma reveal] REVEAL fired for #${seq} — opacity:1`)
     })
   })
 }
