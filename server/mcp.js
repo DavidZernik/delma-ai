@@ -18,7 +18,7 @@
 // ──────────────────────────────────────────────────────────────────────────────
 
 import { config } from 'dotenv'
-config()
+config({ override: true })
 
 import { z } from 'zod'
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js'

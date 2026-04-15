@@ -7,7 +7,9 @@ import { config } from 'dotenv'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
 
-config()
+// override: true ensures .env values beat any empty shell env vars
+// (e.g. ANTHROPIC_API_KEY="" set globally by Claude Desktop)
+config({ override: true })
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = express()
