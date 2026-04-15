@@ -379,18 +379,32 @@ function isCurrentTab(tabKey) {
   return false
 }
 
-// Flash the actual content container. For diagrams, target the <svg> directly
-// (the canvas div fills the whole zoom wrapper so its bg would show around
-// the diagram). For markdown, target the diagramOutput where the prose lives.
+// Flash the actual visible content. Strategy:
+//   - For Mermaid diagrams: target the <svg> directly so the wash hugs the
+//     diagram bounds and doesn't bleed into the empty zoom canvas.
+//   - For markdown prose: target the .diagram-shell (the visible card), since
+//     diagramOutput can be wider than the prose and hasno clear bounds.
 function flashContentUpdate() {
-  const svg = els.diagramOutput.querySelector('.diagram-zoom-canvas svg')
-  const target = svg || els.diagramOutput
-  const svgSize = svg ? { w: svg.getBoundingClientRect().width, h: svg.getBoundingClientRect().height } : null
-  console.log('[delma flash] target:', svg ? 'svg element' : 'diagramOutput (markdown)', 'svgSize:', svgSize)
+  const output = els.diagramOutput
+  const svg = output.querySelector('.diagram-zoom-canvas svg')
+  const shell = output.closest('.diagram-shell')
+
+  const outputRect = output.getBoundingClientRect()
+  const svgRect = svg?.getBoundingClientRect()
+  const shellRect = shell?.getBoundingClientRect()
+
+  console.log('[delma flash] output size:', { w: Math.round(outputRect.width), h: Math.round(outputRect.height) })
+  if (svg) console.log('[delma flash] svg size:', { w: Math.round(svgRect.width), h: Math.round(svgRect.height) })
+  if (shell) console.log('[delma flash] shell size:', { w: Math.round(shellRect.width), h: Math.round(shellRect.height) })
+
+  const target = svg || shell || output
+  const targetName = svg ? '<svg>' : shell ? '.diagram-shell' : '#diagram-output'
+  console.log('[delma flash] applying to:', targetName)
+
   target.classList.add('content-updated-flash')
   setTimeout(() => {
     target.classList.remove('content-updated-flash')
-    console.log('[delma flash] removed after 4.1s')
+    console.log('[delma flash] removed from', targetName)
   }, 4100)
 }
 
