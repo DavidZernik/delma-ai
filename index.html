@@ -540,49 +540,68 @@
     /* missing" — context for the diagram, not a conversation.        */
     /* Reserves minimal height so appearance doesn't shift layout.    */
 
-    /* ── Action block — sits above the diagram, same spot always ── */
-    /* View mode: proactive question + input (warm rose tint)        */
-    /* Edit mode: general prompt + input (neutral)                   */
-    /* Always one block, never both. Same position, same structure.  */
+    /* ── Action slot — fixed between title and diagram ──────────── */
+    /* Collapses to 0 when empty. Expands smoothly when content.    */
+    /* No layout shift on the diagram. The slot is always there.    */
 
-    .delma-action-block {
-      margin: 0 auto 12px;
+    .action-slot {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 300ms ease;
+      display: flex;
+      justify-content: center;
+      padding: 0 max(20px, calc((100% - 1000px) / 2));
+    }
+
+    .action-slot.open {
+      max-height: 120px;
+    }
+
+    .action-slot-inner {
+      width: 100%;
       max-width: 780px;
-      padding: 12px 16px;
+      padding: 12px 0 8px;
+      opacity: 0;
+      transition: opacity 350ms ease 100ms;
+    }
+
+    .action-slot.open .action-slot-inner {
+      opacity: 1;
+    }
+
+    /* View mode: warm rose surface */
+    .action-slot-inner.mode-view {
+      background: rgba(143, 0, 0, 0.03);
       border-radius: 10px;
-      transition: opacity 400ms ease, background 400ms ease;
+      padding: 14px 18px 12px;
     }
 
-    /* View mode: warm rose — "something is missing" */
-    .delma-action-block.mode-view {
-      background: rgba(143, 0, 0, 0.04);
-      border: 1px solid rgba(143, 0, 0, 0.08);
+    /* Edit mode: neutral surface */
+    .action-slot-inner.mode-edit {
+      background: rgba(216, 207, 196, 0.1);
+      border-radius: 10px;
+      padding: 14px 18px 12px;
     }
 
-    /* Edit mode: neutral — "workspace, ready for input" */
-    .delma-action-block.mode-edit {
-      background: rgba(216, 207, 196, 0.15);
-      border: 1px solid var(--line);
-    }
-
-    .delma-action-question {
+    .action-slot-question {
       font-size: 13px;
       color: var(--ink-secondary);
       margin: 0 0 8px;
+      line-height: 1.4;
       transition: opacity 200ms ease;
     }
 
-    .delma-action-block.typing .delma-action-question {
+    .action-slot-inner.typing .action-slot-question {
       opacity: 0.35;
     }
 
-    .delma-action-row {
+    .action-slot-row {
       display: flex;
       gap: 8px;
       align-items: center;
     }
 
-    .delma-action-input {
+    .action-slot-input {
       flex: 1;
       padding: 9px 12px;
       border: 1px solid var(--line);
@@ -595,16 +614,16 @@
       transition: border-color 150ms ease;
     }
 
-    .delma-action-input:focus {
+    .action-slot-input:focus {
       border-color: rgba(143, 0, 0, 0.2);
     }
 
-    .delma-action-input::placeholder {
+    .action-slot-input::placeholder {
       color: var(--muted);
       opacity: 0.5;
     }
 
-    .delma-action-apply {
+    .action-slot-apply {
       padding: 8px 14px;
       border-radius: 7px;
       border: none;
@@ -617,21 +636,8 @@
       transition: background 120ms ease;
     }
 
-    .delma-action-apply:hover {
+    .action-slot-apply:hover {
       background: var(--ink-secondary);
-    }
-
-    /* Fade in/out */
-    .delma-action-block.entering {
-      opacity: 0;
-    }
-
-    .delma-action-block.visible {
-      opacity: 1;
-    }
-
-    .delma-action-block.exiting {
-      opacity: 0;
     }
 
     /* ── Change highlight in editor ───────────────────────────────── */
@@ -1157,10 +1163,11 @@
         </div>
       </div>
 
-      <!-- Edit strip: kept hidden, used only for NL edit API key ref -->
-      <div id="edit-strip" hidden></div>
+      <!-- Action slot: fixed position between title and diagram. Never shifts layout. -->
+      <div id="action-slot" class="action-slot"></div>
 
-      <!-- Hidden elements used by JS but no longer in the visible header -->
+      <!-- Hidden elements -->
+      <div id="edit-strip" hidden></div>
       <input id="project-dir" type="hidden" />
       <button id="connect-btn" style="display:none;"></button>
 

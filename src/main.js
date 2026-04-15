@@ -419,78 +419,65 @@ function setupRealtimeSubscription() {
 
 // ── Diagram Mode ─────────────────────────────────────────────────────────────
 
-// ── Action Block — unified input above diagram ──────────────────────────────
-// Same spot, same structure. View mode: proactive question (rose tint).
-// Edit mode: general prompt (neutral). Never both at once.
+// ── Action Slot — fixed position between title and diagram ──────────────────
+// Same DOM element, same spot. Content swaps, position never changes.
+// View mode: proactive question (rose). Edit mode: general prompt (neutral).
 
-let currentActionBlock = null
+const actionSlot = document.getElementById('action-slot')
+let actionApplyHandler = null
 
 function removeActionBlock() {
-  if (currentActionBlock) {
-    currentActionBlock.classList.add('exiting')
-    const el = currentActionBlock
-    setTimeout(() => el.remove(), 400)
-    currentActionBlock = null
-  }
+  actionSlot.classList.remove('open')
+  actionApplyHandler = null
+  // Clear inner after transition
+  setTimeout(() => { actionSlot.innerHTML = '' }, 350)
 }
 
 function renderActionBlock(question, modeClass, onApply) {
-  removeActionBlock()
+  const placeholder = modeClass === 'mode-edit' ? 'Describe a change...' : 'Add detail...'
 
-  const stage = document.querySelector('.diagram-stage')
-  if (!stage) return
-
-  const block = document.createElement('div')
-  block.className = `delma-action-block ${modeClass} entering`
-  block.innerHTML = `
-    <div class="delma-action-question">${escapeHtml(question)}</div>
-    <div class="delma-action-row">
-      <input class="delma-action-input" type="text" placeholder="${modeClass === 'mode-edit' ? 'Describe a change...' : 'Add detail...'}" />
-      <button class="delma-action-apply">Apply</button>
+  actionSlot.innerHTML = `
+    <div class="action-slot-inner ${modeClass}">
+      <div class="action-slot-question">${escapeHtml(question)}</div>
+      <div class="action-slot-row">
+        <input class="action-slot-input" type="text" placeholder="${placeholder}" />
+        <button class="action-slot-apply">Apply</button>
+      </div>
     </div>
   `
 
-  stage.insertBefore(block, stage.firstChild)
-  currentActionBlock = block
+  // Open the slot (smooth max-height transition)
+  requestAnimationFrame(() => actionSlot.classList.add('open'))
 
-  // Fade in
-  requestAnimationFrame(() => {
-    block.classList.remove('entering')
-    block.classList.add('visible')
-  })
-
-  const input = block.querySelector('.delma-action-input')
-  const applyBtn = block.querySelector('.delma-action-apply')
+  const inner = actionSlot.querySelector('.action-slot-inner')
+  const input = actionSlot.querySelector('.action-slot-input')
+  const applyBtn = actionSlot.querySelector('.action-slot-apply')
 
   // Typing state — question recedes
   input.addEventListener('input', () => {
-    block.classList.toggle('typing', input.value.trim().length > 0)
+    inner.classList.toggle('typing', input.value.trim().length > 0)
   })
 
   // Apply handler
-  async function handleApply() {
+  actionApplyHandler = async function () {
     const value = input.value.trim()
     if (!value) return
 
     if (onApply) {
-      // Proactive question answer — append to current tab
       await onApply(value, question)
       removeActionBlock()
       renderWorkspace()
     } else {
-      // General edit — use NL edit pipeline
       await applyNaturalLanguageEdit(value)
       input.value = ''
-      block.classList.remove('typing')
+      inner.classList.remove('typing')
     }
   }
 
-  applyBtn.addEventListener('click', handleApply)
+  applyBtn.addEventListener('click', () => actionApplyHandler?.())
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); handleApply() }
+    if (e.key === 'Enter') { e.preventDefault(); actionApplyHandler?.() }
   })
-
-  return block
 }
 
 function setDiagramMode(mode) {
