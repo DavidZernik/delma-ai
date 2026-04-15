@@ -67,14 +67,16 @@ separate "diagram type" vs "document type" — just content.
 | Tab | Filename | What it answers | Default permission |
 |-----|----------|----------------|-------------------|
 | People | people.md | Who owns what? Who decides? | edit-all |
+| General Patterns and Docs | playbook.md | How work happens across projects | edit-all |
 
-### Project-level tabs
+### Project-level tabs (in tab-bar order, left to right)
 
 | Tab | Filename | Type | What it answers | Default permission |
 |-----|----------|------|----------------|-------------------|
-| Architecture | — | diagram | How does the system flow? | view-all |
-| Environment | environment.md | memory | IDs, DEs, journeys, automations | view-admins |
-| Session Log | session-log.md | memory | What's done? What's left? | private |
+| Project High Level | architecture (diagram_views) | markdown + Mermaid | How the system flows | view-all |
+| Project Details | decisions.md | memory | Decisions + actions, outline form | edit-all |
+| Files Locations and Keys | environment.md | memory | IDs, DEs, journeys, automations | view-admins |
+| My Notes | my-notes.md | memory | Personal scratchpad | private |
 
 ### MCP write routing
 
@@ -256,11 +258,47 @@ Timing: first check 30s after load, then every 5 minutes.
 User must be idle 3s before a question fires.
 Dismissed questions don't reappear for that tab.
 
-### Mermaid Diagrams
+### Mermaid Diagrams — typed visual vocabulary per tab
 
-Diagrams render with custom branding (cream/red palette), zoom
-controls, pinch-to-zoom, drag-to-pan. Inline Mermaid in markdown
-tabs is auto-rendered.
+Each tab type has its own shape + color + emoji vocabulary baked into
+the router system prompt, so future updates produce diagrams in the
+right style automatically.
+
+**Project High Level (SFMC architecture):**
+- Cylinders for Data Extensions, hexagons for Automations, stadiums for
+  Journeys, parallelograms for Emails, trapezoids for CloudPages,
+  diamonds for Decisions
+- Light color tints per category (DE blue, email beige, journey pink, etc.)
+- Emoji prefixes: 💾 ⚙️ 🔍 ⚡ 📧 🌐 🔀
+- Layer subgraphs group nodes by role ("Patient Source", "Daily Filter")
+- Floating italic labels next to each technical node
+
+**People (org charts):**
+- Outlined avatar placeholder circle inside every person node
+- Drag a photo onto the People tab → enter the person's name → photo is
+  uploaded to Supabase Storage and replaces the placeholder in the
+  matching node (no layout shift; same dimensions)
+- Shapes per role: rounded for ICs/managers, trapezoid for stakeholders,
+  cylinder for teams, parallelogram for vendors
+
+**General Patterns and Docs (process flows):**
+- 📝 process steps, 🚦 approval diamonds, ⏳ wait hexagons, ✅ actions,
+  📄 docs, 🚫 hard-rule diamonds with brand-red border
+
+### Zoom
+
+Every tab gets +/- zoom controls in the top-right of the card.
+Architecture's setZoom scales the SVG via transform + prose via CSS zoom.
+Markdown tabs use CSS `zoom` on the entire `.markdown-content` so text,
+tables, headings, and inline Mermaid SVGs all scale uniformly.
+
+### Loading
+
+`renderWorkspace()` hides `diagramOutput` (visibility:hidden + opacity 0)
+before any tab switch or refresh. Reveal happens only after the new
+content is fully prepared (Mermaid rendered, branding applied, layout
+settled via two rAFs). No flash of unstyled content. Init waits until
+real workspace data loads before revealing — no template flicker.
 
 ### Real-time Sync
 
@@ -320,6 +358,10 @@ Console logs with prefixes trace every operation:
 | `[delma router]` | Frontend | Unified fact router — tabs seen, routing decision, patches applied |
 | `[delma edit]` | Frontend | Manual NL edit entry point |
 | `[delma onApply]` | Frontend | Proactive question answer entry point |
+| `[delma photo]` | Frontend | People tab photo upload + injection |
+| `[delma reveal]` | Frontend | Hide / reveal cycle for tab content |
+| `[delma inline-zoom]` | Frontend | Zoom on markdown tabs (text + diagrams together) |
+| `[delma fit]` | Frontend | SVG natural width vs wrapper width measurements |
 | `[mcp]` | Server | All MCP tool calls with timing |
 | `[mcp sync]` | Server | Conversation sync patches |
 | `[delma-state]` | Server | Supabase CRUD operations + errors |

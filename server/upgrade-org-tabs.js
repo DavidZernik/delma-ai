@@ -19,13 +19,22 @@ Otherwise emoji + spaces break the lexer. Example:
 
 PEOPLE NODE VOCABULARY:
 
-| Concept                | Correct full syntax                                |
-|------------------------|-----------------------------------------------------|
-| Person (IC)            | NodeId(["👤 Name<br/>Role"]):::person               |
-| Manager / leader       | NodeId(["👔 Name<br/>Title"]):::manager             |
-| Stakeholder / external | NodeId[/"🤝 Name<br/>Role"\\\\]:::stakeholder         |
-| Team / group           | NodeId[("👥 Team Name")]:::team                     |
-| Vendor / contractor    | NodeId[/"🏢 Name"/]:::vendor                        |
+EVERY person/manager/stakeholder node label STARTS with an outlined
+placeholder avatar span. Required HTML inside the label:
+
+  <span class='avatar-placeholder'></span>
+
+Full node syntax:
+
+| Concept                | Correct full syntax                                                                                |
+|------------------------|-----------------------------------------------------------------------------------------------------|
+| Person (IC)            | NodeId(["<span class='avatar-placeholder'></span>Name<br/>Role"]):::person                          |
+| Manager / leader       | NodeId(["<span class='avatar-placeholder'></span>Name<br/>Title"]):::manager                        |
+| Stakeholder / external | NodeId[/"<span class='avatar-placeholder'></span>Name<br/>Role"\\\\]:::stakeholder                    |
+| Team / group           | NodeId[("<span class='avatar-placeholder'></span>Team Name")]:::team                                |
+| Vendor / contractor    | NodeId[/"<span class='avatar-placeholder'></span>Name"/]:::vendor                                   |
+
+Do NOT use emoji icons (👤 👔 🤝 👥 🏢) — the placeholder circle replaces them.
 
 REQUIRED classDef block at the END of every diagram:
   classDef person fill:#FAF6F0,stroke:#B8A88F,stroke-width:1.5px,color:#0F0A0A

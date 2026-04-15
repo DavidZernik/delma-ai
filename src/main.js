@@ -1094,8 +1094,9 @@ function stripMermaidConfig(code) {
 
 // Project-level tab labels (workspace-scoped)
 const MEMORY_TAB_LABELS = {
-  'environment.md': { title: 'Environment', desc: 'IDs, credentials, DEs, journeys, automations — everything in one place.' },
+  // Order here = order in the tab bar (right of Project High Level diagram tab)
   'decisions.md': { title: 'Project Details', desc: 'Decisions made + actions needed. Outline form.' },
+  'environment.md': { title: 'Files Locations and Keys', desc: 'IDs, credentials, DEs, journeys, automations — everything in one place.' },
   'my-notes.md': { title: 'My Notes', desc: 'Personal scratchpad — only you see this.' }
 }
 
@@ -1199,28 +1200,31 @@ function populateEditor(view) {
 // ── Render a memory file as a readable document ─────────────────────────────
 
 // Find the Mermaid node whose label contains `personName` (or their first
-// name) and inject an <img> tag at the start of the label so the photo
-// renders INSIDE that person's box.
+// name) and replace its avatar-placeholder span with an <img> tag so the
+// photo renders INSIDE that person's box at the same dimensions as the
+// placeholder (no layout shift).
 function injectPhotoIntoMermaid(content, personName, photoUrl) {
   const firstName = personName.split(/\s+/)[0]
-  const imgTag = `<img src='${photoUrl}' width='56' style='border-radius:50%;display:block;margin:0 auto 6px' />`
+  const imgTag = `<img src='${photoUrl}' class='node-photo' />`
 
-  // Match any quoted label inside a node. Mermaid label patterns we use:
-  //   ID["label"], ID(["label"]), ID[("label")], ID{{"label"}}, ID{"label"},
-  //   ID[/"label"/], ID[\"label"\], ID[["label"]]
-  // Capture the quoted label content and replace if it mentions the person.
+  // Match any quoted label inside a node and look for the placeholder span.
   const labelRegex = /"([^"]*?)"/g
   let replacedAny = false
   const newContent = content.replace(labelRegex, (full, label) => {
-    if (replacedAny) return full // only inject into the first matching node
+    if (replacedAny) return full
     const lower = label.toLowerCase()
-    const matchesFull = lower.includes(personName.toLowerCase())
-    const matchesFirst = lower.includes(firstName.toLowerCase())
-    if (!matchesFull && !matchesFirst) return full
-    if (label.includes('<img')) return full // already has a photo
+    if (!lower.includes(personName.toLowerCase()) && !lower.includes(firstName.toLowerCase())) return full
+    if (label.includes('node-photo')) return full // already has a photo
     replacedAny = true
     console.log('[delma photo] injecting into label:', label.substring(0, 60))
-    return `"${imgTag}${label}"`
+
+    // Replace the placeholder span with the photo. If no placeholder
+    // (older nodes), prepend the photo.
+    const placeholderRegex = /<span class=['"]avatar-placeholder['"]><\/span>/
+    const updatedLabel = placeholderRegex.test(label)
+      ? label.replace(placeholderRegex, imgTag)
+      : imgTag + label
+    return `"${updatedLabel}"`
   })
   return newContent
 }
@@ -1839,13 +1843,24 @@ they read together.
 
 PEOPLE TAB vocabulary (org charts, reporting structures):
 
-| Concept                | Correct full syntax                                |
-|------------------------|-----------------------------------------------------|
-| Person                 | NodeId(["👤 Name<br/>Role"]):::person               |
-| Manager / leader       | NodeId(["👔 Name<br/>Title"]):::manager             |
-| Stakeholder / external | NodeId[/"🤝 Name<br/>Role"\\]:::stakeholder         |
-| Team / group           | NodeId[("👥 Team Name")]:::team                     |
-| Vendor / contractor    | NodeId[/"🏢 Name"/]:::vendor                        |
+EVERY person/manager/stakeholder node label STARTS with an outlined
+placeholder avatar — a small circle that shows where their photo will
+go. When a photo is uploaded later, the system replaces this placeholder
+with the actual <img>. The placeholder HTML must be exactly:
+
+  <span class='avatar-placeholder'></span>
+
+So the full node syntax is:
+
+| Concept                | Correct full syntax                                                                       |
+|------------------------|--------------------------------------------------------------------------------------------|
+| Person                 | NodeId(["<span class='avatar-placeholder'></span>Name<br/>Role"]):::person                 |
+| Manager / leader       | NodeId(["<span class='avatar-placeholder'></span>Name<br/>Title"]):::manager               |
+| Stakeholder / external | NodeId[/"<span class='avatar-placeholder'></span>Name<br/>Role"\\]:::stakeholder           |
+| Team / group           | NodeId[("<span class='avatar-placeholder'></span>Team Name")]:::team                       |
+| Vendor / contractor    | NodeId[/"<span class='avatar-placeholder'></span>Name"/]:::vendor                          |
+
+Do NOT use emoji (👤 👔 🤝) for people — the placeholder circle replaces them.
 
 Required classDef block at the END of any People diagram:
   classDef person fill:#FAF6F0,stroke:#B8A88F,stroke-width:1.5px,color:#0F0A0A
