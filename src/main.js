@@ -842,11 +842,15 @@ async function renderDiagram(mermaidCode) {
     els.diagramOutput.className = ''
     els.diagramOutput.style.opacity = '0'
 
-    // Wrap SVG in zoom container with controls, plus a plain-english walkthrough below
+    // Plain-english walkthrough goes ABOVE the diagram — read it first, then look.
     currentZoom = 1
     const view = getActiveView()
     const walkthrough = view?.summary?.trim()
     els.diagramOutput.innerHTML = `
+      <div class="diagram-walkthrough" ${walkthrough ? '' : 'hidden'}>
+        <div class="walkthrough-label">How it works</div>
+        <div class="walkthrough-body markdown-body">${walkthrough ? marked.parse(walkthrough) : ''}</div>
+      </div>
       <div class="diagram-zoom-wrapper">
         <div class="diagram-zoom-canvas">${svg}</div>
       </div>
@@ -854,10 +858,6 @@ async function renderDiagram(mermaidCode) {
         <button class="zoom-btn" data-zoom="in" title="Zoom in">+</button>
         <div class="zoom-level">100%</div>
         <button class="zoom-btn" data-zoom="out" title="Zoom out">&minus;</button>
-      </div>
-      <div class="diagram-walkthrough" ${walkthrough ? '' : 'hidden'}>
-        <div class="walkthrough-label">How it works</div>
-        <div class="walkthrough-body markdown-body">${walkthrough ? marked.parse(walkthrough) : ''}</div>
       </div>
     `
 
@@ -1500,8 +1500,18 @@ Rules:
 - An input may update 0, 1, or multiple tabs.
 - Respect each tab's scope. Never put people info on an architecture diagram. Never put technical IDs on a People tab.
 - If the input replaces existing info on a tab (e.g. "Keyona IS the PM, there is no separate PM"), remove the stale info rather than duplicating.
-- For Mermaid diagrams: if you remove a node, also remove its edges. Reroute edges to consolidated nodes as needed.
 - If the input doesn't belong on any tab, return [].
+
+MERMAID DIAGRAM RULES:
+- If you remove a node, also remove its edges. Reroute edges to consolidated nodes as needed.
+- **EVERY node label MUST include a short plain-english description** as its last line, prefixed with "— " (em-dash + space). This helps non-technical readers understand what each node does.
+- Example node label (multi-line):
+    Auto["Automation
+    Birthday_Daily_Send_Refresh
+    5 AM CT daily
+    — kicks off every morning"]
+- The em-dash line should be short (3-8 words), human, no jargon.
+- Preserve existing descriptions when editing; only rewrite them if outdated.
 
 Return JSON array of updates. For each updated tab, return the COMPLETE new content:
 [
