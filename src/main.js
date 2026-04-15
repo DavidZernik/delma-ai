@@ -334,6 +334,7 @@ async function refreshWorkspace() {
 
   const active = getActiveView()
   state.previewMermaid = active?.mermaid || ''
+  console.log('[delma refresh] state updated, views:', state.views.length, 'activeView:', active?.view_key, 'mermaidLen:', state.previewMermaid.length)
   renderWorkspace()
 }
 
@@ -1047,6 +1048,7 @@ async function renderMemoryDocument(filename, isOrg = false) {
   } else {
     els.diagramOutput.hidden = false
     els.diagramEditor.classList.remove('visible')
+    console.log('[delma render] view mode markdown, file:', filename, 'contentLen:', content.length, 'first60:', content.substring(0, 60))
     els.diagramOutput.className = 'documentation-shell markdown-body'
     await renderMarkdownWithMermaid(els.diagramOutput, content.trim() || '*(empty)*')
   }
@@ -1096,6 +1098,7 @@ function renderWorkspace() {
 
   if (state.diagramMode !== 'edit') {
     const mermaidCode = state.previewMermaid || view.mermaid || ''
+    console.log('[delma render] view mode render, mermaidLen:', mermaidCode.length, 'first60:', mermaidCode.substring(0, 60))
     els.diagramOutput.className = ''
     void renderDiagram(mermaidCode)
   }
