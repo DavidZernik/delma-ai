@@ -836,29 +836,48 @@ async function renderDiagram(mermaidCode) {
     return true
   }
 
-  // NEW FORMAT: if the content is markdown-with-inline-mermaid (starts with
-  // "#" heading or contains a ```mermaid fence), render like other markdown
-  // tabs. Prose + diagram live in ONE editable document. No zoom controls.
+  // Detect unified format: markdown prose + a ```mermaid fence.
+  // We split it into three parts (prose-above, mermaid, prose-below)
+  // so we can render the diagram with FULL zoom/drag/pinch support
+  // while keeping the prose inline as rich markdown.
+  const fenceMatch = mermaidCode.match(/^([\s\S]*?)```mermaid\n([\s\S]*?)\n```([\s\S]*)$/)
   const isMarkdownFormat = /^(?:\s*---\n[\s\S]*?\n---\s*)?\s*(#|```mermaid)/.test(mermaidCode)
-  if (isMarkdownFormat) {
-    console.log('[delma render] diagram is markdown-with-inline-mermaid, rendering as markdown')
+
+  let proseAbove = ''
+  let mermaidOnly = mermaidCode
+  let proseBelow = ''
+
+  if (fenceMatch) {
+    proseAbove = fenceMatch[1].trim()
+    mermaidOnly = fenceMatch[2]
+    proseBelow = fenceMatch[3].trim()
+    console.log('[delma render] split: proseAbove len=' + proseAbove.length + ', mermaid len=' + mermaidOnly.length + ', proseBelow len=' + proseBelow.length)
+  } else if (isMarkdownFormat) {
+    // Markdown with no mermaid fence — prose only
+    console.log('[delma render] markdown prose only, no diagram')
     els.diagramOutput.className = 'documentation-shell markdown-body'
     els.diagramOutput.style.opacity = '1'
     await renderMarkdownWithMermaid(els.diagramOutput, mermaidCode)
     return true
+  } else {
+    console.log('[delma render] pure Mermaid (legacy), no prose')
   }
 
-  // LEGACY FORMAT: pure Mermaid (backward compat). Render with zoom controls.
-  console.log('[delma render] diagram is pure Mermaid, using zoom renderer')
+  // Render the Mermaid with full zoom/drag experience
   try {
     const renderId = `delma-diagram-${Date.now()}`
-    const normalizedCode = normalizeMermaidForRender(mermaidCode)
+    const normalizedCode = normalizeMermaidForRender(mermaidOnly)
     const { svg } = await mermaid.render(renderId, normalizedCode)
     els.diagramOutput.className = ''
     els.diagramOutput.style.opacity = '0'
 
     currentZoom = 1
+    // Optionally wrap with prose above/below
+    const aboveHtml = proseAbove ? `<div class="diagram-prose markdown-body above">${marked.parse(proseAbove)}</div>` : ''
+    const belowHtml = proseBelow ? `<div class="diagram-prose markdown-body below">${marked.parse(proseBelow)}</div>` : ''
+
     els.diagramOutput.innerHTML = `
+      ${aboveHtml}
       <div class="diagram-zoom-wrapper">
         <div class="diagram-zoom-canvas">${svg}</div>
       </div>
@@ -867,6 +886,7 @@ async function renderDiagram(mermaidCode) {
         <div class="zoom-level">100%</div>
         <button class="zoom-btn" data-zoom="out" title="Zoom out">&minus;</button>
       </div>
+      ${belowHtml}
     `
 
     // Wire up zoom buttons

@@ -680,6 +680,24 @@
       40% { opacity: 1; transform: scale(1.2); }
     }
 
+    /* ── Inline prose around the diagram (above + below the SVG) ──── */
+    .diagram-prose {
+      font-size: 14px;
+      line-height: 1.55;
+      color: var(--ink);
+      padding: 16px 20px;
+      background: rgba(216, 207, 196, 0.18);
+      border-left: 3px solid rgba(143, 0, 0, 0.35);
+      border-radius: 8px;
+    }
+    .diagram-prose.above { margin-bottom: 18px; }
+    .diagram-prose.below { margin-top: 18px; }
+    .diagram-prose p { margin: 6px 0; }
+    .diagram-prose h2 { font-size: 14px; font-weight: 700; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent); }
+    .diagram-prose h3 { font-size: 13px; font-weight: 600; margin: 12px 0 4px; }
+    .diagram-prose strong { font-weight: 600; }
+    .diagram-prose ul, .diagram-prose ol { margin: 8px 0; padding-left: 20px; }
+
     /* ── Diagram walkthrough — plain-english explanation below SVG ── */
     .diagram-walkthrough {
       margin-top: 20px;
