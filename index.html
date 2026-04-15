@@ -668,16 +668,17 @@
     }
 
     /* ── Change flash on view content ────────────────────────────── */
-    /* Applied to the inner content container (.diagram-zoom-canvas for   */
-    /* diagrams, .markdown-body for prose) so the red wash lands ON the   */
-    /* content itself, not around it.                                     */
+    /* Applied to the <svg> element for diagrams (so the red wash hugs    */
+    /* the diagram bounds, not the padded canvas) or to the diagramOutput */
+    /* for markdown prose.                                                */
     .content-updated-flash {
       animation: content-flash 4s ease-out;
+      border-radius: 8px;
     }
 
     @keyframes content-flash {
-      0%   { background-color: rgba(143, 0, 0, 0.22); }
-      15%  { background-color: rgba(143, 0, 0, 0.22); }
+      0%   { background-color: rgba(143, 0, 0, 0.25); }
+      20%  { background-color: rgba(143, 0, 0, 0.25); }
       100% { background-color: rgba(143, 0, 0, 0); }
     }
 

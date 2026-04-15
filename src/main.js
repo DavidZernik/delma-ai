@@ -379,14 +379,19 @@ function isCurrentTab(tabKey) {
   return false
 }
 
-// Flash the actual content container (inside the SVG for diagrams,
-// on the markdown body for prose) so the red wash lands on the content.
+// Flash the actual content container. For diagrams, target the <svg> directly
+// (the canvas div fills the whole zoom wrapper so its bg would show around
+// the diagram). For markdown, target the diagramOutput where the prose lives.
 function flashContentUpdate() {
-  const canvas = els.diagramOutput.querySelector('.diagram-zoom-canvas')
-  const target = canvas || els.diagramOutput
+  const svg = els.diagramOutput.querySelector('.diagram-zoom-canvas svg')
+  const target = svg || els.diagramOutput
+  const svgSize = svg ? { w: svg.getBoundingClientRect().width, h: svg.getBoundingClientRect().height } : null
+  console.log('[delma flash] target:', svg ? 'svg element' : 'diagramOutput (markdown)', 'svgSize:', svgSize)
   target.classList.add('content-updated-flash')
-  console.log('[delma flash] applied to', canvas ? '.diagram-zoom-canvas' : 'diagramOutput')
-  setTimeout(() => target.classList.remove('content-updated-flash'), 4100)
+  setTimeout(() => {
+    target.classList.remove('content-updated-flash')
+    console.log('[delma flash] removed after 4.1s')
+  }, 4100)
 }
 
 function handleRealtimeChange(table, payload) {
