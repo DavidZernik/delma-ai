@@ -400,7 +400,7 @@ function handleRealtimeChange(table, payload) {
         els.diagramOutput.style.transition = 'opacity 400ms ease'
         els.diagramOutput.style.opacity = '1'
         els.diagramOutput.classList.add('diagram-updated-flash')
-        setTimeout(() => els.diagramOutput.classList.remove('diagram-updated-flash'), 2100)
+        setTimeout(() => els.diagramOutput.classList.remove('diagram-updated-flash'), 4100)
         console.log('[delma realtime] view refreshed with flash')
       })
     }).catch(err => {
@@ -553,7 +553,7 @@ function renderActionBlock(question, modeClass, onApply) {
         els.diagramOutput.style.transition = 'opacity 400ms ease'
         els.diagramOutput.style.opacity = '1'
         els.diagramOutput.classList.add('diagram-updated-flash')
-        setTimeout(() => els.diagramOutput.classList.remove('diagram-updated-flash'), 2100)
+        setTimeout(() => els.diagramOutput.classList.remove('diagram-updated-flash'), 4100)
         console.log('[delma apply] view rendered with flash, content visible')
       })
       setWorkspaceStatus('Updated.')
