@@ -310,30 +310,39 @@
     }
 
     .mode-btn {
-      border: 0;
-      background: transparent;
-      color: var(--muted);
+      border: 1px solid var(--line);
+      background: #FFFFFF;
+      color: var(--ink);
       border-radius: 999px;
-      padding: 7px 12px;
-      font-size: 12px;
+      padding: 10px 20px;
+      font-size: 13px;
+      font-weight: 600;
       line-height: 1;
       white-space: nowrap;
+      cursor: pointer;
+      transition: background 140ms ease, border-color 140ms ease;
+    }
+
+    .mode-btn:hover {
+      border-color: #D4C4BD;
     }
 
     .mode-btn.active {
       background: var(--accent);
       color: var(--accent-ink);
+      border-color: var(--accent);
     }
 
     .mode-btn.primary {
-      background: var(--danger);
-      color: var(--danger-ink);
+      background: var(--accent);
+      color: var(--accent-ink);
+      border-color: var(--accent);
     }
 
     .diagram-stage {
       min-height: 0;
       overflow: auto;
-      padding: 20px max(24px, calc((100% - 1000px) / 2)) 24px;
+      padding: 24px max(24px, calc((100% - 1000px) / 2)) 56px;
       display: flex;
       justify-content: center;
       background: var(--bg);
@@ -364,18 +373,19 @@
     /* Diagram is its own white card sitting directly on cream. */
     /* Single white card holding prose + diagram. No internal seams. */
     .diagram-card {
+      position: relative;          /* anchor for zoom controls */
       margin-top: 28px;
+      margin-bottom: 40px;        /* breathing room above the page bottom */
       background: #FFFFFF;
-      border: 1px solid #E8D8D2;
+      border: 1.5px solid var(--accent);   /* dark red border — brand presence */
       border-radius: 12px;
       padding: 32px;
       box-sizing: border-box;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-      transition: border-color 200ms ease, box-shadow 200ms ease;
+      transition: box-shadow 200ms ease;
     }
     .diagram-card:hover {
-      border-color: #D4C4BD;
-      box-shadow: 0 3px 12px rgba(0, 0, 0, 0.06);
+      box-shadow: 0 4px 14px rgba(143, 0, 0, 0.08);
     }
 
     /* Inside the card the diagram zoom area is bare — no border, no shadow,
@@ -421,11 +431,11 @@
 
     .diagram-zoom-controls {
       position: absolute;
-      top: 4px;
-      right: 4px;
+      top: 24px;          /* more breathing room from the top edge */
+      right: 24px;        /* more breathing room from the right edge */
       display: flex;
       flex-direction: column;
-      gap: 2px;
+      gap: 4px;
       z-index: 5;
       align-items: flex-end;
     }
@@ -834,15 +844,20 @@
       display: none;
       width: 100%;
       min-height: 524px;
-      border: 0;
+      margin-top: 28px;
+      margin-bottom: 40px;
+      border: 1.5px solid var(--accent);
+      border-radius: 12px;
       resize: vertical;
-      background: transparent;
+      background: #FFFFFF;
       color: var(--ink);
       font-size: 13px;
       line-height: 1.6;
       font-family: "SF Mono", "JetBrains Mono", "Menlo", monospace;
       outline: none;
       box-sizing: border-box;
+      padding: 24px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
     }
 
     .diagram-editor.visible {
