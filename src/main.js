@@ -1654,14 +1654,50 @@ Rules:
 - If the input replaces existing info on a tab (e.g. "Keyona IS the PM, there is no separate PM"), remove the stale info rather than duplicating.
 - If the input doesn't belong on any tab, return [].
 
-INLINE DIAGRAM RULE (for any markdown tab — Playbook, People, My Notes, etc.):
+INLINE DIAGRAM RULE (for any markdown tab — People, Playbook, My Notes, etc.):
 - If the content describes a flow, sequence, approval chain, decision tree,
-  hierarchy, or multi-step relationship, consider including a \`\`\`mermaid
-  code fence alongside the prose. The fence renders as an inline diagram.
-- Don't force diagrams when prose is clearer (simple lists, single facts,
-  reminders).
-- When you do include one, use the same em-dash node-label style:
-  NodeId["Short technical name\\n— plain-english description"]
+  hierarchy, or multi-step relationship, include a \`\`\`mermaid code fence.
+- Don't force diagrams when prose is clearer (simple lists, single facts).
+- ALWAYS wrap labels in DOUBLE QUOTES inside the shape brackets.
+
+PEOPLE TAB vocabulary (org charts, reporting structures):
+
+| Concept                | Correct full syntax                                |
+|------------------------|-----------------------------------------------------|
+| Person                 | NodeId(["👤 Name<br/>Role"]):::person               |
+| Manager / leader       | NodeId(["👔 Name<br/>Title"]):::manager             |
+| Stakeholder / external | NodeId[/"🤝 Name<br/>Role"\\]:::stakeholder         |
+| Team / group           | NodeId[("👥 Team Name")]:::team                     |
+| Vendor / contractor    | NodeId[/"🏢 Name"/]:::vendor                        |
+
+Required classDef block at the END of any People diagram:
+  classDef person fill:#FAF6F0,stroke:#B8A88F,stroke-width:1.5px,color:#0F0A0A
+  classDef manager fill:#F5EFE6,stroke:#9F8C70,stroke-width:1.5px,color:#0F0A0A
+  classDef stakeholder fill:#F4F0EA,stroke:#A89887,stroke-width:1.5px,stroke-dasharray:4 3,color:#0F0A0A
+  classDef team fill:#FBEBEB,stroke:#C28080,stroke-width:1.5px,color:#0F0A0A
+  classDef vendor fill:#F2EBF5,stroke:#A18BB5,stroke-width:1.5px,color:#0F0A0A
+
+Reporting lines: solid arrow from manager to report (top-down).
+Collaboration lines: dotted -.->
+
+PLAYBOOK TAB vocabulary (process flows, approval paths, gotchas):
+
+| Concept                | Correct full syntax                                |
+|------------------------|-----------------------------------------------------|
+| Process step           | NodeId["📝 step name"]:::step                       |
+| Approval gate          | NodeId{"🚦 approval needed?"}:::approval            |
+| Wait / time delay      | NodeId{{"⏳ 48h wait"}}:::wait                       |
+| Action / outcome       | NodeId(["✅ action"]):::action                      |
+| Document / policy      | NodeId[/"📄 policy name"/]:::doc                    |
+| Hard rule / blocker    | NodeId{"🚫 rule"}:::rule                            |
+
+Required classDef block at the END of any Playbook diagram:
+  classDef step fill:#F4F1EC,stroke:#A89887,stroke-width:1.5px,color:#0F0A0A
+  classDef approval fill:#FAF1E5,stroke:#C9A878,stroke-width:1.5px,color:#0F0A0A
+  classDef wait fill:#F2F6FA,stroke:#7FA0BD,stroke-width:1.5px,stroke-dasharray:4 3,color:#0F0A0A
+  classDef action fill:#FFFFFF,stroke:#888,stroke-width:1.5px,color:#0F0A0A
+  classDef doc fill:#FCF8E8,stroke:#C9B864,stroke-width:1.5px,color:#0F0A0A
+  classDef rule fill:#FFFFFF,stroke:#8F0000,stroke-width:2px,color:#0F0A0A
 
 ARCHITECTURE DIAGRAM RULES (tabs typed "markdown-with-mermaid"):
 - The full document is markdown with an inline \`\`\`mermaid code fence.
