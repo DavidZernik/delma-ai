@@ -1349,16 +1349,62 @@ async function renderMemoryDocument(filename, isOrg = false) {
            <div class="drop-zone-label">Drag a photo here to add it to a person</div>
          </div>`
       : ''
-    els.diagramOutput.innerHTML = `<div class="diagram-card markdown-body">${dropZoneHtml}<div class="markdown-content"></div></div>`
+    els.diagramOutput.innerHTML = `
+      <div class="diagram-card markdown-body">
+        ${dropZoneHtml}
+        <div class="markdown-content"></div>
+        <div class="diagram-zoom-controls" hidden>
+          <button class="zoom-btn" data-zoom="in" title="Zoom in">+</button>
+          <div class="zoom-level">100%</div>
+          <button class="zoom-btn" data-zoom="out" title="Zoom out">&minus;</button>
+        </div>
+      </div>
+    `
     const card = els.diagramOutput.querySelector('.diagram-card')
     const contentEl = card.querySelector('.markdown-content')
     await renderMarkdownWithMermaid(contentEl, content.trim() || '*(empty)*')
+
+    // Show zoom controls only if this card has at least one inline mermaid SVG
+    const hasMermaid = card.querySelectorAll('.mermaid-inline svg').length > 0
+    const zoomCtrl = card.querySelector('.diagram-zoom-controls')
+    if (hasMermaid && zoomCtrl) {
+      zoomCtrl.hidden = false
+      zoomCtrl.querySelector('[data-zoom="in"]').addEventListener('click', () => setInlineZoom(card, currentInlineZoom + ZOOM_STEP))
+      zoomCtrl.querySelector('[data-zoom="out"]').addEventListener('click', () => setInlineZoom(card, currentInlineZoom - ZOOM_STEP))
+      currentInlineZoom = 1
+      console.log('[delma render] inline zoom controls wired,', card.querySelectorAll('.mermaid-inline svg').length, 'svg(s)')
+    }
 
     // Wire the drop zone if present
     if (isOrg && filename === 'people.md') {
       wirePhotoDropZone(card.querySelector('#people-drop'), filename, isOrg, row)
     }
   }
+}
+
+// Zoom for inline mermaid blocks inside markdown tabs (People, Playbook).
+// Different from the Architecture zoom which scales a single dedicated SVG;
+// here we scale ALL inline mermaid SVGs in the card uniformly via CSS transform.
+let currentInlineZoom = 1
+function setInlineZoom(card, level) {
+  currentInlineZoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, level))
+  for (const svg of card.querySelectorAll('.mermaid-inline svg')) {
+    svg.style.transformOrigin = 'top left'
+    svg.style.transform = `scale(${currentInlineZoom})`
+    // Reserve space so the scaled SVG doesn't overflow into other content
+    const baseWidth = parseFloat(svg.dataset.baseWidth || svg.getBoundingClientRect().width)
+    const baseHeight = parseFloat(svg.dataset.baseHeight || svg.getBoundingClientRect().height)
+    if (!svg.dataset.baseWidth) {
+      svg.dataset.baseWidth = String(baseWidth)
+      svg.dataset.baseHeight = String(baseHeight)
+    }
+    svg.parentElement.style.width = `${baseWidth * currentInlineZoom}px`
+    svg.parentElement.style.height = `${baseHeight * currentInlineZoom}px`
+    svg.parentElement.style.overflow = 'visible'
+  }
+  const label = card.querySelector('.diagram-zoom-controls .zoom-level')
+  if (label) label.textContent = `${Math.round(currentInlineZoom * 100)}%`
+  console.log('[delma inline-zoom] set to', currentInlineZoom.toFixed(2))
 }
 
 // ── Render the overview tab (diagrams + memory summary) ─────────────────────
