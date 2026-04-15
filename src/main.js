@@ -1763,30 +1763,20 @@ function renderOrgSelector() {
       }
     },
     onCreate: async (name) => {
-      console.log('[delma org] creating new org:', name)
-      // Create new org via Supabase. created_by is required by RLS policy.
-      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-      const { data: org, error } = await supabase
-        .from('organizations')
-        .insert({ name, slug, created_by: state.user.id })
-        .select()
-        .single()
-      if (error) {
-        console.error('[delma org] insert failed:', error)
-        alert(`Couldn't create organization: ${error.message}`)
-        throw new Error(error.message)
+      console.log('[delma org] creating new org via server:', name)
+      const res = await fetch('/api/create-org', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, userId: state.user.id })
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        console.error('[delma org] create failed:', data)
+        alert(`Couldn't create organization: ${data.error}`)
+        throw new Error(data.error)
       }
-      console.log('[delma org] created:', org)
-      // Add current user as admin (schema allows 'admin' or 'member')
-      const { error: memberErr } = await supabase
-        .from('org_members')
-        .insert({ org_id: org.id, user_id: state.user.id, role: 'admin' })
-      if (memberErr) {
-        console.error('[delma org] membership failed:', memberErr)
-        alert(`Org created but couldn't add you as admin: ${memberErr.message}`)
-        throw new Error(memberErr.message)
-      }
-      state.orgs.push({ ...org, orgRole: 'admin' })
+      console.log('[delma org] created:', data.org)
+      state.orgs.push({ ...data.org, orgRole: 'admin' })
       state.org = state.orgs[state.orgs.length - 1]
       state.workspaces = []
       state.workspaceId = null

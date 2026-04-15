@@ -98,6 +98,34 @@ const sb = createClient(process.env.SUPABASE_URL || '', process.env.SUPABASE_SER
   auth: { autoRefreshToken: false, persistSession: false }
 })
 
+// Create org + membership via service role (bypasses RLS edge cases on client).
+app.post('/api/create-org', async (req, res) => {
+  const { name, userId } = req.body
+  if (!name?.trim() || !userId) return res.status(400).json({ error: 'name and userId required' })
+  console.log('[server] create-org:', name, 'for user', userId)
+
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-' + Date.now().toString(36)
+  try {
+    const { data: org, error } = await sb
+      .from('organizations')
+      .insert({ name: name.trim(), slug, created_by: userId })
+      .select()
+      .single()
+    if (error) throw new Error(error.message)
+
+    const { error: memberErr } = await sb
+      .from('org_members')
+      .insert({ org_id: org.id, user_id: userId, role: 'admin' })
+    if (memberErr) throw new Error(memberErr.message)
+
+    console.log('[server] org created:', org.id)
+    res.json({ ok: true, org })
+  } catch (err) {
+    console.error('[server] create-org failed:', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
+
 app.post('/api/refresh-claude-md', async (req, res) => {
   let { workspaceId, userId } = req.body
   // If no workspaceId given, look up the user's active one
