@@ -6,17 +6,18 @@
   <title>Delma</title>
   <style>
     :root {
-      /* Layered cream/white system — cream for the world, white for objects */
-      --bg: #FFF6F2;              /* page — cream, sets the mood */
-      --chrome: #FFF6F2;          /* header/footer — matches page */
+      /* Strictly two surface colors: cream (page) + white (objects).
+         Dark red = intent only. No pink, no peach, no beige. */
+      --bg: #FFFDD0;              /* CREAM — the only background color */
+      --chrome: #FFFDD0;          /* matches bg */
       --panel: #FFFFFF;           /* cards, editors, mermaid — clean white */
-      --panel-soft: #FDF0EA;      /* subtle warmth — restrained use only */
+      --panel-soft: #FFFDD0;      /* hover/special — same cream, no pink */
       --ink: #1F1A1A;             /* primary text — sharp */
       --ink-secondary: #4a3f3d;   /* secondary text */
       --muted: #6B5A5A;           /* metadata, timestamps, helper text */
-      --line: #E8D8D2;            /* borders — structure without outlined feel */
-      --accent: #8F0000;          /* dark red — intent only: CTAs, active tab, accents */
-      --accent-soft: #F8D7D2;     /* soft rose — TEMPORARY emphasis only */
+      --line: #E8D8D2;            /* borders — kept warm-neutral for structure */
+      --accent: #8F0000;          /* dark red — intent only */
+      --accent-soft: #FFFDD0;     /* same cream — no pink as a base */
       --accent-ink: #ffffff;      /* white text on red */
       --accent-hover: #6E0000;    /* darker red for button hover */
       --positive: #2F6B5A;        /* success, confirmations */
@@ -95,7 +96,7 @@
       min-height: 0;
       overflow: hidden;
       border-right: 1px solid var(--line);
-      background: var(--panel-soft);
+      background: var(--bg);
     }
 
     .workspace-header {
@@ -229,9 +230,9 @@
     }
 
     .view-tab.active {
-      background: var(--accent-soft);
-      color: var(--accent);
-      border-color: rgba(143, 0, 0, 0.15);
+      background: var(--accent);
+      color: var(--accent-ink);
+      border-color: var(--accent);
     }
 
     .tab-update-dot {
@@ -320,8 +321,8 @@
     }
 
     .mode-btn.active {
-      background: var(--accent-soft);
-      color: var(--accent);
+      background: var(--accent);
+      color: var(--accent-ink);
     }
 
     .mode-btn.primary {
@@ -749,28 +750,30 @@
     .walkthrough-body li { margin: 4px 0; }
 
     /* ── Change flash on view content ────────────────────────────── */
-    /* Temporary soft rose tint ("look here briefly"), fades back to white. */
+    /* "Look here briefly" — pulse a dark red ring/shadow that fades.
+       No background color change, so we don't introduce pink to the UI. */
     .content-updated-flash {
       animation: content-flash 4s ease-out;
       border-radius: 8px;
     }
 
     @keyframes content-flash {
-      0%   { background-color: #F8D7D2; }
-      25%  { background-color: #F8D7D2; }
-      100% { background-color: #FFFFFF; }
+      0%   { box-shadow: 0 0 0 3px var(--accent), 0 0 14px rgba(143, 0, 0, 0.35); }
+      25%  { box-shadow: 0 0 0 3px var(--accent), 0 0 14px rgba(143, 0, 0, 0.35); }
+      100% { box-shadow: 0 0 0 0 transparent, 0 0 0 transparent; }
     }
 
     /* ── Change highlight in editor ───────────────────────────────── */
     /* Warm rose tint on changed lines, fades out after a moment.     */
 
+    /* Changed lines marker — solid red left bar, no pink fill. */
     .editor-highlight-overlay {
       position: absolute;
       left: 0;
       right: 0;
-      background: #F8D7D2;
+      background: transparent;
       pointer-events: none;
-      border-left: 3px solid var(--accent);
+      border-left: 4px solid var(--accent);
       transition: opacity 800ms ease 2s;
     }
 

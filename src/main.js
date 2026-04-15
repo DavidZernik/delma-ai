@@ -33,25 +33,25 @@ mermaid.initialize({
   layout: 'elk',
   flowchart: { curve: 'basis', padding: 20, nodeSpacing: 40, rankSpacing: 60 },
   themeVariables: {
-    primaryColor: '#FBF7F2',       // node fill — light warm white
-    primaryTextColor: '#1A1A1A',   // node text
-    primaryBorderColor: '#D8CFC4', // node border — warm defined edge
-    secondaryColor: '#FBF7F2',     // alt node fill — same family
-    secondaryTextColor: '#1A1A1A',
-    secondaryBorderColor: '#D8CFC4',
-    tertiaryColor: '#F5EDE4',      // background elements
-    tertiaryTextColor: '#1A1A1A',
-    tertiaryBorderColor: '#D8CFC4',
-    lineColor: '#7A0000',          // arrows — slightly deeper red, confident
-    textColor: '#1A1A1A',
+    primaryColor: '#FFFFFF',       // node fill — clean white
+    primaryTextColor: '#1F1A1A',
+    primaryBorderColor: '#E8D8D2', // warm-neutral border
+    secondaryColor: '#FFFFFF',
+    secondaryTextColor: '#1F1A1A',
+    secondaryBorderColor: '#E8D8D2',
+    tertiaryColor: '#FFFDD0',      // cream — only for cluster bg if needed
+    tertiaryTextColor: '#1F1A1A',
+    tertiaryBorderColor: '#E8D8D2',
+    lineColor: '#8F0000',          // arrows — dark red
+    textColor: '#1F1A1A',
     fontSize: '15px',
     fontFamily: '"Instrument Sans", "Avenir Next", "Segoe UI", sans-serif',
-    nodeBorder: '#D8CFC4',
-    nodeTextColor: '#1A1A1A',
-    mainBkg: '#FBF7F2',
-    edgeLabelBackground: '#FAF6F0',
-    clusterBkg: '#F5EDE4',
-    clusterBorder: '#D8CFC4'
+    nodeBorder: '#E8D8D2',
+    nodeTextColor: '#1F1A1A',
+    mainBkg: '#FFFFFF',
+    edgeLabelBackground: '#FFFFFF',
+    clusterBkg: '#FFFDD0',
+    clusterBorder: '#E8D8D2'
   }
 })
 
