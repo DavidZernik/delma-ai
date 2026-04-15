@@ -675,15 +675,40 @@ function applyDiagramBranding(svg) {
   }
 
   // Higher-contrast node text — near-black, slightly heavier weight.
-  // EXCLUDE notes (.node.note .nodeLabel) — they have their own classDef
-  // styling (12px italic muted) and Mermaid sized their foreignObject
-  // for that. Forcing 14px/600 on them causes text to overflow + clip.
+  // EXCLUDE notes — they have their own classDef styling (12px italic).
   for (const label of svg.querySelectorAll('.nodeLabel')) {
     if (label.closest('.node')?.classList.contains('note')) continue
     label.style.fontSize = '14px'
     label.style.fontWeight = '600'
     label.style.color = '#0F0A0A'
     label.style.fill = '#0F0A0A'
+  }
+
+  // Fix note clipping: Mermaid sometimes sizes the foreignObject narrower
+  // than the actual italic text needs. Stretch the foreignObject to match
+  // its container rect so the text isn't truncated mid-word.
+  for (const noteNode of svg.querySelectorAll('.node.note')) {
+    const containerRect = noteNode.querySelector('rect.basic.label-container')
+    const labelG = noteNode.querySelector('g.label')
+    const fo = noteNode.querySelector('foreignObject')
+    if (!containerRect || !fo || !labelG) continue
+
+    const containerW = parseFloat(containerRect.getAttribute('width') || 0)
+    if (!containerW) continue
+
+    const padding = 16   // give the text a little breathing room inside the rect
+    const newW = Math.max(containerW - padding, parseFloat(fo.getAttribute('width') || 0))
+    fo.setAttribute('width', String(newW))
+
+    // Re-center the label group inside the container
+    labelG.setAttribute('transform', `translate(${-newW / 2}, -9)`)
+
+    // Also override any inline max-width on the inner div that might clip
+    const innerDiv = fo.querySelector('div')
+    if (innerDiv) {
+      innerDiv.style.maxWidth = 'none'
+      innerDiv.style.width = `${newW}px`
+    }
   }
 }
 
