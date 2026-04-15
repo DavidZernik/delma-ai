@@ -61,19 +61,30 @@ separate "diagram type" vs "document type" — just content.
 
 ### Org-level tabs (shared across all projects)
 
-| Tab | What it answers | Default permission |
-|-----|----------------|-------------------|
-| SFMC Setup | Where do I find this ID/URL/key? | view-admins |
-| People | Who owns what? Who decides? | edit-all |
+| Tab | Filename | What it answers | Default permission |
+|-----|----------|----------------|-------------------|
+| People | people.md | Who owns what? Who decides? | edit-all |
 
 ### Project-level tabs
 
-| Tab | What it answers | Default permission |
-|-----|----------------|-------------------|
-| Architecture | How does the system flow? | view-all |
-| Campaign Logic | What are the business rules? | view-all |
-| Environment | Project-specific IDs and config | view-admins |
-| Session Log | What's done? What's left? | private (per user) |
+| Tab | Filename | Type | What it answers | Default permission |
+|-----|----------|------|----------------|-------------------|
+| Architecture | — | diagram | How does the system flow? | view-all |
+| Environment | environment.md | memory | IDs, DEs, journeys, automations | view-admins |
+| Session Log | session-log.md | memory | What's done? What's left? | private |
+
+### Known backend/frontend drift
+
+The backend `createWorkspace()` seeds two extra records that the UI
+never displays:
+
+- `logic.md` — seeded but not in `MEMORY_TAB_LABELS`. Dead data.
+- `people.md` at the workspace level — the UI reads People from
+  `org_memory_notes` (org level), so the workspace-level seed is orphaned.
+
+Cleanup: remove `logic.md` and `people.md` from `DEFAULT_MEMORY_CONTENT`
+in `server/delma-state.js`. Or add them back to the frontend if they
+were intended to be visible.
 
 ---
 
