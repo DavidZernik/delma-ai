@@ -1601,18 +1601,22 @@ ARCHITECTURE DIAGRAM RULES (tabs typed "markdown-with-mermaid"):
 - The full document is markdown with an inline \`\`\`mermaid code fence.
 - Typical structure:
     ## How it works
-    Plain-english paragraphs explaining the flow...
+    Plain-english paragraphs explaining the flow. Reference each node by
+    its technical name in **bold** so non-technical readers can map prose
+    to the diagram visually.
 
     ## Diagram
     \`\`\`mermaid
     flowchart TD
       ...
     \`\`\`
-- Keep BOTH sections in sync. If you change the diagram, update the prose to match. If the user adds information, update both if relevant.
-- In the Mermaid block:
-  - If you remove a node, also remove its edges.
-  - **EVERY node label MUST include a plain-english description** as its last line, prefixed with "— " (em-dash + space). 3-8 words, human, no jargon.
-  - Example: Auto["Automation\\nBirthday_Daily_Send_Refresh\\n5 AM CT daily\\n— kicks off every morning"]
+- Keep BOTH sections in sync. If the diagram changes, the prose must too.
+- The "How it works" prose IS the human explanation. Do NOT add em-dash
+  plain-english lines inside the Mermaid nodes — keep node labels concise
+  and technical (name + key detail only). The prose covers the rest.
+- Example node label (concise):
+    Auto["Automation\\nBirthday_Daily_Send_Refresh\\n5 AM CT daily"]
+- If you remove a node from the diagram, also remove its edges.
 - Return the COMPLETE markdown document (both prose and fenced Mermaid) as newContent.
 
 Return JSON array of updates. For each updated tab, return the COMPLETE new content:
