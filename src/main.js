@@ -1074,7 +1074,7 @@ function stripMermaidConfig(code) {
 // Project-level tab labels (workspace-scoped)
 const MEMORY_TAB_LABELS = {
   'environment.md': { title: 'Environment', desc: 'IDs, credentials, DEs, journeys, automations — everything in one place.' },
-  'decisions.md': { title: 'Project Logs', desc: 'Decisions made + actions needed. Outline form.' },
+  'decisions.md': { title: 'Project Details', desc: 'Decisions made + actions needed. Outline form.' },
   'my-notes.md': { title: 'My Notes', desc: 'Personal scratchpad — only you see this.' }
 }
 

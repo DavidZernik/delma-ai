@@ -93,7 +93,7 @@ export async function getUserRole(workspaceId, userId) {
 const DEFAULT_VIEWS = [
   {
     view_key: 'architecture',
-    title: 'Architecture',
+    title: 'Project High Level',
     kind: 'architecture',
     description: 'How the systems, code assets, integrations, and automation surfaces work together.',
     summary: 'Use this to explain how the technical pieces fit together.',
