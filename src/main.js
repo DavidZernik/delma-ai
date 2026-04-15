@@ -489,59 +489,51 @@ function renderActionBlock(question, modeClass, onApply) {
       if (onApply) {
         console.log('[delma apply] calling onApply (proactive question)...')
         await onApply(value, question)
-        console.log('[delma apply] onApply done')
-
-        // Switch to view mode (acts like save)
-        if (state.diagramMode === 'edit') {
-          setDiagramMode('view')
-        }
-
-        // Collapse the action block
-        removeActionBlock()
-
-        // Fetch fresh data and show with flash
-        els.diagramOutput.style.transition = 'none'
-        els.diagramOutput.style.opacity = '0'
-
-        await refreshWorkspace()
-
-        requestAnimationFrame(() => {
-          els.diagramOutput.style.transition = 'opacity 400ms ease'
-          els.diagramOutput.style.opacity = '1'
-          els.diagramOutput.classList.add('diagram-updated-flash')
-          setTimeout(() => els.diagramOutput.classList.remove('diagram-updated-flash'), 2100)
-        })
+        console.log('[delma apply] onApply done, data saved to Supabase')
       } else {
         console.log('[delma apply] calling applyNaturalLanguageEdit...')
         await applyNaturalLanguageEdit(value)
         console.log('[delma apply] NL edit done, showing highlights in editor')
 
-        // Show highlighted changes in editor for 1.5s, then auto-save and switch to view
+        // Show highlighted changes in editor for 1.5s before switching
         console.log('[delma apply] pausing 1.5s to show editor highlights...')
         await new Promise(r => setTimeout(r, 1500))
 
         console.log('[delma apply] saving current tab...')
         await saveCurrentTab()
-        console.log('[delma apply] save done, switching to view mode')
-
-        setDiagramMode('view')
-        removeActionBlock()
-
-        els.diagramOutput.style.transition = 'none'
-        els.diagramOutput.style.opacity = '0'
-
-        console.log('[delma apply] refreshing workspace...')
-        await refreshWorkspace()
-
-        requestAnimationFrame(() => {
-          els.diagramOutput.style.transition = 'opacity 400ms ease'
-          els.diagramOutput.style.opacity = '1'
-          els.diagramOutput.classList.add('diagram-updated-flash')
-          setTimeout(() => els.diagramOutput.classList.remove('diagram-updated-flash'), 2100)
-          console.log('[delma apply] view rendered with flash')
-        })
-        setWorkspaceStatus('Updated.')
+        console.log('[delma apply] save done')
       }
+
+      // Both paths land here: hide everything, fetch fresh, show view with flash
+      console.log('[delma apply] hiding output, switching to view...')
+      removeActionBlock()
+      els.diagramOutput.style.transition = 'none'
+      els.diagramOutput.style.opacity = '0'
+      els.diagramEditor.classList.remove('visible')
+      els.diagramOutput.hidden = false
+
+      console.log('[delma apply] fetching fresh data from Supabase...')
+      await refreshWorkspace()
+
+      // Now set view mode AFTER fresh data is loaded (so renderWorkspace uses new content)
+      state.diagramMode = 'view'
+      els.modeToggle.hidden = false
+      els.viewModeBtn.hidden = true
+      els.editModeBtn.textContent = 'Edit'
+      els.editModeBtn.classList.remove('primary')
+      els.editModeBtn.classList.add('active')
+      console.log('[delma apply] view mode set, rendering fresh content...')
+
+      renderWorkspace()
+
+      requestAnimationFrame(() => {
+        els.diagramOutput.style.transition = 'opacity 400ms ease'
+        els.diagramOutput.style.opacity = '1'
+        els.diagramOutput.classList.add('diagram-updated-flash')
+        setTimeout(() => els.diagramOutput.classList.remove('diagram-updated-flash'), 2100)
+        console.log('[delma apply] view rendered with flash, content visible')
+      })
+      setWorkspaceStatus('Updated.')
     } catch (err) {
       console.error('[delma apply] error:', err)
       // Restore the prompt on error
