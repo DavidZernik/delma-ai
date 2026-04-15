@@ -1752,14 +1752,27 @@ function renderOrgSelector() {
     placeholder: 'No organizations',
     newLabel: '+ New organization…',
     onSelect: async (orgId) => {
+      console.log('[delma org] switching to', orgId)
       state.org = state.orgs.find(o => o.id === orgId) || null
+      state.orgMemory = {}
+      state.orgMemoryRows = []
       await loadWorkspaces()
+      console.log('[delma org] switched, workspaces:', state.workspaces.length)
+      renderOrgSelector()        // refresh active highlight
       renderProjectSelector()
       if (state.workspaces.length) {
         await openWorkspace(state.workspaces[0].id)
       } else {
+        // No projects yet — clear state and show an empty card
         state.workspaceId = null
+        state.views = []
+        state.memoryRows = []
+        state.memory = {}
+        if (els.viewTitle) els.viewTitle.textContent = state.org?.name || ''
+        if (els.viewDescription) els.viewDescription.textContent = 'No projects yet. Use the project dropdown to create one.'
+        if (els.viewProvenance) els.viewProvenance.textContent = ''
         renderWorkspace()
+        setWorkspaceStatus(`Switched to ${state.org?.name}. Add a project to get started.`)
       }
     },
     onCreate: async (name) => {
