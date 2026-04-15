@@ -1197,9 +1197,37 @@ function populateEditor(view) {
 
 // ── Render a memory file as a readable document ─────────────────────────────
 
+// Find the Mermaid node whose label contains `personName` (or their first
+// name) and inject an <img> tag at the start of the label so the photo
+// renders INSIDE that person's box.
+function injectPhotoIntoMermaid(content, personName, photoUrl) {
+  const firstName = personName.split(/\s+/)[0]
+  const imgTag = `<img src='${photoUrl}' width='56' style='border-radius:50%;display:block;margin:0 auto 6px' />`
+
+  // Match any quoted label inside a node. Mermaid label patterns we use:
+  //   ID["label"], ID(["label"]), ID[("label")], ID{{"label"}}, ID{"label"},
+  //   ID[/"label"/], ID[\"label"\], ID[["label"]]
+  // Capture the quoted label content and replace if it mentions the person.
+  const labelRegex = /"([^"]*?)"/g
+  let replacedAny = false
+  const newContent = content.replace(labelRegex, (full, label) => {
+    if (replacedAny) return full // only inject into the first matching node
+    const lower = label.toLowerCase()
+    const matchesFull = lower.includes(personName.toLowerCase())
+    const matchesFirst = lower.includes(firstName.toLowerCase())
+    if (!matchesFull && !matchesFirst) return full
+    if (label.includes('<img')) return full // already has a photo
+    replacedAny = true
+    console.log('[delma photo] injecting into label:', label.substring(0, 60))
+    return `"${imgTag}${label}"`
+  })
+  return newContent
+}
+
 // Drag-drop photo zone for the People tab. Drops upload to Supabase Storage
-// and append a markdown image reference to the People content. The user is
-// asked for the person's name via a prompt so we know who the photo is for.
+// and inject the photo into the matching person's node inside the Mermaid
+// org chart. The user is asked for the person's name via a prompt so we
+// know who to match.
 function wirePhotoDropZone(zone, filename, isOrg, row) {
   if (!zone) return
 
@@ -1233,13 +1261,17 @@ function wirePhotoDropZone(zone, filename, isOrg, row) {
     const photoUrl = urlData.publicUrl
     console.log('[delma photo] uploaded, public URL:', photoUrl)
 
-    // Append photo to the People markdown using a structured pattern
-    // the renderer + router both understand:
-    //   <!-- photo:Keyona Abbott -->
-    //   ![Keyona Abbott](https://...)
+    // Inject the photo INTO the matching person's node inside the Mermaid
+    // org chart. We find a node label containing the person's name (or
+    // their first name) and prepend an <img> tag to the label.
     const currentContent = isOrg ? state.orgMemory[filename] || '' : state.memory[filename] || ''
-    const photoBlock = `\n\n<!-- photo:${personName} -->\n![${personName}](${photoUrl})\n`
-    const newContent = currentContent.trimEnd() + photoBlock
+    const newContent = injectPhotoIntoMermaid(currentContent, personName, photoUrl)
+
+    if (newContent === currentContent) {
+      console.warn('[delma photo] no matching node found for', personName)
+      setWorkspaceStatus(`No node found for "${personName}". Add them to the org chart first, then drop the photo again.`)
+      return
+    }
 
     const table = isOrg ? 'org_memory_notes' : 'memory_notes'
     const filter = isOrg
@@ -1256,7 +1288,7 @@ function wirePhotoDropZone(zone, filename, isOrg, row) {
     }
 
     setWorkspaceStatus(`Photo added for ${personName}.`)
-    console.log('[delma photo] saved to', filename)
+    console.log('[delma photo] photo embedded in mermaid node')
     // Realtime will refresh the view automatically
   }
 
