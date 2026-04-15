@@ -49,6 +49,8 @@ import { generateClaudeMd } from './lib/summarizer.js'
 
 async function refreshClaudeMd() {
   if (!activeWorkspaceId || !activeUserId) return
+  console.log('[mcp] refreshClaudeMd starting, workspace:', activeWorkspaceId)
+  const t0 = Date.now()
   try {
     const [views, memory] = await Promise.all([
       readDiagramViews(activeWorkspaceId, activeUserId),
@@ -69,8 +71,9 @@ async function refreshClaudeMd() {
     // Write to working directory so Claude Code auto-loads it
     const cwd = process.env.DELMA_PROJECT_DIR || process.cwd()
     await writeFile(resolve(cwd, 'CLAUDE.md'), claudeMd, 'utf-8')
-  } catch {
-    // best-effort — don't crash the MCP server if summarization fails
+    console.log('[mcp] refreshClaudeMd done in', Date.now() - t0, 'ms, length:', claudeMd.length)
+  } catch (err) {
+    console.error('[mcp] refreshClaudeMd failed:', err.message)
   }
 }
 
@@ -83,12 +86,16 @@ let activeUserId = process.env.DELMA_USER_ID || null
 
 function withLogging(toolName, handler) {
   return async (args) => {
+    console.log(`[mcp] ${toolName} called`, JSON.stringify(args).substring(0, 200))
     const start = Date.now()
     let caughtError = null
     try {
-      return await handler(args)
+      const result = await handler(args)
+      console.log(`[mcp] ${toolName} done in ${Date.now() - start}ms`)
+      return result
     } catch (e) {
       caughtError = e
+      console.error(`[mcp] ${toolName} FAILED in ${Date.now() - start}ms:`, e.message)
       throw e
     } finally {
       void logMcpCall({
@@ -323,6 +330,7 @@ Pass a plain-English summary — the tool handles routing to the right tabs and 
   },
   withLogging('sync_conversation_summary', async ({ summary }) => {
     const { workspaceId, userId } = requireContext()
+    console.log('[mcp sync] summary:', summary.substring(0, 100), '...')
 
     // Read current workspace state
     const [views, memory] = await Promise.all([
@@ -388,10 +396,12 @@ Return [] if nothing needs updating. Return ONLY valid JSON, no explanation.`
       })
     })
 
+    console.log('[mcp sync] DeepSeek response:', res.status)
     if (!res.ok) return text({ ok: false, error: `DeepSeek returned ${res.status}` })
 
     const data = await res.json()
     let raw = data.choices?.[0]?.message?.content?.trim()
+    console.log('[mcp sync] raw patches:', raw?.substring(0, 200))
     if (!raw) return text({ ok: false, error: 'No response from DeepSeek' })
 
     // Strip code fences
@@ -434,6 +444,7 @@ Return [] if nothing needs updating. Return ONLY valid JSON, no explanation.`
         await sb.from('org_memory_notes').update({ content }).eq('id', tab.id)
       }
 
+      console.log('[mcp sync] patched:', update.tab, 'patches:', update.patches.length)
       results.push({ tab: update.tab, patchesApplied: update.patches.length })
     }
 

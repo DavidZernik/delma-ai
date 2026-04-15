@@ -82,12 +82,13 @@ export function canEdit(permission, ownerId, userId, role) {
  * Get the user's role in a workspace. Returns 'owner' or 'member'.
  */
 export async function getUserRole(workspaceId, userId) {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('workspace_members')
     .select('role')
     .eq('workspace_id', workspaceId)
     .eq('user_id', userId)
     .single()
+  if (error) console.error('[delma-state] getUserRole error:', error.message)
   return data?.role || 'member'
 }
 
@@ -206,14 +207,16 @@ export async function getDiagramView(workspaceId, viewKey, userId) {
 }
 
 export async function saveDiagramView(workspaceId, viewKey, updates, userId, reason) {
+  console.log('[delma-state] saveDiagramView:', viewKey, 'updates:', Object.keys(updates))
   // Find existing view
-  const { data: existing } = await supabase
+  const { data: existing, error: findErr } = await supabase
     .from('diagram_views')
     .select('id')
     .eq('workspace_id', workspaceId)
     .eq('view_key', viewKey)
     .or(`visibility.eq.shared,owner_id.eq.${userId}`)
     .single()
+  if (findErr && findErr.code !== 'PGRST116') console.error('[delma-state] saveDiagramView find error:', findErr.message)
 
   const payload = {
     workspace_id: workspaceId,
@@ -266,6 +269,7 @@ export async function readMemoryMap(workspaceId, userId) {
 }
 
 export async function appendMemoryNote(workspaceId, filename, note, heading, userId) {
+  console.log('[delma-state] appendMemoryNote:', filename, 'heading:', heading, 'noteLen:', note.length)
   const visibility = VISIBILITY_RULES[filename] || 'shared'
 
   // Find existing note
@@ -369,19 +373,16 @@ export async function logMcpCall({ workspaceId, userId, tool, input, durationMs,
 
 // ── CLAUDE.md Generation ─────────────────────────────────────────────────────
 
-// CLAUDE.md is now a static behavior file — no dynamic content.
-// Workspace context is loaded via hook at session start.
-export function buildClaudeMd() {
-  return `# Delma Workspace
-
-Write to Delma when the user confirms a fact:
-- \`append_memory_note\` for people, logic, environment, or session updates
-- \`save_diagram_view\` for architecture or diagram changes
-
-Only write confirmed facts. Never write inferences. Batch updates.
-`
-}
-
-export async function composeClaudeMd() {
-  return buildClaudeMd()
+// CLAUDE.md is now maintained manually as a static behavior file.
+// composeClaudeMd returns the static content from the summarizer.
+export async function composeClaudeMd(workspaceId, userId) {
+  console.log('[delma-state] composeClaudeMd called, workspace:', workspaceId)
+  const { readFile } = await import('fs/promises')
+  const { resolve } = await import('path')
+  try {
+    const cwd = process.env.DELMA_PROJECT_DIR || process.cwd()
+    return await readFile(resolve(cwd, 'CLAUDE.md'), 'utf-8')
+  } catch {
+    return '# Delma Workspace\n\nNo CLAUDE.md found.'
+  }
 }

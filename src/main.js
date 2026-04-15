@@ -176,17 +176,21 @@ function setAuthUi(authenticated) {
 }
 
 async function checkAuth() {
+  console.log('[delma auth] checking...')
   const { data: { user } } = await supabase.auth.getUser()
   state.user = user
   setAuthUi(!!user)
+  console.log('[delma auth]', user ? `logged in: ${user.email}` : 'not logged in')
   return user
 }
 
 async function login(email, password) {
+  console.log('[delma auth] login attempt:', email)
   const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-  if (error) throw new Error(error.message)
+  if (error) { console.error('[delma auth] login failed:', error.message); throw new Error(error.message) }
   state.user = data.user
   setAuthUi(true)
+  console.log('[delma auth] login success:', data.user.email)
   return data.user
 }
 
@@ -275,10 +279,12 @@ async function createWorkspace(name) {
 }
 
 async function openWorkspace(workspaceId) {
+  console.log('[delma workspace] opening:', workspaceId)
   state.workspaceId = workspaceId
   dismissedTabs.clear()  // Reset dismissed prompts for new workspace
   await refreshWorkspace()
   setupRealtimeSubscription()
+  console.log('[delma workspace] open complete, views:', state.views.length, 'realtime subscribed')
 
   // Track active workspace so the hook auto-loads it next session
   if (state.org?.id) {
@@ -295,7 +301,13 @@ async function openWorkspace(workspaceId) {
 // ── Data Loading ─────────────────────────────────────────────────────────────
 
 async function refreshWorkspace() {
-  if (!state.workspaceId || !state.user) return
+  if (!state.workspaceId || !state.user) {
+    console.log('[delma refresh] skipped — no workspace or user')
+    return
+  }
+
+  console.log('[delma refresh] fetching from Supabase, workspace:', state.workspaceId)
+  const t0 = performance.now()
 
   // Fetch workspace + org data + user's role in parallel
   const queries = [
@@ -314,6 +326,13 @@ async function refreshWorkspace() {
   }
 
   const results = await Promise.all(queries)
+
+  // Check for errors on each query
+  const labels = ['diagram_views', 'memory_notes', 'history', 'workspace', 'membership']
+  results.forEach((r, i) => {
+    if (r.error) console.error(`[delma refresh] ${labels[i] || 'org_memory'} query error:`, r.error.message)
+  })
+
   const [{ data: views }, { data: memoryRows }, { data: history }, { data: ws }, { data: membership }] = results
   const orgMemoryRows = results[5]?.data || []
 
@@ -334,7 +353,7 @@ async function refreshWorkspace() {
 
   const active = getActiveView()
   state.previewMermaid = active?.mermaid || ''
-  console.log('[delma refresh] state updated, views:', state.views.length, 'activeView:', active?.view_key, 'mermaidLen:', state.previewMermaid.length)
+  console.log('[delma refresh] done in', Math.round(performance.now() - t0), 'ms | views:', state.views.length, 'memory:', Object.keys(state.memory).length, 'orgMemory:', Object.keys(state.orgMemory).length, 'activeView:', active?.view_key, 'mermaidLen:', state.previewMermaid.length)
   renderWorkspace()
 }
 
@@ -376,7 +395,7 @@ function handleRealtimeChange(table, payload) {
     // View mode — fade and re-render
     els.diagramOutput.style.transition = 'opacity 150ms ease'
     els.diagramOutput.style.opacity = '0.3'
-    void refreshWorkspace().then(() => {
+    refreshWorkspace().then(() => {
       requestAnimationFrame(() => {
         els.diagramOutput.style.transition = 'opacity 400ms ease'
         els.diagramOutput.style.opacity = '1'
@@ -384,17 +403,21 @@ function handleRealtimeChange(table, payload) {
         setTimeout(() => els.diagramOutput.classList.remove('diagram-updated-flash'), 2100)
         console.log('[delma realtime] view refreshed with flash')
       })
+    }).catch(err => {
+      console.error('[delma realtime] refresh failed:', err)
+      els.diagramOutput.style.opacity = '1'
     })
   } else {
     // Different tab — mark it with a dot
     tabsWithUpdates.add(tabKey)
     renderViewTabs()
-    void refreshWorkspace()
+    refreshWorkspace().catch(err => console.error('[delma realtime] bg refresh failed:', err))
     console.log('[delma realtime] inactive tab dotted:', tabKey)
   }
 }
 
 function setupRealtimeSubscription() {
+  console.log('[delma realtime] setting up subscriptions for workspace:', state.workspaceId, 'org:', state.org?.id)
   if (realtimeChannel) supabase.removeChannel(realtimeChannel)
 
   realtimeChannel = supabase
@@ -1142,6 +1165,7 @@ function updateActiveViewFromEditor() {
 
 async function saveCurrentTab() {
   if (!state.workspaceId) return
+  console.log('[delma save] saving tab:', state.activeTopTab, state.activeMemoryFile || state.activeViewKey)
 
   // Save org-level memory tab
   if (state.activeTopTab === 'orgMemory') {
@@ -1608,6 +1632,7 @@ flowchart LR
 // ── Init ─────────────────────────────────────────────────────────────────────
 
 async function init() {
+  console.log('[delma init] starting...')
   els.sdkStatus.textContent = 'Checking auth...'
   els.connectBtn.textContent = 'Open Workspace'
   els.input.disabled = true
@@ -1622,17 +1647,22 @@ async function init() {
   const user = await checkAuth()
 
   if (user) {
+    console.log('[delma init] loading orgs and workspaces...')
     await loadOrgs()
     await loadWorkspaces()
+    console.log('[delma init] orgs:', state.orgs.length, 'workspaces:', state.workspaces.length)
     renderOrgSelector()
     renderProjectSelector()
 
     if (state.workspaces.length) {
+      console.log('[delma init] opening first workspace:', state.workspaces[0].name)
       await openWorkspace(state.workspaces[0].id)
     } else {
+      console.log('[delma init] no workspaces found')
       setWorkspaceStatus('Create a project to get started.')
     }
   }
+  console.log('[delma init] complete')
 }
 
 // ── Proactive Prompt Engine ──────────────────────────────────────────────────
@@ -1676,9 +1706,11 @@ function getCurrentTabKey() {
 }
 
 async function askDeepSeekForGap(content, tabTitle) {
+  console.log('[delma gap] checking for gaps in:', tabTitle, 'contentLen:', content.length)
   const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY
-  if (!apiKey) return null
+  if (!apiKey) { console.log('[delma gap] no API key'); return null }
 
+  const t0 = performance.now()
   try {
     const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
       method: 'POST',
@@ -1692,12 +1724,18 @@ async function askDeepSeekForGap(content, tabTitle) {
         }]
       })
     })
+    console.log('[delma gap] DeepSeek response:', res.status, 'in', Math.round(performance.now() - t0), 'ms')
     if (!res.ok) return null
     const data = await res.json()
     const answer = data.choices?.[0]?.message?.content?.trim()
-    if (!answer || answer === 'NONE' || answer.length > 120) return null
+    if (!answer || answer === 'NONE' || answer.length > 120) {
+      console.log('[delma gap] no question (NONE or empty)')
+      return null
+    }
+    console.log('[delma gap] question:', answer)
     return answer
-  } catch {
+  } catch (err) {
+    console.error('[delma gap] error:', err.message)
     return null
   }
 }
@@ -1787,11 +1825,13 @@ function showPrompt(question, tabKey) {
 
   // Stop polling while a question is visible — prevents re-rendering the block
   if (promptTimer) { clearInterval(promptTimer); promptTimer = null }
+  console.log('[delma prompt] showing question:', question, 'mode:', modeClass, 'tabKey:', tabKey)
 
   renderActionBlock(question, modeClass, onApply)
 
   // Auto-dismiss after 25 seconds — revert based on mode, restart polling
   activePromptTimer = setTimeout(() => {
+    console.log('[delma prompt] auto-dismissed after 25s, tabKey:', tabKey)
     if (state.diagramMode === 'edit') {
       // Revert to general edit prompt
       renderActionBlock('What do you want to update?', 'mode-edit')
@@ -1805,13 +1845,14 @@ function showPrompt(question, tabKey) {
 }
 
 async function maybeShowPrompt() {
+  console.log('[delma prompt] maybeShowPrompt tick, workspace:', !!state.workspaceId, 'mode:', state.diagramMode)
   if (!state.workspaceId) return
-  if (state.diagramMode === 'edit') return
+  if (state.diagramMode === 'edit') { console.log('[delma prompt] skipped (edit mode)'); return }
 
   const tabKey = getCurrentTabKey()
-  if (!tabKey || dismissedTabs.has(tabKey)) return
+  if (!tabKey || dismissedTabs.has(tabKey)) { console.log('[delma prompt] skipped (no tab or dismissed):', tabKey); return }
 
-  if (Date.now() - lastActivity < 3000) return
+  if (Date.now() - lastActivity < 3000) { console.log('[delma prompt] skipped (user active)'); return }
 
   const content = getCurrentTabContent()
   if (!content || content.length < 20) return
@@ -1830,11 +1871,16 @@ async function maybeShowPrompt() {
 }
 
 function startPromptEngine() {
+  console.log('[delma prompt] engine starting — first check in 30s, then every 5min')
   if (promptTimer) clearInterval(promptTimer)
   setTimeout(() => {
+    console.log('[delma prompt] first tick firing')
     maybeShowPrompt()
     promptTimer = setInterval(maybeShowPrompt, 5 * 60 * 1000)
   }, 30000)
 }
 
-void init().then(() => startPromptEngine()).catch(err => console.error('[delma] INIT CRASHED:', err))
+void init().then(() => {
+  console.log('[delma] init done, starting prompt engine')
+  startPromptEngine()
+}).catch(err => console.error('[delma] INIT CRASHED:', err))
