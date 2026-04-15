@@ -1763,17 +1763,37 @@ function renderOrgSelector() {
       }
     },
     onCreate: async (name) => {
-      // Create new org via Supabase
-      const { data: org, error } = await supabase.from('organizations').insert({ name, slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-') }).select().single()
-      if (error) throw new Error(error.message)
-      // Add current user as owner
-      await supabase.from('org_members').insert({ org_id: org.id, user_id: state.user.id, role: 'owner' })
-      state.orgs.push({ ...org, orgRole: 'owner' })
+      console.log('[delma org] creating new org:', name)
+      // Create new org via Supabase. created_by is required by RLS policy.
+      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+      const { data: org, error } = await supabase
+        .from('organizations')
+        .insert({ name, slug, created_by: state.user.id })
+        .select()
+        .single()
+      if (error) {
+        console.error('[delma org] insert failed:', error)
+        alert(`Couldn't create organization: ${error.message}`)
+        throw new Error(error.message)
+      }
+      console.log('[delma org] created:', org)
+      // Add current user as admin (schema allows 'admin' or 'member')
+      const { error: memberErr } = await supabase
+        .from('org_members')
+        .insert({ org_id: org.id, user_id: state.user.id, role: 'admin' })
+      if (memberErr) {
+        console.error('[delma org] membership failed:', memberErr)
+        alert(`Org created but couldn't add you as admin: ${memberErr.message}`)
+        throw new Error(memberErr.message)
+      }
+      state.orgs.push({ ...org, orgRole: 'admin' })
       state.org = state.orgs[state.orgs.length - 1]
-      await loadWorkspaces()
+      state.workspaces = []
+      state.workspaceId = null
       renderOrgSelector()
       renderProjectSelector()
-      setWorkspaceStatus(`Created organization "${name}".`)
+      renderWorkspace()
+      setWorkspaceStatus(`Created organization "${name}". Add a project to get started.`)
     }
   })
 }
