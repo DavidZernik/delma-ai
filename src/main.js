@@ -1457,11 +1457,19 @@ async function claudeHaikuDiagramEdit(currentContent, instruction) {
       body: JSON.stringify({
         model: 'claude-haiku-4-5',
         max_tokens: 2000,
-        system: `You are editing a Mermaid flowchart diagram. Think holistically:
+        system: `You are editing a Mermaid flowchart diagram. This diagram represents a SYSTEM ARCHITECTURE: automations, data extensions, SQL queries, journeys, emails, cloudpages, and decision splits.
+
+STRICT SCOPE:
+- This diagram does NOT contain people, roles, owners, or ownership info. Those belong on a separate People tab.
+- Do NOT add nodes for humans, teams, or approval roles, even if the instruction mentions them.
+- If the instruction is about people or ownership, return the diagram UNCHANGED.
+
+STRUCTURAL RULES when you DO update:
 - If a node is removed, also remove all edges pointing to or from it.
-- If a role is being merged into another, redirect edges to the consolidated node.
+- If a role is merged into another, redirect edges to the consolidated node.
 - Orphaned nodes (no edges) should be removed unless they are standalone roots.
 - Preserve the existing style (flowchart TD vs LR, node shapes, labels).
+
 Respond with ONLY valid Mermaid syntax. No prose, no code fences, no explanation.`,
         user: `Apply this change: "${instruction}"
 
@@ -1846,13 +1854,37 @@ function showPrompt(question, tabKey) {
     // Route diagrams through Haiku (structural), markdown through DeepSeek patches (fast)
     const isMermaid = state.activeTopTab === 'diagram'
     const contentType = isMermaid ? 'mermaid diagram' : 'markdown document'
-    const instruction = `The user was asked: "${q}" and answered: "${answer}". Integrate this answer into the content. If the answer contradicts or replaces existing information, remove the old information rather than duplicating it.`
 
-    console.log('[delma onApply] routing:', isMermaid ? 'Haiku' : 'DeepSeek patches', 'table:', table)
+    // Tab scope — what this content IS, so we don't mix domains.
+    const tabScope = isMermaid
+      ? 'a system architecture diagram (automations, data extensions, journeys, emails, cloudpages, decision splits). It does NOT contain people, roles, or ownership info — those belong on the People tab.'
+      : state.activeTopTab === 'orgMemory' && state.activeMemoryFile === 'people.md'
+        ? 'a list of team members, roles, and ownership. It does NOT contain system architecture, IDs, or campaign logic.'
+        : state.activeMemoryFile === 'environment.md'
+          ? 'SFMC IDs, DEs, journey/automation keys, and technical configuration. It does NOT contain people or business rules.'
+          : 'a session log — status, decisions, pending items. Narrative only.'
+
+    const instruction = `The user was asked: "${q}" and answered: "${answer}".
+
+This document is ${tabScope}
+
+ONLY update this document if the user's answer is directly relevant to its scope.
+If the answer is about something that belongs on a DIFFERENT tab (e.g. people info on an Architecture tab), return the document UNCHANGED.
+If the answer contradicts or replaces existing information in scope, remove the old information rather than duplicating it.
+Do not add concepts that don't belong in this document type.`
+
+    console.log('[delma onApply] routing:', isMermaid ? 'Haiku' : 'DeepSeek patches', 'table:', table, 'scope:', tabScope.substring(0, 60))
     let updated = isMermaid
       ? await claudeHaikuDiagramEdit(currentContent, instruction)
       : await deepSeekPatchEdit(currentContent, instruction, contentType)
     if (!updated) { setWorkspaceStatus('Update failed.'); return }
+
+    // If nothing changed, tell the user — avoid silent no-ops
+    if (updated === currentContent) {
+      console.log('[delma onApply] answer was out of scope for this tab, no changes made')
+      setWorkspaceStatus('Your answer was about a different topic. Switch to the relevant tab to record it.')
+      return
+    }
 
     try {
 
