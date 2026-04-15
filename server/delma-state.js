@@ -24,30 +24,34 @@
 
 import { supabase } from './lib/supabase.js'
 
-// Project-level memory files. People lives in org_memory_notes, not here.
+// Project-level memory files. People and Playbook live in org_memory_notes.
 export const MEMORY_FILES = [
   'environment.md',
-  'session-log.md'
+  'session-log.md',
+  'my-notes.md'
 ]
 
 // Default permission for each memory file when creating a new workspace.
 // These encode the product opinion about what should be visible to whom.
-// Project-level memory tabs. People is at the org level (org_memory_notes),
-// not here. logic.md was removed — it was seeded but never shown in the UI.
+// Project-level memory tabs. People and Playbook are at the org level
+// (org_memory_notes). my-notes is per-user private.
 const DEFAULT_PERMISSIONS = {
   'environment.md': 'view-admins',  // has API keys — admins only
-  'session-log.md': 'private'       // personal per user
+  'session-log.md': 'private',      // shared project status
+  'my-notes.md': 'private'          // personal scratchpad, only owner sees
 }
 
 // Legacy visibility mapping (kept for backward compat with older workspace code)
 const VISIBILITY_RULES = {
   'environment.md': 'shared',
-  'session-log.md': 'private'
+  'session-log.md': 'private',
+  'my-notes.md': 'private'
 }
 
 const DEFAULT_MEMORY_CONTENT = {
   'environment.md': '# Environment\n\nSFMC Business Unit, MIDs, Data Extensions, Journeys, Automations, CloudPages, and other project-specific IDs and configuration.\n',
-  'session-log.md': '# Session Log\n\nCurrent status. What is done. What is pending. Recent decisions.\n'
+  'session-log.md': '# Session Log\n\nCurrent status. What is done. What is pending. Recent decisions.\n',
+  'my-notes.md': '# My Notes\n\nPersonal scratchpad — only you see this. Jot down questions, reminders, half-baked thoughts.\n'
 }
 
 // ── Permission Helpers ──────────────────────────────────────────────────────

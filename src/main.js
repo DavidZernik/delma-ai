@@ -973,12 +973,14 @@ function stripMermaidConfig(code) {
 // Project-level tab labels (workspace-scoped)
 const MEMORY_TAB_LABELS = {
   'environment.md': { title: 'Environment', desc: 'IDs, credentials, DEs, journeys, automations — everything in one place.' },
-  'session-log.md': { title: 'Session Log', desc: 'Current status, what\'s done, what\'s needed.' }
+  'session-log.md': { title: 'Session Log', desc: 'Current status, what\'s done, what\'s needed.' },
+  'my-notes.md': { title: 'My Notes', desc: 'Personal scratchpad — only you see this.' }
 }
 
 // Org-level tab labels (shared across all projects)
 const ORG_TAB_LABELS = {
-  'people.md': { title: 'People', desc: 'Team members, roles, ownership. Same across all projects.' }
+  'people.md': { title: 'People', desc: 'Team members, roles, ownership. Same across all projects.' },
+  'playbook.md': { title: 'Playbook', desc: 'How work actually happens here. Processes, approvals, unwritten rules.' }
 }
 
 // ── Render ───────────────────────────────────────────────────────────────────
@@ -1434,9 +1436,14 @@ async function routeAndPatchFact(input, questionContext = null) {
   // Project memory
   for (const row of state.memoryRows) {
     if (!row.content) continue
-    const scope = row.filename === 'environment.md'
-      ? 'SFMC IDs, DE names, journey/automation keys, technical config. NOT people or business rules.'
-      : 'Session log — status, decisions, pending items. Narrative history.'
+    const scope =
+      row.filename === 'environment.md'
+        ? 'SFMC IDs, DE names, journey/automation keys, technical config. NOT people or business rules.'
+      : row.filename === 'session-log.md'
+        ? 'Session log — shared status, decisions, pending items. Narrative history of the project.'
+      : row.filename === 'my-notes.md'
+        ? 'Personal private notes — only the current user sees this. Questions, reminders, half-baked thoughts. Route here only if the input is explicitly personal ("my note to self", "remind me to…") rather than shared project info.'
+      : 'General project note.'
     tabs.push({
       key: `memory:${row.filename}`,
       type: 'markdown',
@@ -1452,11 +1459,17 @@ async function routeAndPatchFact(input, questionContext = null) {
   // Org memory
   for (const row of state.orgMemoryRows) {
     if (!row.content) continue
+    const scope =
+      row.filename === 'people.md'
+        ? 'Team members, roles, ownership. NOT system architecture or IDs.'
+      : row.filename === 'playbook.md'
+        ? 'How work actually happens here: business processes, approval paths, unwritten rules, cultural norms, timing gotchas ("no Friday launches", "legal needs 48h"). NOT specific people details, NOT technical IDs.'
+      : 'Org-level note.'
     tabs.push({
       key: `org:${row.filename}`,
       type: 'markdown',
       title: ORG_TAB_LABELS[row.filename]?.title || row.filename,
-      scope: 'Team members, roles, ownership. NOT system architecture or IDs.',
+      scope,
       content: row.content,
       id: row.id,
       table: 'org_memory_notes'
