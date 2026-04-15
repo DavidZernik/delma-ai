@@ -91,7 +91,8 @@ const els = {
   editStrip: document.getElementById('edit-strip'),
   editStripInput: document.getElementById('edit-strip-input'),
   editStripSave: document.getElementById('edit-strip-save'),
-  editStripHint: document.getElementById('edit-strip-hint'),
+  editStripQuestion: document.getElementById('edit-strip-question'),
+  editStripInner: document.querySelector('.edit-strip-inner'),
   viewTabs: document.getElementById('view-tabs'),
   historyList: document.getElementById('history-list'),
   memoryList: document.getElementById('memory-list'),
@@ -438,8 +439,10 @@ function setDiagramMode(mode) {
   els.editStrip.hidden = mode !== 'edit'
   if (mode === 'edit') {
     els.editStripInput.value = ''
-    els.editStripHint.textContent = ''
-    els.editStripHint.classList.remove('visible')
+    els.editStripInput.placeholder = 'Describe a change...'
+    els.editStripQuestion.textContent = ''
+    els.editStripQuestion.classList.remove('visible')
+    els.editStripInner?.classList.remove('typing')
   }
 }
 
@@ -1186,6 +1189,43 @@ newProjectBtn.addEventListener('click', () => {
 // ── Natural Language Edit ─────────────────────────────────────────────────────
 // User describes a change in plain English. DeepSeek rewrites the content.
 
+/**
+ * Briefly highlight a range of lines in the textarea editor.
+ * Uses an absolute-positioned overlay with warm rose tint.
+ * Fades out after 3 seconds. Shows the user exactly what changed.
+ */
+function highlightEditorLines(firstLine, lastLine) {
+  const editor = els.diagramEditor
+  if (!editor) return
+
+  // Calculate pixel positions from line numbers
+  const lineHeight = parseFloat(getComputedStyle(editor).lineHeight) || 18
+  const paddingTop = parseFloat(getComputedStyle(editor).paddingTop) || 14
+
+  const top = paddingTop + (firstLine * lineHeight)
+  const height = ((lastLine - firstLine + 1) * lineHeight)
+
+  // Need a positioned parent
+  const parent = editor.parentElement
+  if (getComputedStyle(parent).position === 'static') parent.style.position = 'relative'
+
+  // Remove any existing highlight
+  parent.querySelectorAll('.editor-highlight-overlay').forEach(el => el.remove())
+
+  const overlay = document.createElement('div')
+  overlay.className = 'editor-highlight-overlay'
+  overlay.style.top = `${top}px`
+  overlay.style.height = `${height}px`
+  parent.appendChild(overlay)
+
+  // Scroll editor to show the changed region
+  editor.scrollTop = Math.max(0, top - 40)
+
+  // Fade out after 3 seconds
+  setTimeout(() => overlay.classList.add('fading'), 100)
+  setTimeout(() => overlay.remove(), 3500)
+}
+
 async function applyNaturalLanguageEdit(instruction) {
   if (!instruction?.trim()) return
 
@@ -1230,9 +1270,27 @@ async function applyNaturalLanguageEdit(instruction) {
     // Strip any code fences DeepSeek might add despite instructions
     updated = updated.replace(/^```(?:mermaid|markdown|md)?\n?/, '').replace(/\n?```$/, '')
 
+    // Diff: find which lines changed
+    const oldLines = currentContent.split('\n')
+    const newLines = updated.split('\n')
+    let firstChanged = -1
+    let lastChanged = -1
+    for (let i = 0; i < Math.max(oldLines.length, newLines.length); i++) {
+      if (oldLines[i] !== newLines[i]) {
+        if (firstChanged === -1) firstChanged = i
+        lastChanged = i
+      }
+    }
+
     // Apply to editor
     els.diagramEditor.value = updated
     els.editStripInput.value = ''
+
+    // Highlight changed region with warm rose tint
+    if (firstChanged >= 0) {
+      highlightEditorLines(firstChanged, lastChanged)
+    }
+
     setWorkspaceStatus('Change applied — review and save.')
   } catch (err) {
     setWorkspaceStatus(`Edit error: ${err.message}`)
@@ -1250,11 +1308,10 @@ els.editStripInput.addEventListener('keydown', (e) => {
   }
 })
 
-// When user starts typing in the NL input, de-emphasize any hint
+// When user types, question recedes. When they clear, question returns.
 els.editStripInput.addEventListener('input', () => {
-  if (els.editStripInput.value.trim()) {
-    els.editStripHint.classList.remove('visible')
-  }
+  const hasText = els.editStripInput.value.trim().length > 0
+  els.editStripInner?.classList.toggle('typing', hasText)
 })
 
 // ── Event Listeners ──────────────────────────────────────────────────────────
@@ -1515,7 +1572,7 @@ async function askDeepSeekForGap(content, tabTitle) {
         max_tokens: 80,
         messages: [{
           role: 'user',
-          content: `You are reviewing a project workspace tab called "${tabTitle}". Here is the current content:\n\n${content.slice(0, 2000)}\n\nIdentify one specific detail that appears missing or undefined. Respond in the style of a brief system annotation — like a margin note pointing at a gap. Examples: "Post-sequence behavior: not defined" or "Keyona's email: missing" or "Automation schedule: unconfirmed". No questions marks, no full sentences, no explanation. Just the gap as a short label. If nothing is obviously missing, respond with exactly: NONE`
+          content: `You are reviewing a project workspace tab called "${tabTitle}" in a Salesforce Marketing Cloud project. Here is the current content:\n\n${content.slice(0, 2000)}\n\nAsk one short question about a missing or unclear detail that a project manager would want answered. Focus on: who approves things, what happens next, timing, ownership, or process gaps.\n\nRespond with ONLY a natural question, 5-12 words. Examples:\n- "Who approves go-live for this campaign?"\n- "What happens after the third follow-up email?"\n- "When was this last tested end-to-end?"\n\nDo NOT ask about technical IDs, API keys, or system configuration. Only ask about business and operational gaps.\n\nIf the content seems complete, respond with exactly: NONE`
         }]
       })
     })
@@ -1529,37 +1586,42 @@ async function askDeepSeekForGap(content, tabTitle) {
   }
 }
 
+let activePromptTimer = null
+
 function showPrompt(question, tabKey) {
-  // Surface the hint in the edit strip (if in edit mode) or as a gentle
-  // pre-diagram note (if in view mode). Either way, one hint, no stacking.
+  // Clear any existing prompt timer
+  if (activePromptTimer) clearTimeout(activePromptTimer)
 
   if (state.diagramMode === 'edit' && els.editStrip && !els.editStrip.hidden) {
-    // Edit mode: show hint in the left side of the edit strip
-    els.editStripHint.textContent = `Missing: ${question}`
-    els.editStripHint.title = question
-    setTimeout(() => els.editStripHint.classList.add('visible'), 50)
-    // Hint fades out after 30 seconds if not interacted with
-    setTimeout(() => {
-      els.editStripHint.classList.remove('visible')
+    // Edit mode: question replaces the placeholder in the same strip
+    els.editStripQuestion.textContent = question
+    setTimeout(() => els.editStripQuestion.classList.add('visible'), 50)
+
+    // Auto-dismiss after 20 seconds — revert to default
+    activePromptTimer = setTimeout(() => {
+      els.editStripQuestion.classList.remove('visible')
+      setTimeout(() => { els.editStripQuestion.textContent = '' }, 250)
       dismissedTabs.add(tabKey)
-    }, 30000)
+    }, 20000)
   } else {
-    // View mode: show as a subtle pre-content note
+    // View mode: awareness only — subtle hint, no input, no layout shift
     const container = els.diagramOutput.closest('.diagram-shell') || els.diagramOutput
-    const existing = container.querySelector('.delma-prompt')
+    // Ensure container is positioned for absolute hint
+    if (getComputedStyle(container).position === 'static') container.style.position = 'relative'
+
+    const existing = container.querySelector('.delma-hint')
     if (existing) existing.remove()
 
-    const promptEl = document.createElement('div')
-    promptEl.className = 'delma-prompt'
-    promptEl.textContent = `Missing: ${question}`
-    promptEl.style.cursor = 'default'
-    container.insertBefore(promptEl, container.firstChild)
-    setTimeout(() => promptEl.classList.add('visible'), 50)
+    const hintEl = document.createElement('div')
+    hintEl.className = 'delma-hint'
+    hintEl.textContent = question
+    container.insertBefore(hintEl, container.firstChild)
+    setTimeout(() => hintEl.classList.add('visible'), 50)
 
     // Auto-dismiss after 20 seconds
-    setTimeout(() => {
-      promptEl.classList.remove('visible')
-      setTimeout(() => promptEl.remove(), 300)
+    activePromptTimer = setTimeout(() => {
+      hintEl.classList.remove('visible')
+      setTimeout(() => hintEl.remove(), 300)
       dismissedTabs.add(tabKey)
     }, 20000)
   }
@@ -1573,7 +1635,8 @@ async function maybeShowPrompt() {
   if (!tabKey || dismissedTabs.has(tabKey)) return
 
   // Only show when idle (3 seconds of no activity)
-  if (Date.now() - lastActivity < 3000) return
+  // DEBUG: reduced from 3000ms to 500ms for faster testing
+  if (Date.now() - lastActivity < 500) return
 
   const content = getCurrentTabContent()
   if (!content || content.length < 20) return
@@ -1597,11 +1660,11 @@ async function maybeShowPrompt() {
 
 function startPromptEngine() {
   if (promptTimer) clearInterval(promptTimer)
-  // First check after 30 seconds, then every 5 minutes
+  // DEBUG: first check after 5s, then every 15s (change back to 30s/5min for prod)
   setTimeout(() => {
     maybeShowPrompt()
-    promptTimer = setInterval(maybeShowPrompt, 5 * 60 * 1000)
-  }, 30000)
+    promptTimer = setInterval(maybeShowPrompt, 15 * 1000)
+  }, 5000)
 }
 
 void init().then(() => startPromptEngine()).catch(err => console.error('[delma] INIT CRASHED:', err))

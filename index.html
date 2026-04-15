@@ -241,12 +241,7 @@
       background: var(--accent);
       margin-left: 5px;
       vertical-align: middle;
-      animation: dotPulse 2s ease infinite;
-    }
-
-    @keyframes dotPulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.4; }
+      opacity: 0.6;
     }
 
     .view-tab.action-tab {
@@ -457,37 +452,39 @@
 
     .edit-strip {
       display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 20px max(20px, calc((100% - 1000px) / 2)) 18px;
+      justify-content: center;
+      padding: 18px max(20px, calc((100% - 1000px) / 2)) 16px;
       background: linear-gradient(to bottom, var(--chrome), var(--bg));
-      border-bottom: none;
     }
 
-    .edit-strip-hint {
+    .edit-strip-inner {
       width: 100%;
       max-width: 660px;
-      color: var(--muted);
-      font-size: 11px;
-      opacity: 0;
-      transition: opacity 250ms ease, color 200ms ease;
-      margin-bottom: 8px;
-      text-align: left;
-      letter-spacing: 0.01em;
     }
 
-    .edit-strip-hint.visible {
-      opacity: 0.6;
-    }
-
-    .edit-strip-hint:hover {
-      opacity: 1;
+    /* Question line — appears above input when system has a suggestion */
+    .edit-strip-question {
+      font-size: 13px;
       color: var(--ink-secondary);
+      margin-bottom: 6px;
+      opacity: 0;
+      max-height: 0;
+      overflow: hidden;
+      transition: opacity 200ms ease, max-height 200ms ease, color 200ms ease;
+    }
+
+    .edit-strip-question.visible {
+      opacity: 1;
+      max-height: 30px;
+    }
+
+    /* When user is typing, question recedes */
+    .edit-strip-inner.typing .edit-strip-question {
+      opacity: 0.35;
+      color: var(--muted);
     }
 
     .edit-strip-input-row {
-      width: 100%;
-      max-width: 660px;
       position: relative;
     }
 
@@ -501,7 +498,7 @@
       font-size: 14px;
       color: var(--ink);
       outline: none;
-      min-height: 56px;
+      min-height: 52px;
       resize: none;
       line-height: 1.5;
       box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
@@ -543,110 +540,41 @@
     /* missing" — context for the diagram, not a conversation.        */
     /* Reserves minimal height so appearance doesn't shift layout.    */
 
-    .delma-prompt {
-      margin: 0 0 6px;
-      padding: 4px 10px;
-      background: transparent;
-      border: none;
-      opacity: 0;
-      font-size: 11px;
-      line-height: 1.4;
-      color: var(--muted);
-      position: relative;
-      max-width: 380px;
-      min-height: 0;
-      transition: opacity 250ms ease, color 200ms ease;
-    }
+    /* ── View-mode hint — awareness only, no input ─────────────── */
+    /* Positioned absolute so it doesn't shift diagram layout.     */
 
-    /* Phase 1: resolve — system reveals a gap */
-    .delma-prompt.visible {
-      opacity: 0.5;
-    }
-
-    /* Phase 2: user commits attention */
-    .delma-prompt:hover,
-    .delma-prompt:focus-within {
-      opacity: 1;
-      color: var(--ink-secondary);
-    }
-
-    .delma-prompt-question {
-      margin: 0 0 3px;
-      font-size: 11px;
-      color: inherit;
-      letter-spacing: 0.01em;
-    }
-
-    .delma-prompt-input {
-      width: 100%;
-      padding: 2px 0;
-      border: none;
-      border-bottom: 1px solid transparent;
-      background: transparent;
-      font: inherit;
-      font-size: 11px;
-      color: var(--ink);
-      outline: none;
-      transition: border-color 150ms ease;
-    }
-
-    .delma-prompt:focus-within .delma-prompt-input {
-      border-bottom-color: var(--line);
-    }
-
-    .delma-prompt-input::placeholder {
-      color: var(--muted);
-      opacity: 0.4;
-    }
-
-    .delma-prompt-actions {
-      display: flex;
-      justify-content: flex-end;
-      gap: 5px;
-      margin-top: 2px;
-      opacity: 0;
-      transition: opacity 150ms ease;
-    }
-
-    .delma-prompt:focus-within .delma-prompt-actions {
-      opacity: 1;
-    }
-
-    .delma-prompt-actions button {
-      font-size: 10px;
-      padding: 2px 7px;
-      border-radius: 3px;
-      border: none;
-      cursor: pointer;
-      background: transparent;
-      color: var(--muted);
-      transition: color 120ms ease;
-    }
-
-    .delma-prompt-actions button:hover {
-      color: var(--ink-secondary);
-    }
-
-    .delma-prompt-dismiss {
+    .delma-hint {
       position: absolute;
-      top: 2px;
-      right: 2px;
-      width: 14px;
-      height: 14px;
-      border: none;
-      background: transparent;
+      top: 8px;
+      left: 14px;
+      font-size: 12px;
       color: var(--muted);
-      font-size: 10px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
       opacity: 0;
-      transition: opacity 120ms ease;
+      transition: opacity 300ms ease;
+      z-index: 3;
+      pointer-events: none;
     }
 
-    .delma-prompt:hover .delma-prompt-dismiss { opacity: 0.35; }
-    .delma-prompt-dismiss:hover { opacity: 0.7 !important; }
+    .delma-hint.visible {
+      opacity: 0.55;
+    }
+
+    /* ── Change highlight in editor ───────────────────────────────── */
+    /* Warm rose tint on changed lines, fades out after a moment.     */
+
+    .editor-highlight-overlay {
+      position: absolute;
+      left: 0;
+      right: 0;
+      background: rgba(143, 0, 0, 0.06);
+      pointer-events: none;
+      border-left: 3px solid rgba(143, 0, 0, 0.25);
+      transition: opacity 800ms ease 2s;
+    }
+
+    .editor-highlight-overlay.fading {
+      opacity: 0;
+    }
 
     .mermaid-inline { margin: 16px 0; padding: 20px; background: var(--bg); border-radius: 12px; border: 1px solid var(--line); text-align: center; }
     .mermaid-inline svg { max-width: 100%; height: auto; }
@@ -1154,12 +1082,14 @@
         </div>
       </div>
 
-      <!-- Edit strip: unified command surface for natural language + system hints -->
+      <!-- Edit strip: unified command surface -->
       <div id="edit-strip" class="edit-strip" hidden>
-        <div class="edit-strip-hint" id="edit-strip-hint"></div>
-        <div class="edit-strip-input-row">
-          <textarea id="edit-strip-input" class="edit-strip-input" rows="2" placeholder="Describe a change..."></textarea>
-          <button id="edit-strip-save" class="edit-strip-btn">Apply</button>
+        <div class="edit-strip-inner">
+          <div class="edit-strip-question" id="edit-strip-question"></div>
+          <div class="edit-strip-input-row">
+            <textarea id="edit-strip-input" class="edit-strip-input" rows="2" placeholder="Describe a change..."></textarea>
+            <button id="edit-strip-save" class="edit-strip-btn">Apply</button>
+          </div>
         </div>
       </div>
 
