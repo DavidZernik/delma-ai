@@ -39,7 +39,7 @@ mermaid.initialize({
     secondaryColor: '#FFFFFF',
     secondaryTextColor: '#0F0A0A',
     secondaryBorderColor: '#EFE4DE',
-    tertiaryColor: '#FFFEE2',
+    tertiaryColor: '#FFFEEE',
     tertiaryTextColor: '#0F0A0A',
     tertiaryBorderColor: '#EFE4DE',
     lineColor: '#8F0000',          // arrows — red
@@ -50,7 +50,7 @@ mermaid.initialize({
     nodeTextColor: '#0F0A0A',
     mainBkg: '#FFFFFF',
     edgeLabelBackground: '#FFFFFF',
-    clusterBkg: '#FFFEE2',
+    clusterBkg: '#FFFEEE',
     clusterBorder: '#EFE4DE'
   }
 })
@@ -884,17 +884,20 @@ async function renderDiagram(mermaidCode) {
     const aboveHtml = proseAbove ? `<div class="diagram-prose markdown-body above">${marked.parse(proseAbove)}</div>` : ''
     const belowHtml = proseBelow ? `<div class="diagram-prose markdown-body below">${marked.parse(proseBelow)}</div>` : ''
 
+    // Single white card holding prose + diagram with no inner gap.
     els.diagramOutput.innerHTML = `
-      ${aboveHtml}
-      <div class="diagram-zoom-wrapper">
-        <div class="diagram-zoom-canvas">${svg}</div>
+      <div class="diagram-card">
+        ${aboveHtml}
+        <div class="diagram-zoom-wrapper">
+          <div class="diagram-zoom-canvas">${svg}</div>
+        </div>
+        <div class="diagram-zoom-controls">
+          <button class="zoom-btn" data-zoom="in" title="Zoom in">+</button>
+          <div class="zoom-level">100%</div>
+          <button class="zoom-btn" data-zoom="out" title="Zoom out">&minus;</button>
+        </div>
+        ${belowHtml}
       </div>
-      <div class="diagram-zoom-controls">
-        <button class="zoom-btn" data-zoom="in" title="Zoom in">+</button>
-        <div class="zoom-level">100%</div>
-        <button class="zoom-btn" data-zoom="out" title="Zoom out">&minus;</button>
-      </div>
-      ${belowHtml}
     `
 
     // Wire up zoom buttons

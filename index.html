@@ -8,20 +8,20 @@
     :root {
       /* Strictly two surface colors: cream (page) + white (objects).
          Dark red = intent only. No pink, no peach, no beige. */
-      --bg: #FFFEE2;              /* CREAM — the only background color */
-      --chrome: #FFFEE2;          /* matches bg */
+      --bg: #FFFEEE;              /* CREAM — the only background color */
+      --chrome: #FFFEEE;          /* matches bg */
       --panel: #FFFFFF;           /* cards, editors, mermaid — clean white */
-      --panel-soft: #FFFEE2;      /* hover/special — same cream, no pink */
+      --panel-soft: #FFFEEE;      /* hover/special — same cream, no pink */
       --ink: #1F1A1A;             /* primary text — sharp */
       --ink-secondary: #4a3f3d;   /* secondary text */
       --muted: #6B5A5A;           /* metadata, timestamps, helper text */
       --line: #E8D8D2;            /* borders — kept warm-neutral for structure */
       --accent: #8F0000;          /* dark red — intent only */
-      --accent-soft: #FFFEE2;     /* same cream — no pink as a base */
+      --accent-soft: #FFFEEE;     /* same cream — no pink as a base */
       --accent-ink: #ffffff;      /* white text on red */
       --accent-hover: #6E0000;    /* darker red for button hover */
       --positive: #8F0000;        /* unified — same red, no separate green */
-      --positive-soft: #FFFEE2;
+      --positive-soft: #FFFEEE;
       --danger: #8F0000;          /* same as accent — red IS the brand */
       --danger-ink: #ffffff;
       --shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
@@ -362,8 +362,24 @@
     #diagram-output.markdown-body > h2:first-child { margin-top: 0; }
 
     /* Diagram is its own white card sitting directly on cream. */
-    /* Mermaid container — pure white card on cream. Border quietly contains,
-       shadow gives lift, padding gives room. No red on the border. */
+    /* Single white card holding prose + diagram. No internal seams. */
+    .diagram-card {
+      margin-top: 28px;
+      background: #FFFFFF;
+      border: 1px solid #E8D8D2;
+      border-radius: 12px;
+      padding: 32px;
+      box-sizing: border-box;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+      transition: border-color 200ms ease, box-shadow 200ms ease;
+    }
+    .diagram-card:hover {
+      border-color: #D4C4BD;
+      box-shadow: 0 3px 12px rgba(0, 0, 0, 0.06);
+    }
+
+    /* Inside the card the diagram zoom area is bare — no border, no shadow,
+       no gap between prose and diagram. They share the same surface. */
     .diagram-zoom-wrapper {
       overflow: auto;
       -webkit-overflow-scrolling: touch;
@@ -371,21 +387,14 @@
       cursor: grab;
       touch-action: pan-x pan-y;
       user-select: none;
-      min-height: 350px;
+      min-height: 320px;
       max-height: 60vh;
-      margin-top: 28px;       /* breathing room above */
-      background: #FFFFFF;
-      border: 1px solid #E8D8D2;
-      border-radius: 12px;
-      padding: 32px;          /* internal room so content doesn't hug edges */
-      box-sizing: border-box;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-      transition: border-color 200ms ease, box-shadow 200ms ease;
-    }
-
-    .diagram-zoom-wrapper:hover {
-      border-color: #D4C4BD;  /* slightly darker, still neutral */
-      box-shadow: 0 3px 12px rgba(0, 0, 0, 0.06);
+      background: transparent;
+      border: none;
+      border-radius: 0;
+      padding: 0;
+      margin: 0;
+      box-shadow: none;
     }
 
     .diagram-zoom-wrapper.dragging { cursor: grabbing; }
@@ -700,22 +709,22 @@
       40% { opacity: 1; transform: scale(1.2); }
     }
 
-    /* ── Inline prose around the diagram (above + below the SVG) ──── */
-    /* White card, neutral border + soft shadow. No red — keeps red for arrows + active tab only. */
+    /* ── Inline prose around the diagram (inside the .diagram-card) ── */
+    /* No own background or border — the parent card provides those.    */
+    /* Just typography and spacing.                                     */
     .diagram-prose {
       font-size: 14px;
       line-height: 1.55;
       color: var(--ink);
-      padding: 20px 24px;
-      background: #FFFFFF;
-      border: 1px solid #E8D8D2;
-      border-radius: 10px;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+      padding: 0;
+      background: transparent;
+      border: none;
+      box-shadow: none;
     }
     .diagram-prose.above { margin-bottom: 20px; }
     .diagram-prose.below { margin-top: 20px; }
     .diagram-prose p { margin: 6px 0; }
-    .diagram-prose h2 { font-size: 13px; font-weight: 700; margin: 0 0 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink); }
+    .diagram-prose h2 { font-size: 13px; font-weight: 700; margin: 0 0 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
     .diagram-prose h3 { font-size: 13px; font-weight: 600; margin: 12px 0 4px; }
     .diagram-prose strong { font-weight: 600; }
     .diagram-prose ul, .diagram-prose ol { margin: 8px 0; padding-left: 20px; }
