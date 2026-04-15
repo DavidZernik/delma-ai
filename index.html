@@ -362,6 +362,8 @@
     #diagram-output.markdown-body > h2:first-child { margin-top: 0; }
 
     /* Diagram is its own white card sitting directly on cream. */
+    /* Mermaid container — pure white card on cream. Border quietly contains,
+       shadow gives lift, padding gives room. No red on the border. */
     .diagram-zoom-wrapper {
       overflow: auto;
       -webkit-overflow-scrolling: touch;
@@ -371,18 +373,28 @@
       user-select: none;
       min-height: 350px;
       max-height: 60vh;
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      padding: 16px;
+      margin-top: 28px;       /* breathing room above */
+      background: #FFFFFF;
+      border: 1px solid #E8D8D2;
+      border-radius: 12px;
+      padding: 32px;          /* internal room so content doesn't hug edges */
       box-sizing: border-box;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+      transition: border-color 200ms ease, box-shadow 200ms ease;
+    }
+
+    .diagram-zoom-wrapper:hover {
+      border-color: #D4C4BD;  /* slightly darker, still neutral */
+      box-shadow: 0 3px 12px rgba(0, 0, 0, 0.06);
     }
 
     .diagram-zoom-wrapper.dragging { cursor: grabbing; }
 
+    /* Center the diagram inside the card */
     .diagram-zoom-wrapper svg {
       min-width: 550px;
       display: block;
+      margin: 0 auto;
       transform-origin: top left;
     }
 
@@ -579,22 +591,14 @@
       opacity: 1;
     }
 
-    /* View mode: white card, thin red left stripe. Documentation feel. */
-    .action-slot-inner.mode-view {
-      background: var(--panel);
-      border-left: 2px solid var(--accent);
-      border-radius: 6px;
-      padding: 14px 18px 12px;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-    }
-
-    /* Edit mode: white card too — input stays white and actionable. */
+    /* Action slot — neutral white card, no red stripe. */
+    .action-slot-inner.mode-view,
     .action-slot-inner.mode-edit {
-      background: var(--panel);
-      border-left: 2px solid var(--accent);
-      border-radius: 6px;
-      padding: 14px 18px 12px;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+      background: #FFFFFF;
+      border: 1px solid #E8D8D2;
+      border-radius: 10px;
+      padding: 16px 20px 14px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
     }
 
     .action-slot-label {
@@ -602,8 +606,7 @@
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.08em;
-      color: var(--accent);
-      opacity: 0.75;
+      color: var(--muted);
       margin: 0 0 6px;
     }
 
@@ -698,34 +701,33 @@
     }
 
     /* ── Inline prose around the diagram (above + below the SVG) ──── */
-    /* White card, thin dark red left border, red title. Documentation feel. */
+    /* White card, neutral border + soft shadow. No red — keeps red for arrows + active tab only. */
     .diagram-prose {
       font-size: 14px;
       line-height: 1.55;
       color: var(--ink);
-      padding: 16px 20px;
-      background: var(--panel);
-      border-left: 2px solid var(--accent);
-      border-radius: 6px;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+      padding: 20px 24px;
+      background: #FFFFFF;
+      border: 1px solid #E8D8D2;
+      border-radius: 10px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
     }
-    .diagram-prose.above { margin-bottom: 18px; }
-    .diagram-prose.below { margin-top: 18px; }
+    .diagram-prose.above { margin-bottom: 20px; }
+    .diagram-prose.below { margin-top: 20px; }
     .diagram-prose p { margin: 6px 0; }
-    .diagram-prose h2 { font-size: 14px; font-weight: 700; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent); }
+    .diagram-prose h2 { font-size: 13px; font-weight: 700; margin: 0 0 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink); }
     .diagram-prose h3 { font-size: 13px; font-weight: 600; margin: 12px 0 4px; }
     .diagram-prose strong { font-weight: 600; }
     .diagram-prose ul, .diagram-prose ol { margin: 8px 0; padding-left: 20px; }
 
     /* ── Diagram walkthrough — plain-english explanation ─────────── */
-    /* White card, thin dark red left border, red title. */
     .diagram-walkthrough {
       margin-top: 20px;
-      padding: 18px 20px;
-      background: var(--panel);
-      border-left: 2px solid var(--accent);
-      border-radius: 6px;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+      padding: 20px 24px;
+      background: #FFFFFF;
+      border: 1px solid #E8D8D2;
+      border-radius: 10px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
     }
 
     .walkthrough-label {
@@ -733,8 +735,7 @@
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.08em;
-      color: var(--accent);
-      opacity: 0.75;
+      color: var(--muted);
       margin: 0 0 8px;
     }
 

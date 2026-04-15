@@ -33,25 +33,25 @@ mermaid.initialize({
   layout: 'elk',
   flowchart: { curve: 'basis', padding: 20, nodeSpacing: 40, rankSpacing: 60 },
   themeVariables: {
-    primaryColor: '#FFFFFF',       // node fill — clean white
-    primaryTextColor: '#1F1A1A',
-    primaryBorderColor: '#E8D8D2', // warm-neutral border
+    primaryColor: '#FFFFFF',
+    primaryTextColor: '#0F0A0A',   // sharper than ink, near-black for max contrast
+    primaryBorderColor: '#EFE4DE', // softer than --line so text > border visually
     secondaryColor: '#FFFFFF',
-    secondaryTextColor: '#1F1A1A',
-    secondaryBorderColor: '#E8D8D2',
-    tertiaryColor: '#FFFEE2',      // cream — only for cluster bg if needed
-    tertiaryTextColor: '#1F1A1A',
-    tertiaryBorderColor: '#E8D8D2',
-    lineColor: '#8F0000',          // arrows — dark red
-    textColor: '#1F1A1A',
+    secondaryTextColor: '#0F0A0A',
+    secondaryBorderColor: '#EFE4DE',
+    tertiaryColor: '#FFFEE2',
+    tertiaryTextColor: '#0F0A0A',
+    tertiaryBorderColor: '#EFE4DE',
+    lineColor: '#8F0000',          // arrows — red
+    textColor: '#0F0A0A',
     fontSize: '15px',
     fontFamily: '"Instrument Sans", "Avenir Next", "Segoe UI", sans-serif',
-    nodeBorder: '#E8D8D2',
-    nodeTextColor: '#1F1A1A',
+    nodeBorder: '#EFE4DE',
+    nodeTextColor: '#0F0A0A',
     mainBkg: '#FFFFFF',
     edgeLabelBackground: '#FFFFFF',
     clusterBkg: '#FFFEE2',
-    clusterBorder: '#E8D8D2'
+    clusterBorder: '#EFE4DE'
   }
 })
 
@@ -656,25 +656,30 @@ function normalizeMermaidForRender(code) {
 function applyDiagramBranding(svg) {
   if (!svg) return
 
+  // Soft border + soft drop shadow on every node — quiet structure, text wins.
   for (const node of svg.querySelectorAll('.node rect, .node polygon')) {
-    node.style.filter = 'drop-shadow(0 1px 3px rgba(0, 0, 0, 0.06))'
-    node.setAttribute('rx', '8')
-    node.setAttribute('ry', '8')
+    node.style.filter = 'drop-shadow(0 1px 2px rgba(0, 0, 0, 0.04))'
+    node.style.stroke = '#EFE4DE'
+    node.style.strokeWidth = '1px'
+    node.setAttribute('rx', '10')
+    node.setAttribute('ry', '10')
   }
 
+  // Arrows in dark red (kept — only red usage allowed in diagrams).
   for (const edge of svg.querySelectorAll('.edgePath path.path')) {
-    edge.style.strokeWidth = '2.5px'
+    edge.style.strokeWidth = '2px'
+    edge.style.stroke = '#8F0000'
   }
-
   for (const marker of svg.querySelectorAll('marker path')) {
-    marker.style.fill = '#7A0000'
+    marker.style.fill = '#8F0000'
   }
 
+  // Higher-contrast node text — near-black, slightly heavier weight.
   for (const label of svg.querySelectorAll('.nodeLabel')) {
     label.style.fontSize = '14px'
-    label.style.fontWeight = '500'
-    label.style.color = '#1A1A1A'
-    label.style.fill = '#1A1A1A'
+    label.style.fontWeight = '600'
+    label.style.color = '#0F0A0A'
+    label.style.fill = '#0F0A0A'
   }
 }
 
