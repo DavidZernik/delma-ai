@@ -1692,7 +1692,9 @@ function showPrompt(question, tabKey) {
           max_tokens: 2000,
           messages: [{
             role: 'user',
-            content: `You are editing a ${contentType}. The user was asked: "${q}" and answered: "${answer}".\n\nIntegrate this answer into the existing content. If there are mermaid diagrams, update the diagram nodes/edges to reflect the new information. Also update any prose sections.\n\nCurrent content:\n\`\`\`\n${currentContent}\n\`\`\`\n\nRespond with ONLY the complete updated content. No explanation, no code fences, no commentary.`
+            content: isMermaid
+              ? `You are editing a Mermaid flowchart diagram. The user was asked: "${q}" and answered: "${answer}".\n\nUpdate the Mermaid diagram to reflect this new information. Add or modify nodes and edges as needed.\n\nIMPORTANT: Respond with ONLY valid Mermaid syntax. No markdown, no prose, no explanation, no code fences. Just the raw flowchart code starting with "flowchart". Do NOT add any text outside of Mermaid syntax.\n\nCurrent diagram:\n${currentContent}`
+              : `You are editing a markdown document (which may contain mermaid code blocks inside triple backticks). The user was asked: "${q}" and answered: "${answer}".\n\nIntegrate this answer into the existing content. If there are \`\`\`mermaid code blocks, update them to reflect the new information (keep them as valid mermaid inside the code fence). Also update any prose sections.\n\nCurrent content:\n${currentContent}\n\nRespond with ONLY the complete updated markdown. No extra explanation.`
           }]
         })
       })
@@ -1704,6 +1706,19 @@ function showPrompt(question, tabKey) {
 
       // Strip code fences
       updated = updated.replace(/^```(?:mermaid|markdown|md)?\n?/, '').replace(/\n?```$/, '')
+
+      // Validate Mermaid before saving — if it doesn't parse, reject the update
+      if (table === 'diagram_views') {
+        try {
+          const testId = `validate-prompt-${Date.now()}`
+          const cleaned = updated.replace(/^---\n[\s\S]*?\n---\n?/, '')
+          await mermaid.render(testId, cleaned)
+        } catch (parseErr) {
+          console.error('[delma prompt] DeepSeek produced invalid Mermaid:', parseErr.message)
+          setWorkspaceStatus('Update produced invalid diagram — try rephrasing.')
+          return
+        }
+      }
 
       // Save to Supabase
       if (table === 'diagram_views') {
