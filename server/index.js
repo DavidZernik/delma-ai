@@ -90,13 +90,19 @@ app.post('/api/chat', async (req, res) => {
   res.json(await response.json())
 })
 
-// ── Refresh CLAUDE.md on demand (called by web app after Save) ──────────────
-// Closes the bidirectional sync gap: web edits → file refresh → next message
-// Claude sends will see fresh state via UserPromptSubmit hook.
+// ── Supabase service-role client — lazy-initialized so missing env vars
+//    on a deploy don't crash the whole server at boot. Endpoints that need
+//    it call getSb() and bail out cleanly if env is incomplete.
 
-const sb = createClient(process.env.SUPABASE_URL || '', process.env.SUPABASE_SERVICE_ROLE_KEY || '', {
-  auth: { autoRefreshToken: false, persistSession: false }
-})
+let __sb = null
+function getSb() {
+  if (__sb) return __sb
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) return null
+  __sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { autoRefreshToken: false, persistSession: false }
+  })
+  return __sb
+}
 
 // Create org + membership via service role (bypasses RLS edge cases on client).
 app.post('/api/create-org', async (req, res) => {
@@ -104,6 +110,8 @@ app.post('/api/create-org', async (req, res) => {
   if (!name?.trim() || !userId) return res.status(400).json({ error: 'name and userId required' })
   console.log('[server] create-org:', name, 'for user', userId)
 
+  const sb = getSb()
+  if (!sb) return res.status(500).json({ error: 'Supabase not configured on server' })
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-' + Date.now().toString(36)
   try {
     const { data: org, error } = await sb
@@ -127,6 +135,8 @@ app.post('/api/create-org', async (req, res) => {
 })
 
 app.post('/api/refresh-claude-md', async (req, res) => {
+  const sb = getSb()
+  if (!sb) return res.status(500).json({ error: 'Supabase not configured on server' })
   let { workspaceId, userId } = req.body
   // If no workspaceId given, look up the user's active one
   if (!workspaceId && userId) {
