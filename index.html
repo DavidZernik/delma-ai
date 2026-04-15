@@ -6,18 +6,19 @@
   <title>Delma</title>
   <style>
     :root {
-      --bg: #F5EDE4;              /* page — lightest layer */
-      --chrome: #EBE0D4;          /* header, tabs, footer — structural frame */
-      --panel: #FBF6F0;           /* content card — warm white, sits above bg */
-      --panel-soft: #F5EDE4;      /* matches bg */
-      --ink: #1A1A1A;             /* primary text */
-      --ink-secondary: #5c554d;   /* secondary text — clearly recedes */
-      --muted: #8a8079;           /* tertiary text — labels, hints */
-      --line: #D4C9BC;            /* borders — slightly more defined */
-      --accent: #8F0000;          /* dark red — CTAs, brand moments */
-      --accent-soft: #f2e6e6;     /* light red wash for selected states */
+      /* Layered cream/white system — cream for the world, white for objects */
+      --bg: #FFF6F2;              /* page — cream, sets the mood */
+      --chrome: #FFF6F2;          /* header/footer — matches page */
+      --panel: #FFFFFF;           /* cards, editors, mermaid — clean white */
+      --panel-soft: #FDF0EA;      /* subtle warmth — restrained use only */
+      --ink: #1F1A1A;             /* primary text — sharp */
+      --ink-secondary: #4a3f3d;   /* secondary text */
+      --muted: #6B5A5A;           /* metadata, timestamps, helper text */
+      --line: #E8D8D2;            /* borders — structure without outlined feel */
+      --accent: #8F0000;          /* dark red — intent only: CTAs, active tab, accents */
+      --accent-soft: #F8D7D2;     /* soft rose — TEMPORARY emphasis only */
       --accent-ink: #ffffff;      /* white text on red */
-      --accent-hover: #6E0000;    /* darker red for hover */
+      --accent-hover: #6E0000;    /* darker red for button hover */
       --positive: #2F6B5A;        /* success, confirmations */
       --positive-soft: #e6f2ee;
       --danger: #8F0000;          /* same as accent — red IS the brand */
@@ -574,17 +575,21 @@
       opacity: 1;
     }
 
-    /* View mode: warm rose surface */
+    /* View mode: white card with a confident red left stripe. Soft rose tint
+       only appears BRIEFLY on fade-in (see .action-slot-inner.just-appeared). */
     .action-slot-inner.mode-view {
-      background: rgba(143, 0, 0, 0.06);
-      border-left: 3px solid rgba(143, 0, 0, 0.35);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--accent);
       border-radius: 8px;
       padding: 14px 18px 12px;
     }
 
-    /* Edit mode: neutral surface */
+    /* Edit mode: subtle cream tint so it reads as "thinking space" without
+       being a dominant color. Input itself stays white for actionable feel. */
     .action-slot-inner.mode-edit {
-      background: rgba(216, 207, 196, 0.1);
+      background: var(--panel-soft);
+      border: 1px solid var(--line);
       border-radius: 10px;
       padding: 14px 18px 12px;
     }
@@ -644,8 +649,8 @@
       padding: 8px 14px;
       border-radius: 7px;
       border: none;
-      background: var(--ink);
-      color: var(--panel);
+      background: var(--accent);
+      color: var(--accent-ink);
       font-size: 11px;
       font-weight: 600;
       cursor: pointer;
@@ -654,7 +659,7 @@
     }
 
     .action-slot-apply:hover {
-      background: var(--ink-secondary);
+      background: var(--accent-hover);
     }
 
     .action-slot-apply:disabled {
@@ -695,8 +700,9 @@
       line-height: 1.55;
       color: var(--ink);
       padding: 16px 20px;
-      background: rgba(216, 207, 196, 0.18);
-      border-left: 3px solid rgba(143, 0, 0, 0.35);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--accent);
       border-radius: 8px;
     }
     .diagram-prose.above { margin-bottom: 18px; }
@@ -711,8 +717,9 @@
     .diagram-walkthrough {
       margin-top: 20px;
       padding: 18px 20px;
-      background: rgba(216, 207, 196, 0.18);
-      border-left: 3px solid rgba(143, 0, 0, 0.35);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-left: 3px solid var(--accent);
       border-radius: 8px;
     }
 
@@ -738,18 +745,16 @@
     .walkthrough-body li { margin: 4px 0; }
 
     /* ── Change flash on view content ────────────────────────────── */
-    /* Applied to the <svg> element for diagrams (so the red wash hugs    */
-    /* the diagram bounds, not the padded canvas) or to the diagramOutput */
-    /* for markdown prose.                                                */
+    /* Temporary soft rose tint ("look here briefly"), fades back to white. */
     .content-updated-flash {
       animation: content-flash 4s ease-out;
       border-radius: 8px;
     }
 
     @keyframes content-flash {
-      0%   { background-color: rgba(143, 0, 0, 0.25); }
-      20%  { background-color: rgba(143, 0, 0, 0.25); }
-      100% { background-color: rgba(143, 0, 0, 0); }
+      0%   { background-color: #F8D7D2; }
+      25%  { background-color: #F8D7D2; }
+      100% { background-color: #FFFFFF; }
     }
 
     /* ── Change highlight in editor ───────────────────────────────── */
@@ -759,9 +764,9 @@
       position: absolute;
       left: 0;
       right: 0;
-      background: rgba(143, 0, 0, 0.06);
+      background: #F8D7D2;
       pointer-events: none;
-      border-left: 3px solid rgba(143, 0, 0, 0.25);
+      border-left: 3px solid var(--accent);
       transition: opacity 800ms ease 2s;
     }
 
@@ -769,7 +774,7 @@
       opacity: 0;
     }
 
-    .mermaid-inline { margin: 16px 0; padding: 20px; background: var(--bg); border-radius: 12px; border: 1px solid var(--line); text-align: center; }
+    .mermaid-inline { margin: 16px 0; padding: 20px; background: var(--panel); border-radius: 12px; border: 1px solid var(--line); text-align: center; }
     .mermaid-inline svg { max-width: 100%; height: auto; }
 
     /* Mermaid node styling — more presence */
