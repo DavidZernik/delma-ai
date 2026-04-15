@@ -795,6 +795,15 @@ function setZoom(level) {
     canvas.style.height = `${Math.max(baseHeight * currentZoom, wrapper?.clientHeight || 0)}px`
   }
   if (label) label.textContent = `${Math.round(currentZoom * 100)}%`
+
+  // Also scale the prose text in the same card so zoom feels unified.
+  const card = document.querySelector('.diagram-card')
+  if (card) {
+    for (const prose of card.querySelectorAll('.diagram-prose')) {
+      prose.style.fontSize = `${14 * currentZoom}px`
+      prose.style.lineHeight = '1.55'
+    }
+  }
 }
 
 
@@ -873,20 +882,29 @@ async function renderDiagram(mermaidCode) {
     console.log('[delma render] pure Mermaid (legacy), no prose')
   }
 
-  // Render the Mermaid with full zoom/drag experience
+  // Render the Mermaid with full zoom/drag experience.
+  // We prepare everything while the container is HIDDEN so the user never
+  // sees a half-rendered diagram (no flash of unstyled SVG, no wrong
+  // sizing, no jump). Reveal happens only after layout is fully settled.
   try {
     const renderId = `delma-diagram-${Date.now()}`
     const normalizedCode = normalizeMermaidForRender(mermaidOnly)
+    console.log('[delma render] preparing diagram (hidden), code len:', normalizedCode.length)
+    const t0 = performance.now()
     const { svg } = await mermaid.render(renderId, normalizedCode)
-    els.diagramOutput.className = ''
+    console.log('[delma render] mermaid.render done in', Math.round(performance.now() - t0), 'ms')
+
+    // Hide the container BEFORE replacing content. Keep its dimensions
+    // (visibility:hidden, not display:none) so layout doesn't jump.
+    els.diagramOutput.style.visibility = 'hidden'
     els.diagramOutput.style.opacity = '0'
+    els.diagramOutput.style.transition = 'none'
+    els.diagramOutput.className = ''
 
     currentZoom = 1
-    // Optionally wrap with prose above/below
     const aboveHtml = proseAbove ? `<div class="diagram-prose markdown-body above">${marked.parse(proseAbove)}</div>` : ''
     const belowHtml = proseBelow ? `<div class="diagram-prose markdown-body below">${marked.parse(proseBelow)}</div>` : ''
 
-    // Single white card holding prose + diagram with no inner gap.
     els.diagramOutput.innerHTML = `
       <div class="diagram-card">
         ${aboveHtml}
@@ -902,24 +920,23 @@ async function renderDiagram(mermaidCode) {
       </div>
     `
 
-    // Wire up zoom buttons
+    // Wire everything (zoom buttons, branding, sizing, drag) BEFORE revealing.
     els.diagramOutput.querySelector('[data-zoom="in"]').addEventListener('click', () => setZoom(currentZoom + ZOOM_STEP))
     els.diagramOutput.querySelector('[data-zoom="out"]').addEventListener('click', () => setZoom(currentZoom - ZOOM_STEP))
 
-    // Pinch-to-zoom on touch
     const wrapper = els.diagramOutput.querySelector('.diagram-zoom-wrapper')
     const svgEl = wrapper.querySelector('svg')
     applyDiagramBranding(svgEl)
-    const prepared = prepareFittedSvg(svgEl, wrapper)
+    prepareFittedSvg(svgEl, wrapper)
     enableDiagramDragging(wrapper)
 
-    // Wait two frames for layout to settle, set zoom, THEN reveal.
-    // This prevents the flash where the diagram is visible with wrong sizing.
+    // Two rAFs for layout to settle, then set zoom, then reveal as one fade.
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
         setZoom(1)
-        // Reveal only after everything is ready
-        els.diagramOutput.style.transition = 'opacity 150ms ease'
+        console.log('[delma render] revealing diagram, total prep ms:', Math.round(performance.now() - t0))
+        els.diagramOutput.style.visibility = 'visible'
+        els.diagramOutput.style.transition = 'opacity 200ms ease'
         els.diagramOutput.style.opacity = '1'
       })
     })
@@ -1043,7 +1060,7 @@ function stripMermaidConfig(code) {
 // Project-level tab labels (workspace-scoped)
 const MEMORY_TAB_LABELS = {
   'environment.md': { title: 'Environment', desc: 'IDs, credentials, DEs, journeys, automations — everything in one place.' },
-  'session-log.md': { title: 'Session Log', desc: 'Current status, what\'s done, what\'s needed.' },
+  'decisions.md': { title: 'Decisions', desc: 'Decisions made + actions needed. Outline form.' },
   'my-notes.md': { title: 'My Notes', desc: 'Personal scratchpad — only you see this.' }
 }
 
@@ -1508,8 +1525,8 @@ async function routeAndPatchFact(input, questionContext = null) {
     const scope =
       row.filename === 'environment.md'
         ? 'SFMC IDs, DE names, journey/automation keys, technical config. NOT people or business rules. Mermaid diagrams welcome for data flow or schema relationships.'
-      : row.filename === 'session-log.md'
-        ? 'Session log — shared status, decisions, pending items. Narrative history of the project. Mostly prose; diagrams rare.'
+      : row.filename === 'decisions.md'
+        ? 'Decisions made and actions needed. STRICT outline form: two H2 sections, "## Decisions" and "## Actions", each a bulleted list. One bullet per item. Short. Add owner in parentheses if known. NOT prose narrative — outline only.'
       : row.filename === 'my-notes.md'
         ? 'Personal private notes — only the current user sees this. Questions, reminders, half-baked thoughts, personal mental models. Route here only if the input is explicitly personal ("my note to self", "remind me to…"). Mermaid diagrams welcome for task dependencies, personal workflows, or quick sketches.'
       : 'General project note.'

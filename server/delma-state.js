@@ -27,7 +27,7 @@ import { supabase } from './lib/supabase.js'
 // Project-level memory files. People and Playbook live in org_memory_notes.
 export const MEMORY_FILES = [
   'environment.md',
-  'session-log.md',
+  'decisions.md',
   'my-notes.md'
 ]
 
@@ -36,21 +36,20 @@ export const MEMORY_FILES = [
 // Project-level memory tabs. People and Playbook are at the org level
 // (org_memory_notes). my-notes is per-user private.
 const DEFAULT_PERMISSIONS = {
-  'environment.md': 'view-admins',  // has API keys — admins only
-  'session-log.md': 'private',      // shared project status
-  'my-notes.md': 'private'          // personal scratchpad, only owner sees
+  'environment.md': 'view-admins',
+  'decisions.md': 'edit-all',       // anyone can capture a decision/action
+  'my-notes.md': 'private'
 }
 
-// Legacy visibility mapping (kept for backward compat with older workspace code)
 const VISIBILITY_RULES = {
   'environment.md': 'shared',
-  'session-log.md': 'private',
+  'decisions.md': 'shared',
   'my-notes.md': 'private'
 }
 
 const DEFAULT_MEMORY_CONTENT = {
   'environment.md': '# Environment\n\nSFMC Business Unit, MIDs, Data Extensions, Journeys, Automations, CloudPages, and other project-specific IDs and configuration.\n',
-  'session-log.md': '# Session Log\n\nCurrent status. What is done. What is pending. Recent decisions.\n',
+  'decisions.md': '# Decisions & Actions\n\n## Decisions\n- _What\'s been decided. Outline form, one bullet each._\n\n## Actions\n- _What needs to happen next. Outline form. Add owner if known._\n',
   'my-notes.md': '# My Notes\n\nPersonal scratchpad — only you see this. Jot down questions, reminders, half-baked thoughts.\n'
 }
 
