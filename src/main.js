@@ -1190,8 +1190,10 @@ function renderViewTabs() {
 
   // ── Project-level tabs ─────────────────────────────────────────────────
 
-  // Diagram tabs
-  const views = state.views.length ? state.views : defaultViewTemplates()
+  // Diagram tabs — only when a workspace is loaded (skip in empty org)
+  const views = state.workspaceId
+    ? (state.views.length ? state.views : defaultViewTemplates())
+    : []
   for (const view of views) {
     const btn = document.createElement('button')
     const key = view.view_key
@@ -1211,12 +1213,13 @@ function renderViewTabs() {
     els.viewTabs.appendChild(btn)
   }
 
-  // Project memory tabs — iterate in MEMORY_TAB_LABELS order (decisions →
-  // environment → my-notes), then any extras that exist in state but aren't
-  // in the labels map. Forces UI order regardless of Supabase row order.
+  // Project memory tabs — only render if a project is actually loaded.
+  // Iterate in MEMORY_TAB_LABELS order (decisions → environment).
+  // Filter out my-notes.md (now lives globally in user_notes table).
   const knownOrder = Object.keys(MEMORY_TAB_LABELS)
-  const presentFiles = Object.keys(state.memory)
-  const orderedKnown = knownOrder.filter(f => presentFiles.includes(f) || presentFiles.length === 0)
+  const presentFiles = Object.keys(state.memory).filter(f => f !== 'my-notes.md')
+  const hasProject = !!state.workspaceId
+  const orderedKnown = hasProject ? knownOrder.filter(f => presentFiles.includes(f) || presentFiles.length === 0) : []
   const extras = presentFiles.filter(f => !knownOrder.includes(f))
   const memFiles = [...orderedKnown, ...extras]
   for (const filename of memFiles) {
@@ -1567,6 +1570,17 @@ function renderWorkspace() {
   }
 
   // Diagram tab
+  // Empty-org case: no workspace, show clear empty state instead of stale data
+  if (!state.workspaceId) {
+    els.viewTitle.textContent = state.org?.name || ''
+    els.viewDescription.textContent = 'No projects yet. Use the project dropdown to create one.'
+    els.viewProvenance.textContent = ''
+    els.modeToggle.hidden = true
+    els.diagramOutput.className = ''
+    els.diagramOutput.innerHTML = `<div class="diagram-card markdown-body"><p style="color:var(--muted)">Create your first project to start populating tabs.</p></div>`
+    revealDiagramOutput()
+    return
+  }
   const view = getActiveView()
   if (!view) {
     els.diagramOutput.className = 'documentation-shell'

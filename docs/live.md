@@ -62,7 +62,7 @@ environment) and multiple workspaces for individual projects.
 Every tab is markdown. Some contain inline Mermaid diagrams. No
 separate "diagram type" vs "document type" — just content.
 
-### Org-level tabs (shared across all projects)
+### Org-level tabs (shared across all projects in the org)
 
 | Tab | Filename | What it answers | Default permission |
 |-----|----------|----------------|-------------------|
@@ -71,12 +71,29 @@ separate "diagram type" vs "document type" — just content.
 
 ### Project-level tabs (in tab-bar order, left to right)
 
-| Tab | Filename | Type | What it answers | Default permission |
-|-----|----------|------|----------------|-------------------|
-| Project High Level | architecture (diagram_views) | markdown + Mermaid | How the system flows | view-all |
-| Project Details | decisions.md | memory | Decisions + actions, outline form | edit-all |
-| Files Locations and Keys | environment.md | memory | IDs, DEs, journeys, automations | view-admins |
-| My Notes | my-notes.md | memory | Personal scratchpad | private |
+| Tab | Storage | Type | What it answers | Default permission |
+|-----|---------|------|----------------|-------------------|
+| Project High Level | `diagram_views` (architecture) | markdown + Mermaid | How the system flows | view-all |
+| Project Details | `memory_notes` (decisions.md) | memory | Decisions + actions, outline form | edit-all |
+| Files Locations and Keys | `memory_notes` (environment.md) | memory | IDs, DEs, journeys, automations | view-admins |
+
+### User-level tab (private, follows you across orgs)
+
+| Tab | Storage | Type | What it answers | Permission |
+|-----|---------|------|----------------|-----------|
+| My Notes | `user_notes` table | per-user | Personal scratchpad | only you, always |
+
+**My Notes is GLOBAL** — keyed by `user_id`, NOT by workspace or org.
+The same notes follow you whether you're in Birthday Campaign, Memorial
+Day Campaign, or any project in any org. Like a notebook you carry.
+
+### What changes when you switch context
+
+| Action | What changes |
+|--------|--------------|
+| Switch project (same org) | Project High Level, Project Details, Files Locations swap. People + Playbook stay. My Notes stays. |
+| Switch org | Everything project-level swaps. People + Playbook for the new org load. My Notes stays. |
+| Sign out | All workspace context cleared. My Notes preserved server-side. |
 
 ### MCP write routing
 
@@ -110,13 +127,15 @@ and UI controls (lock icons, hidden Edit buttons).
 |-------|---------|
 | `organizations` | Named orgs (e.g. "Emory Healthcare") |
 | `org_members` | Who belongs to each org + role + active_workspace_id |
-| `org_memory_notes` | Org-level shared tabs (people, environment) |
-| `workspaces` | Named workspaces within an org |
+| `org_memory_notes` | Org-level shared tabs (people, playbook) |
+| `workspaces` | Named projects within an org |
 | `workspace_members` | Who belongs + role (owner/member) |
 | `diagram_views` | Mermaid diagrams with title, description, summary, permission |
 | `memory_notes` | Markdown documents with filename, content, permission |
+| `user_notes` | Per-user GLOBAL notes (My Notes) — keyed by user_id, follows across orgs/projects |
 | `history_snapshots` | Timestamped JSON snapshots on every save |
 | `mcp_call_logs` | Every MCP tool call logged for analytics |
+| `__delma_migrations` | Migration tracking — one row per applied SQL file |
 
 ### Auth
 
@@ -124,8 +143,21 @@ Supabase Auth with email/password. First login auto-creates the account.
 
 ### Real-time
 
-`diagram_views`, `memory_notes`, and `org_memory_notes` have Supabase
-Realtime enabled. When Claude writes via MCP, the web app updates live.
+`diagram_views`, `memory_notes`, `org_memory_notes`, and `user_notes`
+have Supabase Realtime enabled. When Claude writes via MCP, the web
+app updates live.
+
+### Migrations (DDL)
+
+The Supabase JS client can't run DDL (CREATE TABLE etc.). For schema
+changes, we use a one-off Node script (`server/run-migrations.js`) that
+connects via `DATABASE_URL` (set in `.env`, gitignored) using the `pg`
+driver. It tracks applied migrations in `__delma_migrations` so re-runs
+are safe.
+
+Run it: `node server/run-migrations.js`. The DATABASE_URL is the
+Supabase pooler connection string from
+**Connect → Direct → Connection pooling** in the dashboard.
 
 ---
 
@@ -185,7 +217,36 @@ every tool call with timing on the server side.
 ## 8. Context Loading & Bidirectional Sync
 
 Context flows into Claude Code through three mechanisms working together
-to maintain true bidirectional sync between the web app and the chat:
+to maintain true bidirectional sync between the web app and the chat.
+
+### Active project follows the web app
+
+Both the SessionStart hook and the MCP server look up the user's
+**`org_members.active_workspace_id`** at startup — that's whatever
+project tab is currently open in the browser. No hardcoded workspace
+in `.mcp.json`. Switch projects in the browser → next Claude Code
+session sees the new project.
+
+For mid-session switches: when the web app's project dropdown changes,
+it both updates `active_workspace_id` AND triggers `/api/refresh-claude-md`,
+so the next message you send Claude sees the new project's content.
+
+### Privacy default: writes off until "delma on"
+
+CLAUDE.md leads with a privacy contract:
+
+- **Reads always on.** Claude can see the workspace from the moment
+  the session starts.
+- **Writes OFF by default.** Claude will NOT call `sync_conversation_summary`,
+  `save_diagram_view`, or `append_memory_note` unless the user explicitly
+  enables it.
+
+Triggers:
+- "delma on" / "record this" / "sync to delma" → creates `.claude/.delma-on`
+  flag, Claude starts syncing
+- "delma off" / "stop recording" → removes the flag, Claude goes silent
+
+Claude must check the flag before any write tool call.
 
 ### Session start: full content (via hook)
 
