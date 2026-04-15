@@ -2002,7 +2002,10 @@ async function init() {
   if (els.authUsername) els.authUsername.placeholder = 'Email'
   if (els.projectDir) els.projectDir.placeholder = 'Workspace name'
 
-  renderWorkspace()
+  // Skip the template render — wait for real workspace data so the user
+  // never sees a placeholder diagram flash before the actual content.
+  hideDiagramOutput()
+  console.log('[delma init] diagramOutput hidden until real data loads')
 
   const user = await checkAuth()
 
@@ -2020,7 +2023,12 @@ async function init() {
     } else {
       console.log('[delma init] no workspaces found')
       setWorkspaceStatus('Create a project to get started.')
+      // No workspace — render the empty default and reveal
+      renderWorkspace()
     }
+  } else {
+    // Not logged in — render placeholder and reveal so auth UI is visible
+    renderWorkspace()
   }
   console.log('[delma init] complete')
 }
