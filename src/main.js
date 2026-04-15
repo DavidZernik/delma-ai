@@ -1442,6 +1442,181 @@ Example: [{"find":"old line","replace":"new line"}]`
   }
 }
 
+// ── Unified fact router — sees all tabs, updates the right one(s) ──────────
+// Works for both proactive-question answers and manual NL edits.
+// One LLM call that:
+//   1. Sees all tabs (diagrams + project memory + org memory)
+//   2. Decides which tab(s) the user's input belongs on
+//   3. Returns JSON patches scoped to those tabs
+// Applies patches to Supabase, returns list of affected tab keys.
+
+async function routeAndPatchFact(input, questionContext = null) {
+  console.log('[delma router] starting, input:', input.substring(0, 80), 'questionCtx:', questionContext?.substring(0, 40))
+  const t0 = performance.now()
+
+  // Build snapshot of all tabs with their content + metadata
+  const tabs = []
+
+  // Diagrams
+  for (const v of state.views) {
+    if (!v.mermaid) continue
+    tabs.push({
+      key: `diagram:${v.view_key}`,
+      type: 'mermaid',
+      title: v.title,
+      scope: 'System architecture — automations, DEs, SQL, journeys, emails, cloudpages, decision splits. NOT people or roles.',
+      content: v.mermaid,
+      id: v.id,
+      table: 'diagram_views'
+    })
+  }
+
+  // Project memory
+  for (const row of state.memoryRows) {
+    if (!row.content) continue
+    const scope = row.filename === 'environment.md'
+      ? 'SFMC IDs, DE names, journey/automation keys, technical config. NOT people or business rules.'
+      : 'Session log — status, decisions, pending items. Narrative history.'
+    tabs.push({
+      key: `memory:${row.filename}`,
+      type: 'markdown',
+      title: MEMORY_TAB_LABELS[row.filename]?.title || row.filename,
+      scope,
+      content: row.content,
+      id: row.id,
+      table: 'memory_notes',
+      filename: row.filename
+    })
+  }
+
+  // Org memory
+  for (const row of state.orgMemoryRows) {
+    if (!row.content) continue
+    tabs.push({
+      key: `org:${row.filename}`,
+      type: 'markdown',
+      title: ORG_TAB_LABELS[row.filename]?.title || row.filename,
+      scope: 'Team members, roles, ownership. NOT system architecture or IDs.',
+      content: row.content,
+      id: row.id,
+      table: 'org_memory_notes'
+    })
+  }
+
+  console.log('[delma router] tabs available:', tabs.map(t => t.key).join(', '))
+
+  // Build prompt
+  const tabsBlock = tabs.map(t =>
+    `### ${t.key} — ${t.title}\nScope: ${t.scope}\nContent:\n\`\`\`\n${t.content.substring(0, 1500)}${t.content.length > 1500 ? '\n...' : ''}\n\`\`\``
+  ).join('\n\n')
+
+  const userInput = questionContext
+    ? `Question asked: "${questionContext}"\nUser's answer: "${input}"`
+    : `User wrote: "${input}"`
+
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5',
+        max_tokens: 2000,
+        system: `You are a workspace router. Given a user's input, decide which workspace tab(s) the information belongs on, then return the updates.
+
+Rules:
+- An input may update 0, 1, or multiple tabs.
+- Respect each tab's scope. Never put people info on an architecture diagram. Never put technical IDs on a People tab.
+- If the input replaces existing info on a tab (e.g. "Keyona IS the PM, there is no separate PM"), remove the stale info rather than duplicating.
+- For Mermaid diagrams: if you remove a node, also remove its edges. Reroute edges to consolidated nodes as needed.
+- If the input doesn't belong on any tab, return [].
+
+Return JSON array of updates. For each updated tab, return the COMPLETE new content:
+[
+  { "tab": "memory:environment.md", "newContent": "...full updated markdown..." },
+  { "tab": "diagram:architecture", "newContent": "flowchart TD\\n  ..." }
+]
+
+Return ONLY valid JSON. No prose, no code fences.`,
+        user: `${userInput}
+
+Available tabs:
+
+${tabsBlock}
+
+Return the JSON array of updates.`
+      })
+    })
+
+    console.log('[delma router] response status:', res.status, 'in', Math.round(performance.now() - t0), 'ms')
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      console.error('[delma router] error:', err)
+      return { updatedTabs: [] }
+    }
+
+    const data = await res.json()
+    let raw = data.content?.[0]?.text?.trim()
+    console.log('[delma router] raw response:', raw?.substring(0, 300))
+    if (!raw) return { updatedTabs: [] }
+
+    raw = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '')
+
+    let updates
+    try {
+      updates = JSON.parse(raw)
+    } catch (err) {
+      console.error('[delma router] JSON parse failed:', err.message)
+      return { updatedTabs: [] }
+    }
+
+    if (!Array.isArray(updates) || !updates.length) {
+      console.log('[delma router] no updates needed (empty array)')
+      return { updatedTabs: [] }
+    }
+
+    // Apply updates to Supabase
+    const tabByKey = Object.fromEntries(tabs.map(t => [t.key, t]))
+    const updatedTabs = []
+
+    for (const u of updates) {
+      const tab = tabByKey[u.tab]
+      if (!tab || !u.newContent) {
+        console.log('[delma router] skipping invalid update:', u.tab)
+        continue
+      }
+
+      // Validate Mermaid before saving
+      if (tab.type === 'mermaid') {
+        try {
+          const testId = `validate-router-${Date.now()}`
+          const cleaned = u.newContent.replace(/^---\n[\s\S]*?\n---\n?/, '')
+          await mermaid.render(testId, cleaned)
+        } catch (parseErr) {
+          console.error('[delma router] invalid Mermaid for', u.tab, ':', parseErr.message)
+          continue
+        }
+      }
+
+      if (tab.table === 'diagram_views') {
+        await supabase.from('diagram_views').update({ mermaid: u.newContent }).eq('id', tab.id)
+      } else if (tab.table === 'memory_notes') {
+        await supabase.from('memory_notes').update({ content: u.newContent }).eq('workspace_id', state.workspaceId).eq('filename', tab.filename)
+      } else if (tab.table === 'org_memory_notes') {
+        await supabase.from('org_memory_notes').update({ content: u.newContent }).eq('id', tab.id)
+      }
+
+      console.log('[delma router] updated:', u.tab, 'newLen:', u.newContent.length)
+      updatedTabs.push({ key: u.tab, title: tab.title })
+    }
+
+    console.log('[delma router] done in', Math.round(performance.now() - t0), 'ms, updated', updatedTabs.length, 'tab(s)')
+    return { updatedTabs }
+  } catch (err) {
+    console.error('[delma router] fetch error:', err)
+    return { updatedTabs: [] }
+  }
+}
+
 // ── Claude Haiku full-rewrite (for Mermaid diagrams) ───────────────────────
 // Diagrams need structural reasoning (remove nodes, redirect edges, fix orphans).
 // Patch format struggles with deletions; full rewrite with a precise model handles it.
@@ -1506,38 +1681,14 @@ Return the complete updated Mermaid. Think carefully about node AND edge changes
 
 async function applyNaturalLanguageEdit(instruction) {
   if (!instruction?.trim()) return
-
-  const currentContent = els.diagramEditor.value
-  const isMarkdown = state.activeTopTab === 'memory' || state.activeTopTab === 'orgMemory'
-  const contentType = isMarkdown ? 'markdown' : 'mermaid'
-
-  // Route diagrams through Haiku (full rewrite, structural reasoning)
-  // Route markdown through DeepSeek patches (fast, cheap, fine for prose)
-  console.log('[delma edit] routing:', isMarkdown ? 'DeepSeek patches' : 'Haiku full rewrite')
-  const updated = isMarkdown
-    ? await deepSeekPatchEdit(currentContent, instruction, contentType)
-    : await claudeHaikuDiagramEdit(currentContent, instruction)
-  if (!updated) return
-
-  // Diff: find which lines changed
-  const oldLines = currentContent.split('\n')
-  const newLines = updated.split('\n')
-  let firstChanged = -1
-  let lastChanged = -1
-  for (let i = 0; i < Math.max(oldLines.length, newLines.length); i++) {
-    if (oldLines[i] !== newLines[i]) {
-      if (firstChanged === -1) firstChanged = i
-      lastChanged = i
-    }
+  console.log('[delma edit] routing through unified fact router')
+  const { updatedTabs } = await routeAndPatchFact(instruction)
+  if (!updatedTabs.length) {
+    setWorkspaceStatus('Noted — nothing matched a tab.')
+    return
   }
-
-  // Apply to editor
-  els.diagramEditor.value = updated
-
-  // Highlight changed region
-  if (firstChanged >= 0) {
-    highlightEditorLines(firstChanged, lastChanged)
-  }
+  const names = updatedTabs.map(t => t.title).join(', ')
+  setWorkspaceStatus(`Updated: ${names}`)
 }
 
 // ── Event Listeners ──────────────────────────────────────────────────────────
@@ -1819,101 +1970,14 @@ function showPrompt(question, tabKey) {
   // Uses DeepSeek to intelligently update the content (including Mermaid diagrams)
   // instead of just appending raw text.
   async function onApply(answer, q) {
-    console.log('[delma onApply] called with answer:', answer, 'question:', q)
-    // Get current content
-    let currentContent = ''
-    let table = ''
-    let idField = ''
-    let idValue = ''
-
-    if (state.activeTopTab === 'orgMemory') {
-      const { data: ex } = await supabase.from('org_memory_notes').select('id, content').eq('org_id', state.org.id).eq('filename', state.activeMemoryFile).single()
-      if (!ex) return
-      currentContent = ex.content
-      table = 'org_memory_notes'
-      idField = 'id'
-      idValue = ex.id
-    } else if (state.activeTopTab === 'memory') {
-      const { data: ex } = await supabase.from('memory_notes').select('id, content').eq('workspace_id', state.workspaceId).eq('filename', state.activeMemoryFile).single()
-      if (!ex) return
-      currentContent = ex.content
-      table = 'memory_notes'
-      idField = 'id'
-      idValue = ex.id
-    } else if (state.activeTopTab === 'diagram') {
-      const view = getActiveView()
-      if (!view) return
-      currentContent = view.mermaid || ''
-      table = 'diagram_views'
-      idField = 'id'
-      idValue = view.id
-    } else {
+    console.log('[delma onApply] answer:', answer, 'question:', q)
+    const { updatedTabs } = await routeAndPatchFact(answer, q)
+    if (!updatedTabs.length) {
+      setWorkspaceStatus('Noted — nothing needed updating.')
       return
     }
-
-    // Route diagrams through Haiku (structural), markdown through DeepSeek patches (fast)
-    const isMermaid = state.activeTopTab === 'diagram'
-    const contentType = isMermaid ? 'mermaid diagram' : 'markdown document'
-
-    // Tab scope — what this content IS, so we don't mix domains.
-    const tabScope = isMermaid
-      ? 'a system architecture diagram (automations, data extensions, journeys, emails, cloudpages, decision splits). It does NOT contain people, roles, or ownership info — those belong on the People tab.'
-      : state.activeTopTab === 'orgMemory' && state.activeMemoryFile === 'people.md'
-        ? 'a list of team members, roles, and ownership. It does NOT contain system architecture, IDs, or campaign logic.'
-        : state.activeMemoryFile === 'environment.md'
-          ? 'SFMC IDs, DEs, journey/automation keys, and technical configuration. It does NOT contain people or business rules.'
-          : 'a session log — status, decisions, pending items. Narrative only.'
-
-    const instruction = `The user was asked: "${q}" and answered: "${answer}".
-
-This document is ${tabScope}
-
-ONLY update this document if the user's answer is directly relevant to its scope.
-If the answer is about something that belongs on a DIFFERENT tab (e.g. people info on an Architecture tab), return the document UNCHANGED.
-If the answer contradicts or replaces existing information in scope, remove the old information rather than duplicating it.
-Do not add concepts that don't belong in this document type.`
-
-    console.log('[delma onApply] routing:', isMermaid ? 'Haiku' : 'DeepSeek patches', 'table:', table, 'scope:', tabScope.substring(0, 60))
-    let updated = isMermaid
-      ? await claudeHaikuDiagramEdit(currentContent, instruction)
-      : await deepSeekPatchEdit(currentContent, instruction, contentType)
-    if (!updated) { setWorkspaceStatus('Update failed.'); return }
-
-    // If nothing changed, tell the user — avoid silent no-ops
-    if (updated === currentContent) {
-      console.log('[delma onApply] answer was out of scope for this tab, no changes made')
-      setWorkspaceStatus('Your answer was about a different topic. Switch to the relevant tab to record it.')
-      return
-    }
-
-    try {
-
-      // Validate Mermaid before saving — if it doesn't parse, reject the update
-      if (table === 'diagram_views') {
-        try {
-          const testId = `validate-prompt-${Date.now()}`
-          const cleaned = updated.replace(/^---\n[\s\S]*?\n---\n?/, '')
-          await mermaid.render(testId, cleaned)
-        } catch (parseErr) {
-          console.error('[delma prompt] DeepSeek produced invalid Mermaid:', parseErr.message)
-          setWorkspaceStatus('Update produced invalid diagram — try rephrasing.')
-          return
-        }
-      }
-
-      // Save to Supabase
-      if (table === 'diagram_views') {
-        await supabase.from(table).update({ mermaid: updated }).eq(idField, idValue)
-      } else {
-        await supabase.from(table).update({ content: updated }).eq(idField, idValue)
-      }
-
-      console.log('[delma onApply] saved to Supabase, done')
-      setWorkspaceStatus('Updated.')
-    } catch (err) {
-      console.error('[delma onApply] error:', err)
-      setWorkspaceStatus(`Error: ${err.message}`)
-    }
+    const names = updatedTabs.map(t => t.title).join(', ')
+    setWorkspaceStatus(`Updated: ${names}`)
   }
 
   // Stop polling while a question is visible — prevents re-rendering the block
