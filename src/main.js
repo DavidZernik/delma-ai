@@ -773,13 +773,24 @@ function prepareFittedSvg(svg, wrapper) {
   const bounds = getSvgContentBounds(svg)
   if (!bounds || !wrapper) return null
 
+  // If the natural SVG width exceeds the wrapper width, compute a fit
+  // factor so the diagram is shown fully on first load. The user can
+  // still zoom IN with the + button.
+  const wrapperWidth = wrapper.clientWidth
+  const fitScale = wrapperWidth > 0 && bounds.width > wrapperWidth
+    ? wrapperWidth / bounds.width
+    : 1
+
   svg.setAttribute('viewBox', `${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`)
   svg.setAttribute('width', String(bounds.width))
   svg.setAttribute('height', String(bounds.height))
   svg.dataset.baseWidth = String(bounds.width)
   svg.dataset.baseHeight = String(bounds.height)
+  svg.dataset.fitScale = String(fitScale)
 
-  return { bounds }
+  console.log('[delma fit] svg', Math.round(bounds.width), 'wrapper', wrapperWidth, 'fitScale', fitScale.toFixed(2))
+
+  return { bounds, fitScale }
 }
 
 function setZoom(level) {
@@ -927,13 +938,16 @@ async function renderDiagram(mermaidCode) {
     const wrapper = els.diagramOutput.querySelector('.diagram-zoom-wrapper')
     const svgEl = wrapper.querySelector('svg')
     applyDiagramBranding(svgEl)
-    prepareFittedSvg(svgEl, wrapper)
+    const prepared = prepareFittedSvg(svgEl, wrapper)
     enableDiagramDragging(wrapper)
 
     // Two rAFs for layout to settle, then set zoom, then reveal as one fade.
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        setZoom(1)
+        // Use the fit scale so wide diagrams shrink to fit the card width
+        // on first load. User can then zoom in with the + button.
+        const initialZoom = prepared?.fitScale || 1
+        setZoom(initialZoom)
         console.log('[delma render] revealing diagram, total prep ms:', Math.round(performance.now() - t0))
         els.diagramOutput.style.visibility = 'visible'
         els.diagramOutput.style.transition = 'opacity 200ms ease'
@@ -1672,7 +1686,9 @@ At the END of the diagram add these style declarations (one
   ... (one per pair)
 
 Notes:
-- Description text: 3-8 words, human, no jargon.
+- Description text: 2-5 words MAX. Keep short to avoid clipping. No jargon.
+  Bad: "patient list from cloud" (5 words but with a wide tail)
+  Good: "patient source", "filters birthdays", "saves choice"
 - Pair every node — including decision diamonds.
 - If you remove a node, remove its subgraph wrapper, its _note pair,
   the corresponding style line, and any edges to/from it.
