@@ -14,19 +14,28 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 
 const SYSTEM_PROMPT = `You are upgrading a Mermaid diagram to use the SFMC visual vocabulary.
 
-For every technical node, pick the right shape + class:
+CRITICAL SYNTAX RULE: every label inside the shape brackets MUST be wrapped
+in DOUBLE QUOTES. Otherwise emoji, spaces, and special chars break the
+lexer. Example of a correct journey node:
+  Journey(["⚡ Birthday Daily Email Journey<br/>ContactEvent trigger"]):::journey
 
-| Concept                          | Shape syntax        | classDef class |
-|----------------------------------|---------------------|----------------|
-| Data Extension                   | NodeId[(label)]     | :::de          |
-| Source DE (read-only / external) | NodeId[(label)]     | :::deSource    |
-| SQL / Query Activity             | NodeId[[label]]     | :::sql         |
-| Automation                       | NodeId{{label}}     | :::automation  |
-| Journey                          | NodeId([label])     | :::journey     |
-| Email asset                      | NodeId[/label/]     | :::email       |
-| CloudPage                        | NodeId[\\\\label\\\\]   | :::cloudpage   |
-| Decision split                   | NodeId{label}       | :::decision    |
-| Endpoint / Result                | NodeId([label])     | :::endpoint    |
+For every technical node, pick the right shape + class. SHAPE = the
+brackets, LABEL = the quoted string inside, CLASS = appended after:
+
+| Concept                          | Correct full syntax                                 |
+|----------------------------------|------------------------------------------------------|
+| Data Extension                   | NodeId[("💾 label")]:::de                            |
+| Source DE (read-only / external) | NodeId[("💾 label")]:::deSource                      |
+| SQL / Query Activity             | NodeId[["🔍 label"]]:::sql                           |
+| Automation                       | NodeId{{"⚙️ label"}}:::automation                    |
+| Journey                          | NodeId(["⚡ label"]):::journey                       |
+| Email asset                      | NodeId[/"📧 label"/]:::email                         |
+| CloudPage                        | NodeId[\\\\"🌐 label"\\\\]:::cloudpage                  |
+| Decision split                   | NodeId{"🔀 label"}:::decision                        |
+| Endpoint / Result                | NodeId(["label"]):::endpoint                         |
+
+Notes inside pair subgraphs keep their plain rectangle + note class:
+  Journey_note["launches email automation"]:::note
 
 Add an emoji at the START of each technical label:
 - 💾 DE

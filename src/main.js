@@ -1678,19 +1678,23 @@ ARCHITECTURE DIAGRAM RULES (tabs typed "markdown-with-mermaid"):
     \`\`\`
 - Keep BOTH sections in sync.
 
-SFMC NODE VOCABULARY — pick the right shape + class for each concept:
+SFMC NODE VOCABULARY — pick the right shape + class for each concept.
 
-| Concept                          | Shape syntax        | classDef class |
-|----------------------------------|---------------------|----------------|
-| Data Extension (any DE)          | NodeId[(label)]     | :::de          |
-| Source DE (read-only / external) | NodeId[(label)]     | :::deSource    |
-| SQL / Query Activity             | NodeId[[label]]     | :::sql         |
-| Automation                       | NodeId{{label}}     | :::automation  |
-| Journey                          | NodeId([label])     | :::journey     |
-| Email asset                      | NodeId[/label/]     | :::email       |
-| CloudPage                        | NodeId[\\label\\]    | :::cloudpage   |
-| Decision split                   | NodeId{label}       | :::decision    |
-| Endpoint / Result                | NodeId([label])     | :::endpoint    |
+CRITICAL SYNTAX: ALWAYS wrap labels in DOUBLE QUOTES inside the shape
+brackets. Otherwise emoji and special chars break the Mermaid lexer.
+Correct format examples below — copy exactly:
+
+| Concept                          | Correct full syntax                          |
+|----------------------------------|-----------------------------------------------|
+| Data Extension                   | NodeId[("💾 label")]:::de                     |
+| Source DE (read-only / external) | NodeId[("💾 label")]:::deSource               |
+| SQL / Query Activity             | NodeId[["🔍 label"]]:::sql                    |
+| Automation                       | NodeId{{"⚙️ label"}}:::automation             |
+| Journey                          | NodeId(["⚡ label"]):::journey                |
+| Email asset                      | NodeId[/"📧 label"/]:::email                  |
+| CloudPage                        | NodeId[\\"🌐 label"\\]:::cloudpage             |
+| Decision split                   | NodeId{"🔀 label"}:::decision                 |
+| Endpoint / Result                | NodeId(["label"]):::endpoint                  |
 
 OPTIONAL EMOJI ICONS at the start of the technical label make scanning faster:
 - 💾 Data Extension
