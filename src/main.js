@@ -31,7 +31,7 @@ mermaid.initialize({
   securityLevel: 'loose',
   theme: 'base',
   layout: 'elk',
-  flowchart: { curve: 'basis', padding: 20, nodeSpacing: 40, rankSpacing: 60 },
+  flowchart: { curve: 'basis', padding: 8, nodeSpacing: 24, rankSpacing: 48 },
   themeVariables: {
     primaryColor: '#FFFFFF',
     primaryTextColor: '#0F0A0A',   // sharper than ink, near-black for max contrast
@@ -675,7 +675,11 @@ function applyDiagramBranding(svg) {
   }
 
   // Higher-contrast node text — near-black, slightly heavier weight.
+  // EXCLUDE notes (.node.note .nodeLabel) — they have their own classDef
+  // styling (12px italic muted) and Mermaid sized their foreignObject
+  // for that. Forcing 14px/600 on them causes text to overflow + clip.
   for (const label of svg.querySelectorAll('.nodeLabel')) {
+    if (label.closest('.node')?.classList.contains('note')) continue
     label.style.fontSize = '14px'
     label.style.fontWeight = '600'
     label.style.color = '#0F0A0A'
