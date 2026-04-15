@@ -1167,8 +1167,14 @@ function renderViewTabs() {
     els.viewTabs.appendChild(btn)
   }
 
-  // Project memory tabs
-  const memFiles = Object.keys(state.memory).length ? Object.keys(state.memory) : Object.keys(MEMORY_TAB_LABELS)
+  // Project memory tabs — iterate in MEMORY_TAB_LABELS order (decisions →
+  // environment → my-notes), then any extras that exist in state but aren't
+  // in the labels map. Forces UI order regardless of Supabase row order.
+  const knownOrder = Object.keys(MEMORY_TAB_LABELS)
+  const presentFiles = Object.keys(state.memory)
+  const orderedKnown = knownOrder.filter(f => presentFiles.includes(f) || presentFiles.length === 0)
+  const extras = presentFiles.filter(f => !knownOrder.includes(f))
+  const memFiles = [...orderedKnown, ...extras]
   for (const filename of memFiles) {
     const label = MEMORY_TAB_LABELS[filename] || { title: filename, desc: '' }
     const row = state.memoryRows.find(r => r.filename === filename)
@@ -2134,6 +2140,15 @@ els.viewModeBtn.addEventListener('click', () => {
 els.editModeBtn.addEventListener('click', () => {
   console.log('[delma save-btn] clicked, mode:', state.diagramMode, 'tab:', state.activeTopTab)
   if (state.diagramMode === 'edit') {
+    // Immediate visual feedback so the user knows the click registered.
+    const btn = els.editModeBtn
+    const originalLabel = btn.textContent
+    btn.disabled = true
+    btn.classList.add('saving')
+    btn.innerHTML = '<span class="apply-spinner"></span><span style="margin-left:8px">Saving...</span>'
+    if (els.viewModeBtn) els.viewModeBtn.disabled = true
+    console.log('[delma save-btn] showing saving state')
+
     void (async () => {
       if (state.activeTopTab === 'diagram') {
         console.log('[delma save-btn] validating diagram content...')
@@ -2141,6 +2156,11 @@ els.editModeBtn.addEventListener('click', () => {
         console.log('[delma save-btn] validation result:', valid)
         if (!valid) {
           updateActiveViewFromEditor()
+          // Restore the button state on validation failure
+          btn.disabled = false
+          btn.classList.remove('saving')
+          btn.textContent = originalLabel
+          if (els.viewModeBtn) els.viewModeBtn.disabled = false
           renderWorkspace()
           setWorkspaceStatus('Fix the Mermaid syntax error before saving.')
           return
@@ -2150,10 +2170,25 @@ els.editModeBtn.addEventListener('click', () => {
       console.log('[delma save-btn] calling saveCurrentTab...')
       await saveCurrentTab()
       console.log('[delma save-btn] save done, switching to view')
+
+      // Brief "Saved ✓" flash before switching to view mode
+      btn.classList.remove('saving')
+      btn.classList.add('saved')
+      btn.innerHTML = '<span style="font-size:14px">✓</span><span style="margin-left:6px">Saved</span>'
+      await new Promise(r => setTimeout(r, 600))
+
+      btn.disabled = false
+      btn.classList.remove('saved')
+      btn.textContent = 'Edit'
+      if (els.viewModeBtn) els.viewModeBtn.disabled = false
       setDiagramMode('view')
       renderWorkspace()
     })().catch(err => {
       console.error('[delma save-btn] error:', err)
+      btn.disabled = false
+      btn.classList.remove('saving', 'saved')
+      btn.textContent = originalLabel
+      if (els.viewModeBtn) els.viewModeBtn.disabled = false
       setWorkspaceStatus(err.message)
       appendLog('Save Failed', err.message, 'error')
     })
