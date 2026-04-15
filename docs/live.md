@@ -167,7 +167,8 @@ CLAUDE.md tells Claude when to sync:
 ### MCP Call Logger
 
 Every tool call is logged to `mcp_call_logs` with timestamp, tool name,
-input, duration, and success/error.
+input, duration, and success/error. Console logs (`[mcp]` prefix) trace
+every tool call with timing on the server side.
 
 ---
 
@@ -210,8 +211,14 @@ Users can edit any tab using plain English. Type a description of the
 change, press Apply, and DeepSeek rewrites the content using a JSON
 patch format (fast — only outputs the diff, not the full document).
 
-Flow: Apply → loading dots → editor highlights changed lines →
-auto-saves → switches to view mode → content fades in.
+Flow: Apply → loading dots (three pulsing red dots in the action slot)
+→ DeepSeek returns JSON patches ({find, replace} format for speed)
+→ editor highlights changed lines with red tint (1.5s pause)
+→ auto-saves to Supabase → switches to view mode
+→ content fades in with red border flash.
+
+Enter/Return key triggers Apply. Both proactive question answers
+and manual NL edits follow the same flow.
 
 ### Proactive Questions
 
@@ -232,8 +239,13 @@ tabs is auto-rendered.
 ### Real-time Sync
 
 When another client (Claude via MCP or another browser tab) writes
-to Supabase, the active tab fades and re-renders with the new content.
-Inactive tabs show a dot indicator.
+to Supabase, the active tab fades and re-renders with the new content,
+plus a red border flash animation to signal the update. Inactive tabs
+show a dot indicator on their pill.
+
+If the user is in edit mode when an external change arrives, a status
+message appears instead of overwriting the editor: "Content updated
+externally — save or cancel to see changes."
 
 ---
 
@@ -260,3 +272,26 @@ in plain English. Claude does the rest.
 
 The diagrams and memory aren't documentation — they're the
 **shared truth** that makes this possible.
+
+---
+
+## 12. Observability
+
+Console logs with prefixes trace every operation:
+
+| Prefix | Layer | What it covers |
+|--------|-------|----------------|
+| `[delma init]` | Frontend | App startup, auth, workspace load |
+| `[delma auth]` | Frontend | Login, signup, session check |
+| `[delma workspace]` | Frontend | Open, refresh (timing + counts) |
+| `[delma realtime]` | Frontend | Subscription setup, change handling |
+| `[delma save]` | Frontend | Tab saves to Supabase |
+| `[delma apply]` | Frontend | Apply flow (both NL edit + proactive) |
+| `[delma render]` | Frontend | Diagram/markdown render with content info |
+| `[delma refresh]` | Frontend | Supabase fetch timing + error checking |
+| `[delma prompt]` | Frontend | Proactive engine ticks, questions, dismissals |
+| `[delma gap]` | Frontend | DeepSeek gap analysis (timing + responses) |
+| `[delma patch]` | Frontend | Patch-based editing (timing + patch details) |
+| `[mcp]` | Server | All MCP tool calls with timing |
+| `[mcp sync]` | Server | Conversation sync patches |
+| `[delma-state]` | Server | Supabase CRUD operations + errors |
