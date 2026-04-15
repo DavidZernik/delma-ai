@@ -344,7 +344,7 @@
     .diagram-stage {
       min-height: 0;
       overflow: auto;
-      padding: 24px max(24px, calc((100% - 1000px) / 2)) 56px;
+      padding: 24px max(24px, calc((100% - 1000px) / 2)) 96px;
       display: flex;
       justify-content: center;
       background: var(--bg);
@@ -376,8 +376,9 @@
     /* Single white card holding prose + diagram. No internal seams. */
     .diagram-card {
       position: relative;          /* anchor for zoom controls */
-      margin-top: 28px;
-      margin-bottom: 40px;        /* breathing room above the page bottom */
+      width: 100%;
+      max-width: 780px;
+      margin: 28px auto 80px;     /* generous breathing room top + bottom */
       background: #FFFFFF;
       border: 1.5px solid var(--accent);   /* dark red border — brand presence */
       border-radius: 12px;
@@ -482,12 +483,12 @@
     .markdown-body p { margin: 6px 0; }
     .markdown-body ul, .markdown-body ol { margin: 6px 0; padding-left: 20px; }
     .markdown-body li { margin: 3px 0; }
-    .markdown-body code { background: var(--bg); padding: 2px 5px; border-radius: 4px; font-size: 11px; word-break: break-all; border: 1px solid var(--line); }
-    .markdown-body pre { background: var(--bg); padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 11px; margin: 8px 0; max-width: 100%; border: 1px solid var(--line); }
+    .markdown-body code { background: #FFFFFF; padding: 2px 5px; border-radius: 4px; font-size: 11px; word-break: break-all; border: 1px solid var(--line); }
+    .markdown-body pre { background: #FFFFFF; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 11px; margin: 8px 0; max-width: 100%; border: 1px solid var(--line); }
     .markdown-body pre code { background: none; padding: 0; word-break: normal; }
     .markdown-body table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 12px; display: block; overflow-x: auto; }
     .markdown-body th, .markdown-body td { border: 1px solid #e0e0e0; padding: 6px 10px; text-align: left; }
-    .markdown-body th { background: var(--bg); font-weight: 600; }
+    .markdown-body th { background: #FFFFFF; font-weight: 600; }
     .markdown-body a { color: var(--accent); }
     .markdown-body hr { border: none; border-top: 1px solid var(--line); margin: 16px 0; }
     .markdown-body blockquote { border-left: 3px solid var(--accent); margin: 8px 0; padding: 4px 12px; color: var(--muted); }
@@ -836,8 +837,8 @@
       font-weight: 500 !important;
     }
     .markdown-body details { margin: 12px 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; max-width: 100%; }
-    .markdown-body details summary { padding: 10px 14px; cursor: pointer; font-weight: 600; font-size: 12px; background: var(--bg); user-select: none; color: var(--ink-secondary); }
-    .markdown-body details summary:hover { background: var(--chrome); }
+    .markdown-body details summary { padding: 10px 14px; cursor: pointer; font-weight: 600; font-size: 12px; background: #FFFFFF; border: 1px solid var(--line); border-radius: 6px; user-select: none; color: var(--ink-secondary); }
+    .markdown-body details summary:hover { background: #FAFAFA; }
     .markdown-body details[open] summary { border-bottom: 1px solid var(--line); }
     .markdown-body details > *:not(summary) { padding: 0 14px; overflow-wrap: anywhere; }
     .markdown-body details > ul, .markdown-body details > p { padding: 4px 14px; }
