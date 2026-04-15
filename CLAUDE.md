@@ -1,50 +1,54 @@
 # Delma Workspace
 
-When the user says "load delma", "delma on", or mentions their project workspace:
-- Call `open_workspace` to load context
-- Respond with: "Delma active — {workspace name} ({org name}). {N} tabs loaded."
+## Recording control (privacy default)
 
-When the user says "delma off" or similar:
-- Stop calling Delma tools for the rest of the conversation
-- Respond with: "Delma off."
+**Reads are always on.** You can see the workspace below.
+**Writes are OFF by default.** This conversation does NOT sync to Delma
+unless the user explicitly turns it on.
 
-## Keeping Delma in sync
+If the user says "delma on" / "record this" / "sync to delma":
+1. Run: `touch .claude/.delma-on`
+2. Acknowledge: "Delma recording — I'll sync notable updates."
+3. From now you may call write tools (`sync_conversation_summary`,
+   `save_diagram_view`, `append_memory_note`) when appropriate.
 
-Call `sync_conversation_summary` regularly to keep the workspace up to date:
-- After a decision is confirmed or a question is resolved
-- When a new person, role, or system is mentioned
-- After working out technical details (IDs, timing, configuration)
-- When finishing a task or switching topics
-- If you haven't synced in the last 5 exchanges and the conversation contains project-relevant facts
+If the user says "delma off" / "stop recording" / "pause delma":
+1. Run: `rm -f .claude/.delma-on`
+2. Acknowledge: "Delma off — won't sync this conversation."
+3. Do NOT call any write tools for the rest of the session.
 
-Pass a plain-English summary of what was discussed. Be specific — include names, IDs, roles, system details. The tool handles routing to the right tabs and patching.
+ALWAYS check for `.claude/.delma-on` before writing. If absent, don't write.
 
-Example:
-```
-sync_conversation_summary({
-  summary: "Birthday campaign go-live approved. Seed list goes to stakeholders first. Wait step between emails is 48 hours. Using All_Patients_Opted_In as source DE. Keyona handling creative assets."
-})
-```
+The active project is whatever is open in the web app
+(via `org_members.active_workspace_id` in Supabase). When unsure,
+call `get_workspace_state`.
 
-## Direct writes
+---
 
-For targeted updates, use the specific tools:
-- `append_memory_note` for environment.md or session-log.md
-- `save_diagram_view` for the Architecture diagram
-- `sync_conversation_summary` for People updates and anything cross-tab
+## Current Workspace Summary
 
-Available tabs:
-- **People** (org-level) — team, roles, ownership. Update via sync tool.
-- **Architecture** (diagram) — system flow. Update via save_diagram_view.
-- **Environment** — SFMC IDs, DEs, journeys, automations, CloudPages.
-- **Session Log** — status, done/pending, recent decisions.
+**Project:** Emory Healthcare - Birthday Campaign  
+**Team:** Marketing Automation Team (Owner: Delma)  
 
-Only write confirmed facts. Never write inferences. Batch updates.
-Before writing to a tab, re-read it first to avoid overwriting recent edits.
+**Current Status:** Ready for end-to-end testing. Both journeys (Birthday Daily Email & Birthday Quiz Follow-Up) are Published. 7 test contacts are seeded. The daily automation is built but not activated.
 
-## Diagram guidelines
+**Key Systems/IDs:**
+*   **Source DE:** `All_Patients_Opted_In` (Shared)
+*   **Trigger Automation:** `Birthday_Daily_Send_Refresh` (ID: `11515afe-c5c3-4b6e-8005-f7e8c8a50a45`)
+*   **Staging DE:** `TEST_Birthday_Daily_Send`
+*   **Main Journey:** `Birthday Daily Email` (ID: `d53b5e04-ec9a-4526-b05e-8b8bd0b6e746`)
+*   **Birthday Email:** `brand_all_hbd_2026` (Asset ID: `264938`)
+*   **Quiz CloudPage:** Page ID `8085`
+*   **Response DE:** `birthday_quiz_responses`
+*   **Follow-up Journey:** `Birthday Quiz Follow-Up` (ID: `cb195f60-a163-4a5b-b4cc-2ecb6a62c485`)
+*   **Test Seed DE:** `Birthday_Test_Seed`
 
-- Use `flowchart TD` (top-down) for flows longer than 5-6 nodes
-- Use `flowchart LR` (left-right) only for short, wide diagrams
-- Keep diagrams under 5-6 nodes wide to avoid horizontal scrolling
-- Include key details in node labels (IDs, timing, status)
+**What Needs to Happen Next (Immediate):**
+1.  **Fire test contacts** into the Birthday Daily Email journey via Fire Event API (rows in the DE do not auto-trigger).
+2.  Verify all 7 test addresses receive the birthday email.
+3.  Click each quiz button (Heart, Womens, Active, Nutrition) from different emails.
+4.  Confirm the CloudPage displays correctly and writes to `birthday_quiz_responses`.
+5.  Verify follow-up emails are routed and sent correctly (wait steps are set to 5 minutes for testing).
+6.  Check that the `ProcessedFlag` in the response DE flips to 'Y'.
+
+**Pre-Launch Sequence:** After testing, manually run automation, swap journey entry source to production DE, reset wait steps to 48 hours, activate the daily automation schedule, and activate journeys on the real source.

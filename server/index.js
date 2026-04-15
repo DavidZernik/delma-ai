@@ -99,8 +99,19 @@ const sb = createClient(process.env.SUPABASE_URL || '', process.env.SUPABASE_SER
 })
 
 app.post('/api/refresh-claude-md', async (req, res) => {
-  const { workspaceId } = req.body
-  if (!workspaceId) return res.status(400).json({ error: 'workspaceId required' })
+  let { workspaceId, userId } = req.body
+  // If no workspaceId given, look up the user's active one
+  if (!workspaceId && userId) {
+    const { data: m } = await sb
+      .from('org_members')
+      .select('active_workspace_id')
+      .eq('user_id', userId)
+      .not('active_workspace_id', 'is', null)
+      .limit(1)
+      .single()
+    workspaceId = m?.active_workspace_id
+  }
+  if (!workspaceId) return res.status(400).json({ error: 'workspaceId or userId required' })
   console.log('[server] refresh-claude-md for workspace:', workspaceId)
   const t0 = Date.now()
 

@@ -6,7 +6,6 @@
         "/Users/davidzernik/Desktop/delma/server/mcp.js"
       ],
       "env": {
-        "DELMA_WORKSPACE_ID": "a1b2c3d4-0000-0000-0000-000000000001",
         "DELMA_USER_ID": "dab61e85-4a99-4641-9b2d-957b12843f0a",
         "DELMA_PROJECT_DIR": "/Users/davidzernik/Desktop/delma"
       }

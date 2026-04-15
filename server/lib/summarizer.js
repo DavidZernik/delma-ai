@@ -148,12 +148,28 @@ export async function generateClaudeMd(views, memoryMap, orgName, workspaceName)
 
   return `# Delma Workspace
 
-Write to Delma when the user confirms a fact:
-- \`append_memory_note\` for people, logic, environment, or session updates
-- \`save_diagram_view\` for architecture or diagram changes
+## Recording control (privacy default)
 
-Only write confirmed facts. Never write inferences. Batch updates.
-Before writing to a tab, re-read it first to avoid overwriting recent edits.
+**Reads are always on.** You can see the workspace below.
+**Writes are OFF by default.** This conversation does NOT sync to Delma
+unless the user explicitly turns it on.
+
+If the user says "delma on" / "record this" / "sync to delma":
+1. Run: \`touch .claude/.delma-on\`
+2. Acknowledge: "Delma recording — I'll sync notable updates."
+3. From now you may call write tools (\`sync_conversation_summary\`,
+   \`save_diagram_view\`, \`append_memory_note\`) when appropriate.
+
+If the user says "delma off" / "stop recording" / "pause delma":
+1. Run: \`rm -f .claude/.delma-on\`
+2. Acknowledge: "Delma off — won't sync this conversation."
+3. Do NOT call any write tools for the rest of the session.
+
+ALWAYS check for \`.claude/.delma-on\` before writing. If absent, don't write.
+
+The active project is whatever is open in the web app
+(via \`org_members.active_workspace_id\` in Supabase). When unsure,
+call \`get_workspace_state\`.
 
 ---
 

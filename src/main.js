@@ -286,12 +286,19 @@ async function openWorkspace(workspaceId) {
   setupRealtimeSubscription()
   console.log('[delma workspace] open complete, views:', state.views.length, 'realtime subscribed')
 
-  // Track active workspace so the hook auto-loads it next session
+  // Track active workspace so the hook auto-loads it next session AND so
+  // any in-flight Claude Code session sees the project change on the next
+  // message via refreshed CLAUDE.md.
   if (state.org?.id) {
     void supabase.from('org_members')
       .update({ active_workspace_id: workspaceId })
       .eq('org_id', state.org.id)
       .eq('user_id', state.user.id)
+      .then(() => {
+        // Regenerate CLAUDE.md for the NEW active workspace so Claude
+        // (mid-session) sees the project switch on the next message.
+        triggerClaudeMdRefresh()
+      })
   }
 
   setWorkspaceStatus('Workspace open. Claude Code can connect via Delma MCP.')
