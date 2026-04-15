@@ -39,7 +39,7 @@ mermaid.initialize({
     secondaryColor: '#FFFFFF',
     secondaryTextColor: '#1F1A1A',
     secondaryBorderColor: '#E8D8D2',
-    tertiaryColor: '#FFFDD0',      // cream — only for cluster bg if needed
+    tertiaryColor: '#FFFEE2',      // cream — only for cluster bg if needed
     tertiaryTextColor: '#1F1A1A',
     tertiaryBorderColor: '#E8D8D2',
     lineColor: '#8F0000',          // arrows — dark red
@@ -50,7 +50,7 @@ mermaid.initialize({
     nodeTextColor: '#1F1A1A',
     mainBkg: '#FFFFFF',
     edgeLabelBackground: '#FFFFFF',
-    clusterBkg: '#FFFDD0',
+    clusterBkg: '#FFFEE2',
     clusterBorder: '#E8D8D2'
   }
 })

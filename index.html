@@ -8,20 +8,20 @@
     :root {
       /* Strictly two surface colors: cream (page) + white (objects).
          Dark red = intent only. No pink, no peach, no beige. */
-      --bg: #FFFDD0;              /* CREAM — the only background color */
-      --chrome: #FFFDD0;          /* matches bg */
+      --bg: #FFFEE2;              /* CREAM — the only background color */
+      --chrome: #FFFEE2;          /* matches bg */
       --panel: #FFFFFF;           /* cards, editors, mermaid — clean white */
-      --panel-soft: #FFFDD0;      /* hover/special — same cream, no pink */
+      --panel-soft: #FFFEE2;      /* hover/special — same cream, no pink */
       --ink: #1F1A1A;             /* primary text — sharp */
       --ink-secondary: #4a3f3d;   /* secondary text */
       --muted: #6B5A5A;           /* metadata, timestamps, helper text */
       --line: #E8D8D2;            /* borders — kept warm-neutral for structure */
       --accent: #8F0000;          /* dark red — intent only */
-      --accent-soft: #FFFDD0;     /* same cream — no pink as a base */
+      --accent-soft: #FFFEE2;     /* same cream — no pink as a base */
       --accent-ink: #ffffff;      /* white text on red */
       --accent-hover: #6E0000;    /* darker red for button hover */
-      --positive: #2F6B5A;        /* success, confirmations */
-      --positive-soft: #e6f2ee;
+      --positive: #8F0000;        /* unified — same red, no separate green */
+      --positive-soft: #FFFEE2;
       --danger: #8F0000;          /* same as accent — red IS the brand */
       --danger-ink: #ffffff;
       --shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
@@ -449,15 +449,15 @@
     .markdown-body p { margin: 6px 0; }
     .markdown-body ul, .markdown-body ol { margin: 6px 0; padding-left: 20px; }
     .markdown-body li { margin: 3px 0; }
-    .markdown-body code { background: #f3f3f3; padding: 2px 5px; border-radius: 4px; font-size: 11px; word-break: break-all; }
-    .markdown-body pre { background: #f6f6f6; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 11px; margin: 8px 0; max-width: 100%; }
+    .markdown-body code { background: var(--bg); padding: 2px 5px; border-radius: 4px; font-size: 11px; word-break: break-all; border: 1px solid var(--line); }
+    .markdown-body pre { background: var(--bg); padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 11px; margin: 8px 0; max-width: 100%; border: 1px solid var(--line); }
     .markdown-body pre code { background: none; padding: 0; word-break: normal; }
     .markdown-body table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 12px; display: block; overflow-x: auto; }
     .markdown-body th, .markdown-body td { border: 1px solid #e0e0e0; padding: 6px 10px; text-align: left; }
-    .markdown-body th { background: #f6f6f6; font-weight: 600; }
+    .markdown-body th { background: var(--bg); font-weight: 600; }
     .markdown-body a { color: var(--accent); }
     .markdown-body hr { border: none; border-top: 1px solid var(--line); margin: 16px 0; }
-    .markdown-body blockquote { border-left: 3px solid var(--positive); margin: 8px 0; padding: 4px 12px; color: #666; }
+    .markdown-body blockquote { border-left: 3px solid var(--accent); margin: 8px 0; padding: 4px 12px; color: var(--muted); }
     /* ── Edit strip — unified command surface ────────────────────── */
     /* Natural language input + system hints in one tight toolbar.    */
     /* Sits between controls and content. Feels like part of chrome.  */
@@ -974,10 +974,11 @@
 
     .message.error {
       padding: 12px 14px;
-      border: 1px solid rgba(180, 70, 60, 0.18);
-      border-radius: 12px;
-      background: rgba(180, 70, 60, 0.06);
-      color: #8e3a31;
+      border: 1px solid var(--accent);
+      border-left: 3px solid var(--accent);
+      border-radius: 6px;
+      background: var(--panel);
+      color: var(--accent);
     }
 
     .composer {
@@ -1123,7 +1124,7 @@
 
     .auth-error {
       min-height: 20px;
-      color: #8a294f;
+      color: var(--accent);
       font-size: 12px;
     }
 
