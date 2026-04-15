@@ -540,23 +540,98 @@
     /* missing" — context for the diagram, not a conversation.        */
     /* Reserves minimal height so appearance doesn't shift layout.    */
 
-    /* ── View-mode hint — awareness only, no input ─────────────── */
-    /* Positioned absolute so it doesn't shift diagram layout.     */
+    /* ── Action block — sits above the diagram, same spot always ── */
+    /* View mode: proactive question + input (warm rose tint)        */
+    /* Edit mode: general prompt + input (neutral)                   */
+    /* Always one block, never both. Same position, same structure.  */
 
-    .delma-hint {
-      position: absolute;
-      top: 8px;
-      left: 14px;
-      font-size: 12px;
-      color: var(--muted);
-      opacity: 0;
-      transition: opacity 300ms ease;
-      z-index: 3;
-      pointer-events: none;
+    .delma-action-block {
+      margin: 0 auto 12px;
+      max-width: 780px;
+      padding: 12px 16px;
+      border-radius: 10px;
+      transition: opacity 400ms ease, background 400ms ease;
     }
 
-    .delma-hint.visible {
-      opacity: 0.55;
+    /* View mode: warm rose — "something is missing" */
+    .delma-action-block.mode-view {
+      background: rgba(143, 0, 0, 0.04);
+      border: 1px solid rgba(143, 0, 0, 0.08);
+    }
+
+    /* Edit mode: neutral — "workspace, ready for input" */
+    .delma-action-block.mode-edit {
+      background: rgba(216, 207, 196, 0.15);
+      border: 1px solid var(--line);
+    }
+
+    .delma-action-question {
+      font-size: 13px;
+      color: var(--ink-secondary);
+      margin: 0 0 8px;
+      transition: opacity 200ms ease;
+    }
+
+    .delma-action-block.typing .delma-action-question {
+      opacity: 0.35;
+    }
+
+    .delma-action-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .delma-action-input {
+      flex: 1;
+      padding: 9px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      font: inherit;
+      font-size: 13px;
+      color: var(--ink);
+      outline: none;
+      transition: border-color 150ms ease;
+    }
+
+    .delma-action-input:focus {
+      border-color: rgba(143, 0, 0, 0.2);
+    }
+
+    .delma-action-input::placeholder {
+      color: var(--muted);
+      opacity: 0.5;
+    }
+
+    .delma-action-apply {
+      padding: 8px 14px;
+      border-radius: 7px;
+      border: none;
+      background: var(--ink);
+      color: var(--panel);
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 120ms ease;
+    }
+
+    .delma-action-apply:hover {
+      background: var(--ink-secondary);
+    }
+
+    /* Fade in/out */
+    .delma-action-block.entering {
+      opacity: 0;
+    }
+
+    .delma-action-block.visible {
+      opacity: 1;
+    }
+
+    .delma-action-block.exiting {
+      opacity: 0;
     }
 
     /* ── Change highlight in editor ───────────────────────────────── */
@@ -1082,16 +1157,8 @@
         </div>
       </div>
 
-      <!-- Edit strip: unified command surface -->
-      <div id="edit-strip" class="edit-strip" hidden>
-        <div class="edit-strip-inner">
-          <div class="edit-strip-question" id="edit-strip-question"></div>
-          <div class="edit-strip-input-row">
-            <textarea id="edit-strip-input" class="edit-strip-input" rows="2" placeholder="Describe a change..."></textarea>
-            <button id="edit-strip-save" class="edit-strip-btn">Apply</button>
-          </div>
-        </div>
-      </div>
+      <!-- Edit strip: kept hidden, used only for NL edit API key ref -->
+      <div id="edit-strip" hidden></div>
 
       <!-- Hidden elements used by JS but no longer in the visible header -->
       <input id="project-dir" type="hidden" />

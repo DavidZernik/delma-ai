@@ -89,10 +89,6 @@ const els = {
   previewBtn: document.getElementById('preview-btn'),
   resetExampleBtn: document.getElementById('reset-example-btn'),
   editStrip: document.getElementById('edit-strip'),
-  editStripInput: document.getElementById('edit-strip-input'),
-  editStripSave: document.getElementById('edit-strip-save'),
-  editStripQuestion: document.getElementById('edit-strip-question'),
-  editStripInner: document.querySelector('.edit-strip-inner'),
   viewTabs: document.getElementById('view-tabs'),
   historyList: document.getElementById('history-list'),
   memoryList: document.getElementById('memory-list'),
@@ -423,6 +419,80 @@ function setupRealtimeSubscription() {
 
 // ── Diagram Mode ─────────────────────────────────────────────────────────────
 
+// ── Action Block — unified input above diagram ──────────────────────────────
+// Same spot, same structure. View mode: proactive question (rose tint).
+// Edit mode: general prompt (neutral). Never both at once.
+
+let currentActionBlock = null
+
+function removeActionBlock() {
+  if (currentActionBlock) {
+    currentActionBlock.classList.add('exiting')
+    const el = currentActionBlock
+    setTimeout(() => el.remove(), 400)
+    currentActionBlock = null
+  }
+}
+
+function renderActionBlock(question, modeClass, onApply) {
+  removeActionBlock()
+
+  const stage = document.querySelector('.diagram-stage')
+  if (!stage) return
+
+  const block = document.createElement('div')
+  block.className = `delma-action-block ${modeClass} entering`
+  block.innerHTML = `
+    <div class="delma-action-question">${escapeHtml(question)}</div>
+    <div class="delma-action-row">
+      <input class="delma-action-input" type="text" placeholder="${modeClass === 'mode-edit' ? 'Describe a change...' : 'Add detail...'}" />
+      <button class="delma-action-apply">Apply</button>
+    </div>
+  `
+
+  stage.insertBefore(block, stage.firstChild)
+  currentActionBlock = block
+
+  // Fade in
+  requestAnimationFrame(() => {
+    block.classList.remove('entering')
+    block.classList.add('visible')
+  })
+
+  const input = block.querySelector('.delma-action-input')
+  const applyBtn = block.querySelector('.delma-action-apply')
+
+  // Typing state — question recedes
+  input.addEventListener('input', () => {
+    block.classList.toggle('typing', input.value.trim().length > 0)
+  })
+
+  // Apply handler
+  async function handleApply() {
+    const value = input.value.trim()
+    if (!value) return
+
+    if (onApply) {
+      // Proactive question answer — append to current tab
+      await onApply(value, question)
+      removeActionBlock()
+      renderWorkspace()
+    } else {
+      // General edit — use NL edit pipeline
+      await applyNaturalLanguageEdit(value)
+      input.value = ''
+      block.classList.remove('typing')
+    }
+  }
+
+  applyBtn.addEventListener('click', handleApply)
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); handleApply() }
+  })
+
+  return block
+}
+
 function setDiagramMode(mode) {
   state.diagramMode = mode
   els.modeToggle.hidden = false
@@ -435,14 +505,11 @@ function setDiagramMode(mode) {
   els.diagramOutput.hidden = mode === 'edit'
   els.diagramEditor.classList.toggle('visible', mode === 'edit')
 
-  // Show/hide edit strip
-  els.editStrip.hidden = mode !== 'edit'
+  // Render action block for edit mode
   if (mode === 'edit') {
-    els.editStripInput.value = ''
-    els.editStripInput.placeholder = 'Describe a change...'
-    els.editStripQuestion.textContent = ''
-    els.editStripQuestion.classList.remove('visible')
-    els.editStripInner?.classList.remove('typing')
+    renderActionBlock('What do you want to update?', 'mode-edit')
+  } else {
+    removeActionBlock()
   }
 }
 
@@ -1284,7 +1351,6 @@ async function applyNaturalLanguageEdit(instruction) {
 
     // Apply to editor
     els.diagramEditor.value = updated
-    els.editStripInput.value = ''
 
     // Highlight changed region with warm rose tint
     if (firstChanged >= 0) {
@@ -1296,23 +1362,6 @@ async function applyNaturalLanguageEdit(instruction) {
     setWorkspaceStatus(`Edit error: ${err.message}`)
   }
 }
-
-els.editStripSave.addEventListener('click', () => {
-  void applyNaturalLanguageEdit(els.editStripInput.value)
-})
-
-els.editStripInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault()
-    void applyNaturalLanguageEdit(els.editStripInput.value)
-  }
-})
-
-// When user types, question recedes. When they clear, question returns.
-els.editStripInput.addEventListener('input', () => {
-  const hasText = els.editStripInput.value.trim().length > 0
-  els.editStripInner?.classList.toggle('typing', hasText)
-})
 
 // ── Event Listeners ──────────────────────────────────────────────────────────
 
@@ -1589,42 +1638,38 @@ async function askDeepSeekForGap(content, tabTitle) {
 let activePromptTimer = null
 
 function showPrompt(question, tabKey) {
-  // Clear any existing prompt timer
   if (activePromptTimer) clearTimeout(activePromptTimer)
 
-  if (state.diagramMode === 'edit' && els.editStrip && !els.editStrip.hidden) {
-    // Edit mode: question replaces the placeholder in the same strip
-    els.editStripQuestion.textContent = question
-    setTimeout(() => els.editStripQuestion.classList.add('visible'), 50)
+  // Same spot, different intent based on mode
+  const modeClass = state.diagramMode === 'edit' ? 'mode-edit' : 'mode-view'
 
-    // Auto-dismiss after 20 seconds — revert to default
-    activePromptTimer = setTimeout(() => {
-      els.editStripQuestion.classList.remove('visible')
-      setTimeout(() => { els.editStripQuestion.textContent = '' }, 250)
-      dismissedTabs.add(tabKey)
-    }, 20000)
-  } else {
-    // View mode: awareness only — subtle hint, no input, no layout shift
-    const container = els.diagramOutput.closest('.diagram-shell') || els.diagramOutput
-    // Ensure container is positioned for absolute hint
-    if (getComputedStyle(container).position === 'static') container.style.position = 'relative'
+  // Answer handler for proactive questions
+  async function onApply(answer, q) {
+    const note = `\n\n**${q}**\n${answer}`
 
-    const existing = container.querySelector('.delma-hint')
-    if (existing) existing.remove()
-
-    const hintEl = document.createElement('div')
-    hintEl.className = 'delma-hint'
-    hintEl.textContent = question
-    container.insertBefore(hintEl, container.firstChild)
-    setTimeout(() => hintEl.classList.add('visible'), 50)
-
-    // Auto-dismiss after 20 seconds
-    activePromptTimer = setTimeout(() => {
-      hintEl.classList.remove('visible')
-      setTimeout(() => hintEl.remove(), 300)
-      dismissedTabs.add(tabKey)
-    }, 20000)
+    if (state.activeTopTab === 'orgMemory') {
+      state.orgMemory[state.activeMemoryFile] = (state.orgMemory[state.activeMemoryFile] || '') + note
+      const { data: ex } = await supabase.from('org_memory_notes').select('id, content').eq('org_id', state.org.id).eq('filename', state.activeMemoryFile).single()
+      if (ex) await supabase.from('org_memory_notes').update({ content: ex.content + note }).eq('id', ex.id)
+    } else if (state.activeTopTab === 'memory') {
+      state.memory[state.activeMemoryFile] = (state.memory[state.activeMemoryFile] || '') + note
+      const { data: ex } = await supabase.from('memory_notes').select('id, content').eq('workspace_id', state.workspaceId).eq('filename', state.activeMemoryFile).single()
+      if (ex) await supabase.from('memory_notes').update({ content: ex.content + note }).eq('id', ex.id)
+    }
   }
+
+  renderActionBlock(question, modeClass, onApply)
+
+  // Auto-dismiss after 25 seconds — revert based on mode
+  activePromptTimer = setTimeout(() => {
+    if (state.diagramMode === 'edit') {
+      // Revert to general edit prompt
+      renderActionBlock('What do you want to update?', 'mode-edit')
+    } else {
+      removeActionBlock()
+    }
+    dismissedTabs.add(tabKey)
+  }, 25000)
 }
 
 async function maybeShowPrompt() {
