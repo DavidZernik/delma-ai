@@ -212,17 +212,15 @@ async function logout() {
 // ── Organization Loading ─────────────────────────────────────────────────────
 
 async function loadOrgs() {
-  if (!state.user) { console.log('[delma] loadOrgs: no user'); return }
+  if (!state.user) return
   const { data, error } = await supabase
     .from('org_members')
     .select('org_id, role, organizations(id, name, slug)')
     .eq('user_id', state.user.id)
-  console.log('[delma] loadOrgs response:', { data, error: error?.message })
   state.orgs = (data || []).map(r => ({ ...r.organizations, orgRole: r.role }))
   if (state.orgs.length && !state.org) {
     state.org = state.orgs[0]
   }
-  console.log('[delma] loadOrgs done:', state.orgs.length, 'orgs, active:', state.org?.name)
 }
 
 // ── Workspace CRUD ───────────────────────────────────────────────────────────
@@ -364,11 +362,7 @@ function isCurrentTab(tabKey) {
 function handleRealtimeChange(table, payload) {
   const record = payload.new || payload.old || {}
   const tabKey = getTabKeyForChange(table, record)
-  console.log('[delma realtime]', table, 'changed, tabKey:', tabKey)
-
   if (isCurrentTab(tabKey)) {
-    // Active tab changed — re-render with fade
-    console.log('[delma realtime] active tab updated, fading in changes')
     els.diagramOutput.style.transition = 'opacity 150ms ease'
     els.diagramOutput.style.opacity = '0.3'
     void refreshWorkspace().then(() => {
@@ -378,7 +372,6 @@ function handleRealtimeChange(table, payload) {
     })
   } else {
     // Different tab — mark it with a dot
-    console.log('[delma realtime] inactive tab updated, adding dot')
     tabsWithUpdates.add(tabKey)
     renderViewTabs()
     void refreshWorkspace()
@@ -462,24 +455,82 @@ function renderActionBlock(question, modeClass, onApply) {
   // Apply handler
   actionApplyHandler = async function () {
     const value = input.value.trim()
+    console.log('[delma apply] clicked, value:', value, 'hasOnApply:', !!onApply)
     if (!value) return
 
-    if (onApply) {
-      await onApply(value, question)
-      removeActionBlock()
-      // Fade in the updated content so user sees what changed
-      els.diagramOutput.style.transition = 'none'
-      els.diagramOutput.style.opacity = '0.3'
-      renderWorkspace()
-      requestAnimationFrame(() => {
-        els.diagramOutput.style.transition = 'opacity 400ms ease'
-        els.diagramOutput.style.opacity = '1'
-      })
-    } else {
-      await applyNaturalLanguageEdit(value)
-      input.value = ''
-      inner.classList.remove('typing')
-      setWorkspaceStatus('Change applied — review below, then save.')
+    // Immediately swap to loading state — hide question/input/button
+    actionSlot.innerHTML = `
+      <div class="action-slot-loading">
+        <span class="loading-dot"></span>
+        <span class="loading-dot"></span>
+        <span class="loading-dot"></span>
+        <span>Updating...</span>
+      </div>
+    `
+    console.log('[delma apply] loading state shown')
+
+    try {
+      if (onApply) {
+        console.log('[delma apply] calling onApply (proactive question)...')
+        await onApply(value, question)
+        console.log('[delma apply] onApply done')
+
+        // Switch to view mode (acts like save)
+        if (state.diagramMode === 'edit') {
+          setDiagramMode('view')
+        }
+
+        // Collapse the action block
+        removeActionBlock()
+
+        // Fetch fresh data and show with flash
+        els.diagramOutput.style.transition = 'none'
+        els.diagramOutput.style.opacity = '0'
+
+        await refreshWorkspace()
+
+        requestAnimationFrame(() => {
+          els.diagramOutput.style.transition = 'opacity 400ms ease'
+          els.diagramOutput.style.opacity = '1'
+          els.diagramOutput.classList.add('diagram-updated-flash')
+          setTimeout(() => els.diagramOutput.classList.remove('diagram-updated-flash'), 2100)
+        })
+      } else {
+        console.log('[delma apply] calling applyNaturalLanguageEdit...')
+        await applyNaturalLanguageEdit(value)
+        console.log('[delma apply] NL edit done, showing highlights in editor')
+
+        // Show highlighted changes in editor for 1.5s, then auto-save and switch to view
+        console.log('[delma apply] pausing 1.5s to show editor highlights...')
+        await new Promise(r => setTimeout(r, 1500))
+
+        console.log('[delma apply] saving current tab...')
+        await saveCurrentTab()
+        console.log('[delma apply] save done, switching to view mode')
+
+        setDiagramMode('view')
+        removeActionBlock()
+
+        els.diagramOutput.style.transition = 'none'
+        els.diagramOutput.style.opacity = '0'
+
+        console.log('[delma apply] refreshing workspace...')
+        await refreshWorkspace()
+
+        requestAnimationFrame(() => {
+          els.diagramOutput.style.transition = 'opacity 400ms ease'
+          els.diagramOutput.style.opacity = '1'
+          els.diagramOutput.classList.add('diagram-updated-flash')
+          setTimeout(() => els.diagramOutput.classList.remove('diagram-updated-flash'), 2100)
+          console.log('[delma apply] view rendered with flash')
+        })
+        setWorkspaceStatus('Updated.')
+      }
+    } catch (err) {
+      console.error('[delma apply] error:', err)
+      // Restore the prompt on error
+      renderActionBlock(question, modeClass, onApply)
+      setWorkspaceStatus(`Error: ${err.message}`)
     }
   }
 
@@ -716,9 +767,7 @@ function enableDiagramDragging(wrapper) {
 }
 
 async function renderDiagram(mermaidCode) {
-  console.log('[delma render] renderDiagram called, code length:', mermaidCode?.length || 0)
   if (!mermaidCode?.trim()) {
-    console.log('[delma render] empty code, showing placeholder')
     els.diagramOutput.className = 'diagram-empty'
     els.diagramOutput.textContent = 'This view does not have Mermaid content yet.'
     return true
@@ -726,10 +775,7 @@ async function renderDiagram(mermaidCode) {
   try {
     const renderId = `delma-diagram-${Date.now()}`
     const normalizedCode = normalizeMermaidForRender(mermaidCode)
-    console.log('[delma render] normalized code:', normalizedCode.substring(0, 100) + '...')
-    console.log('[delma render] calling mermaid.render...')
     const { svg } = await mermaid.render(renderId, normalizedCode)
-    console.log('[delma render] mermaid.render success, svg length:', svg?.length || 0)
     els.diagramOutput.className = ''
     els.diagramOutput.style.opacity = '0'
 
@@ -753,21 +799,15 @@ async function renderDiagram(mermaidCode) {
     // Pinch-to-zoom on touch
     const wrapper = els.diagramOutput.querySelector('.diagram-zoom-wrapper')
     const svgEl = wrapper.querySelector('svg')
-    console.log('[delma render] svgEl found:', !!svgEl, 'wrapper size:', wrapper.clientWidth, 'x', wrapper.clientHeight)
     applyDiagramBranding(svgEl)
-    console.log('[delma render] branding applied')
     const prepared = prepareFittedSvg(svgEl, wrapper)
-    console.log('[delma render] prepareFittedSvg result:', prepared ? { fitScale: prepared.fitScale, bounds: { w: prepared.bounds.width, h: prepared.bounds.height, source: prepared.bounds.source } } : 'null')
-    console.log('[delma render] prepareFittedSvg result:', prepared ? { bounds: { w: Math.round(prepared.bounds.width), h: Math.round(prepared.bounds.height) } } : 'null')
     enableDiagramDragging(wrapper)
 
     // Wait two frames for layout to settle, set zoom, THEN reveal.
     // This prevents the flash where the diagram is visible with wrong sizing.
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        console.log('[delma render] post-layout wrapper size:', wrapper.clientWidth, 'x', wrapper.clientHeight)
         setZoom(1)
-        console.log('[delma render] zoom set, currentZoom:', currentZoom)
         // Reveal only after everything is ready
         els.diagramOutput.style.transition = 'opacity 150ms ease'
         els.diagramOutput.style.opacity = '1'
@@ -1002,29 +1042,23 @@ async function renderMemoryDocument(filename, isOrg = false) {
 // ── Main renderWorkspace ────────────────────────────────────────────────────
 
 function renderWorkspace() {
-  console.log('[delma workspace] renderWorkspace called, activeTopTab:', state.activeTopTab, 'activeViewKey:', state.activeViewKey, 'activeMemoryFile:', state.activeMemoryFile)
-  console.log('[delma workspace] views:', state.views.length, 'memory:', Object.keys(state.memory), 'orgMemory:', Object.keys(state.orgMemory))
   renderViewTabs()
 
   // Org memory tab (SFMC Setup, People)
   if (state.activeTopTab === 'orgMemory') {
-    console.log('[delma workspace] rendering org memory tab:', state.activeMemoryFile)
     void renderMemoryDocument(state.activeMemoryFile, true)
     return
   }
 
   // Project memory tab
   if (state.activeTopTab === 'memory') {
-    console.log('[delma workspace] rendering project memory tab:', state.activeMemoryFile)
     void renderMemoryDocument(state.activeMemoryFile)
     return
   }
 
   // Diagram tab
   const view = getActiveView()
-  console.log('[delma workspace] diagram tab, view:', view ? { key: view.view_key, title: view.title, mermaid_length: view.mermaid?.length } : 'null')
   if (!view) {
-    console.log('[delma workspace] no view, showing placeholder')
     els.diagramOutput.className = 'documentation-shell'
     els.diagramOutput.textContent = 'No view loaded.'
     return
@@ -1047,7 +1081,6 @@ function renderWorkspace() {
 
   if (state.diagramMode !== 'edit') {
     const mermaidCode = state.previewMermaid || view.mermaid || ''
-    console.log('[delma workspace] rendering diagram, mermaid code length:', mermaidCode.length, 'first 80 chars:', mermaidCode.substring(0, 80))
     els.diagramOutput.className = ''
     void renderDiagram(mermaidCode)
   }
@@ -1289,20 +1322,16 @@ function highlightEditorLines(firstLine, lastLine) {
   setTimeout(() => overlay.remove(), 3500)
 }
 
-async function applyNaturalLanguageEdit(instruction) {
-  if (!instruction?.trim()) return
+// ── Shared patch-based DeepSeek edit ────────────────────────────────────────
+// Returns updated content string, or null on failure.
+// Uses JSON patch format for speed — falls back to full rewrite if patch fails.
 
-  const currentContent = els.diagramEditor.value
-  const isMarkdown = state.activeTopTab === 'memory' || state.activeTopTab === 'orgMemory'
-  const contentType = isMarkdown ? 'markdown' : 'mermaid'
-
-  setWorkspaceStatus('Applying change...')
-
+async function deepSeekPatchEdit(currentContent, instruction, contentType) {
   const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY
-  if (!apiKey) {
-    setWorkspaceStatus('DeepSeek API key not configured.')
-    return
-  }
+  if (!apiKey) { setWorkspaceStatus('DeepSeek API key not configured.'); return null }
+
+  console.log('[delma patch] starting, contentType:', contentType, 'contentLength:', currentContent.length)
+  const t0 = performance.now()
 
   try {
     const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
@@ -1310,52 +1339,103 @@ async function applyNaturalLanguageEdit(instruction) {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
         model: 'deepseek-chat',
-        max_tokens: 2000,
+        temperature: 0,
+        max_tokens: 800,
         messages: [{
           role: 'user',
-          content: `You are editing a ${contentType} document. Apply this change: "${instruction}"\n\nCurrent content:\n\`\`\`\n${currentContent}\n\`\`\`\n\nRespond with ONLY the complete updated content. No explanation, no code fences, no commentary. Just the raw ${contentType} that should replace the current content.`
+          content: `You are editing a ${contentType} document. Apply this change: "${instruction}"
+
+Current content:
+\`\`\`
+${currentContent}
+\`\`\`
+
+Respond with a JSON array of patches. Each patch is {"find":"exact text to find","replace":"replacement text"}.
+For new content at the end, use {"find":"","replace":"new text to append"}.
+Include ONLY the minimal patches needed. Return valid JSON only — no explanation, no code fences.
+
+Example: [{"find":"old line","replace":"new line"}]`
         }]
       })
     })
 
-    if (!res.ok) {
-      setWorkspaceStatus('Edit failed — try again or edit manually.')
-      return
-    }
+    console.log('[delma patch] response status:', res.status, 'in', Math.round(performance.now() - t0), 'ms')
+    if (!res.ok) { setWorkspaceStatus('Edit failed.'); return null }
 
     const data = await res.json()
-    let updated = data.choices?.[0]?.message?.content?.trim()
-    if (!updated) {
-      setWorkspaceStatus('No response — try again.')
-      return
+    let raw = data.choices?.[0]?.message?.content?.trim()
+    console.log('[delma patch] raw response:', raw?.substring(0, 200))
+    if (!raw) { setWorkspaceStatus('No response.'); return null }
+
+    // Strip code fences if present
+    raw = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '')
+
+    let patches
+    try {
+      patches = JSON.parse(raw)
+    } catch {
+      console.log('[delma patch] JSON parse failed, falling back to full rewrite')
+      // Response wasn't valid JSON — treat it as a full rewrite
+      return raw
     }
 
-    // Strip any code fences DeepSeek might add despite instructions
-    updated = updated.replace(/^```(?:mermaid|markdown|md)?\n?/, '').replace(/\n?```$/, '')
+    if (!Array.isArray(patches) || !patches.length) {
+      console.log('[delma patch] empty patches array')
+      return null
+    }
 
-    // Diff: find which lines changed
-    const oldLines = currentContent.split('\n')
-    const newLines = updated.split('\n')
-    let firstChanged = -1
-    let lastChanged = -1
-    for (let i = 0; i < Math.max(oldLines.length, newLines.length); i++) {
-      if (oldLines[i] !== newLines[i]) {
-        if (firstChanged === -1) firstChanged = i
-        lastChanged = i
+    // Apply patches sequentially
+    let result = currentContent
+    for (const p of patches) {
+      if (!p.find && p.replace) {
+        // Append
+        result = result.trimEnd() + '\n' + p.replace
+        console.log('[delma patch] appended:', p.replace.substring(0, 60))
+      } else if (result.includes(p.find)) {
+        result = result.replace(p.find, p.replace)
+        console.log('[delma patch] replaced:', p.find.substring(0, 40), '→', p.replace.substring(0, 40))
+      } else {
+        console.log('[delma patch] find not matched:', p.find.substring(0, 60))
       }
     }
 
-    // Apply to editor
-    els.diagramEditor.value = updated
-
-    // Highlight changed region with warm rose tint
-    if (firstChanged >= 0) {
-      highlightEditorLines(firstChanged, lastChanged)
-    }
-
-    setWorkspaceStatus('Change applied — review and save.')
+    console.log('[delma patch] done in', Math.round(performance.now() - t0), 'ms')
+    return result
   } catch (err) {
+    console.error('[delma patch] error:', err)
     setWorkspaceStatus(`Edit error: ${err.message}`)
+    return null
+  }
+}
+
+async function applyNaturalLanguageEdit(instruction) {
+  if (!instruction?.trim()) return
+
+  const currentContent = els.diagramEditor.value
+  const isMarkdown = state.activeTopTab === 'memory' || state.activeTopTab === 'orgMemory'
+  const contentType = isMarkdown ? 'markdown' : 'mermaid'
+
+  const updated = await deepSeekPatchEdit(currentContent, instruction, contentType)
+  if (!updated) return
+
+  // Diff: find which lines changed
+  const oldLines = currentContent.split('\n')
+  const newLines = updated.split('\n')
+  let firstChanged = -1
+  let lastChanged = -1
+  for (let i = 0; i < Math.max(oldLines.length, newLines.length); i++) {
+    if (oldLines[i] !== newLines[i]) {
+      if (firstChanged === -1) firstChanged = i
+      lastChanged = i
+    }
+  }
+
+  // Apply to editor
+  els.diagramEditor.value = updated
+
+  // Highlight changed region
+  if (firstChanged >= 0) {
+    highlightEditorLines(firstChanged, lastChanged)
   }
 }
 
@@ -1518,9 +1598,6 @@ flowchart LR
 // ── Init ─────────────────────────────────────────────────────────────────────
 
 async function init() {
-  console.log('[delma] init started')
-  console.log('[delma] els check:', Object.entries(els).map(([k, v]) => `${k}:${v ? 'OK' : 'NULL'}`).join(', '))
-
   els.sdkStatus.textContent = 'Checking auth...'
   els.connectBtn.textContent = 'Open Workspace'
   els.input.disabled = true
@@ -1530,38 +1607,22 @@ async function init() {
   if (els.authUsername) els.authUsername.placeholder = 'Email'
   if (els.projectDir) els.projectDir.placeholder = 'Workspace name'
 
-  console.log('[delma] rendering default workspace...')
   renderWorkspace()
 
-  console.log('[delma] checking auth...')
   const user = await checkAuth()
-  console.log('[delma] auth result:', user ? `uid=${user.id}, email=${user.email}` : 'not logged in')
 
   if (user) {
-    console.log('[delma] loading orgs...')
     await loadOrgs()
-    console.log('[delma] orgs loaded:', state.orgs.length, state.orgs.map(o => o.name))
-    console.log('[delma] active org:', state.org?.name || 'none')
-
-    console.log('[delma] loading workspaces...')
     await loadWorkspaces()
-    console.log('[delma] workspaces loaded:', state.workspaces.length, state.workspaces.map(w => w.name))
-
-    console.log('[delma] rendering org selector...')
     renderOrgSelector()
-    console.log('[delma] rendering project selector...')
     renderProjectSelector()
 
     if (state.workspaces.length) {
-      console.log('[delma] opening workspace:', state.workspaces[0].name, state.workspaces[0].id)
       await openWorkspace(state.workspaces[0].id)
-      console.log('[delma] workspace opened. views:', state.views.length, 'memory:', Object.keys(state.memory).length, 'orgMemory:', Object.keys(state.orgMemory).length)
     } else {
-      console.log('[delma] no workspaces found')
       setWorkspaceStatus('Create a project to get started.')
     }
   }
-  console.log('[delma] init complete')
 }
 
 // ── Proactive Prompt Engine ──────────────────────────────────────────────────
@@ -1643,6 +1704,7 @@ function showPrompt(question, tabKey) {
   // Uses DeepSeek to intelligently update the content (including Mermaid diagrams)
   // instead of just appending raw text.
   async function onApply(answer, q) {
+    console.log('[delma onApply] called with answer:', answer, 'question:', q)
     // Get current content
     let currentContent = ''
     let table = ''
@@ -1674,38 +1736,16 @@ function showPrompt(question, tabKey) {
       return
     }
 
-    // Ask DeepSeek to integrate the answer into the existing content
-    const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY
-    if (!apiKey) return
+    // Ask DeepSeek to integrate the answer via patch
+    const isMermaid = state.activeTopTab === 'diagram'
+    const contentType = isMermaid ? 'mermaid diagram' : 'markdown document'
+    const instruction = `The user was asked: "${q}" and answered: "${answer}". Integrate this answer into the content.`
 
-    setWorkspaceStatus('Updating...')
+    console.log('[delma onApply] calling deepSeekPatchEdit, table:', table)
+    let updated = await deepSeekPatchEdit(currentContent, instruction, contentType)
+    if (!updated) { setWorkspaceStatus('Update failed.'); return }
 
     try {
-      const isMermaid = state.activeTopTab === 'diagram'
-      const contentType = isMermaid ? 'mermaid diagram' : 'markdown document (which may contain mermaid code blocks)'
-
-      const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({
-          model: 'deepseek-chat',
-          max_tokens: 2000,
-          messages: [{
-            role: 'user',
-            content: isMermaid
-              ? `You are editing a Mermaid flowchart diagram. The user was asked: "${q}" and answered: "${answer}".\n\nUpdate the Mermaid diagram to reflect this new information. Add or modify nodes and edges as needed.\n\nIMPORTANT: Respond with ONLY valid Mermaid syntax. No markdown, no prose, no explanation, no code fences. Just the raw flowchart code starting with "flowchart". Do NOT add any text outside of Mermaid syntax.\n\nCurrent diagram:\n${currentContent}`
-              : `You are editing a markdown document (which may contain mermaid code blocks inside triple backticks). The user was asked: "${q}" and answered: "${answer}".\n\nIntegrate this answer into the existing content. If there are \`\`\`mermaid code blocks, update them to reflect the new information (keep them as valid mermaid inside the code fence). Also update any prose sections.\n\nCurrent content:\n${currentContent}\n\nRespond with ONLY the complete updated markdown. No extra explanation.`
-          }]
-        })
-      })
-
-      if (!res.ok) { setWorkspaceStatus('Update failed.'); return }
-      const data = await res.json()
-      let updated = data.choices?.[0]?.message?.content?.trim()
-      if (!updated) { setWorkspaceStatus('No response.'); return }
-
-      // Strip code fences
-      updated = updated.replace(/^```(?:mermaid|markdown|md)?\n?/, '').replace(/\n?```$/, '')
 
       // Validate Mermaid before saving — if it doesn't parse, reject the update
       if (table === 'diagram_views') {
@@ -1727,15 +1767,20 @@ function showPrompt(question, tabKey) {
         await supabase.from(table).update({ content: updated }).eq(idField, idValue)
       }
 
+      console.log('[delma onApply] saved to Supabase, done')
       setWorkspaceStatus('Updated.')
     } catch (err) {
+      console.error('[delma onApply] error:', err)
       setWorkspaceStatus(`Error: ${err.message}`)
     }
   }
 
+  // Stop polling while a question is visible — prevents re-rendering the block
+  if (promptTimer) { clearInterval(promptTimer); promptTimer = null }
+
   renderActionBlock(question, modeClass, onApply)
 
-  // Auto-dismiss after 25 seconds — revert based on mode
+  // Auto-dismiss after 25 seconds — revert based on mode, restart polling
   activePromptTimer = setTimeout(() => {
     if (state.diagramMode === 'edit') {
       // Revert to general edit prompt
@@ -1744,20 +1789,19 @@ function showPrompt(question, tabKey) {
       removeActionBlock()
     }
     dismissedTabs.add(tabKey)
+    // Restart polling after dismiss
+    promptTimer = setInterval(maybeShowPrompt, 5 * 60 * 1000)
   }, 25000)
 }
 
 async function maybeShowPrompt() {
-  console.log('[delma prompt] maybeShowPrompt called, workspaceId:', !!state.workspaceId, 'diagramMode:', state.diagramMode)
-  if (!state.workspaceId) { console.log('[delma prompt] no workspace'); return }
-  if (state.diagramMode === 'edit') { console.log('[delma prompt] in edit mode, skipping'); return }
+  if (!state.workspaceId) return
+  if (state.diagramMode === 'edit') return
 
   const tabKey = getCurrentTabKey()
-  console.log('[delma prompt] tabKey:', tabKey, 'dismissed:', dismissedTabs.has(tabKey))
   if (!tabKey || dismissedTabs.has(tabKey)) return
 
-  // DEBUG: reduced from 3000ms to 500ms for faster testing
-  if (Date.now() - lastActivity < 500) { console.log('[delma prompt] user active, skipping'); return }
+  if (Date.now() - lastActivity < 3000) return
 
   const content = getCurrentTabContent()
   if (!content || content.length < 20) return
@@ -1768,24 +1812,19 @@ async function maybeShowPrompt() {
       ? (MEMORY_TAB_LABELS[state.activeMemoryFile]?.title || state.activeMemoryFile)
       : (getActiveView()?.title || 'Architecture')
 
-  console.log('[delma prompt] checking for gaps in:', tabTitle)
   const question = await askDeepSeekForGap(content, tabTitle)
 
   if (question) {
-    console.log('[delma prompt] showing:', question)
     showPrompt(question, tabKey)
-  } else {
-    console.log('[delma prompt] content seems complete')
   }
 }
 
 function startPromptEngine() {
   if (promptTimer) clearInterval(promptTimer)
-  // DEBUG: first check after 5s, then every 15s (change back to 30s/5min for prod)
   setTimeout(() => {
     maybeShowPrompt()
-    promptTimer = setInterval(maybeShowPrompt, 15 * 1000)
-  }, 5000)
+    promptTimer = setInterval(maybeShowPrompt, 5 * 60 * 1000)
+  }, 30000)
 }
 
 void init().then(() => startPromptEngine()).catch(err => console.error('[delma] INIT CRASHED:', err))

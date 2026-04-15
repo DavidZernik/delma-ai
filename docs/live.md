@@ -20,11 +20,15 @@ connects via MCP and reads/writes the same data the web app shows.
 ## 2. Architecture
 
 ```
-Claude Code  -->  Delma MCP Server  -->  Supabase (Postgres)
+Claude Code  -->  Delma MCP Server  -->  Supabase (Postgres + Realtime)
                                               ^
                                               |
                                          Delma Web App
-                                         (real-time subscriptions)
+                                     (Supabase Realtime subscriptions)
+                                              |
+                                         DeepSeek API
+                                     (NL editing, proactive questions,
+                                      conversation sync patches)
 ```
 
 Both Claude (via MCP) and the user (via web app) write to the same
@@ -33,22 +37,47 @@ clients instantly.
 
 ---
 
-## 3. Tabs
+## 3. Organization and Workspace Hierarchy
+
+```
+Organization (e.g. "Emory Healthcare")
+  ├── Org-level tabs (shared across all projects)
+  │   ├── SFMC Setup (environment.md)
+  │   └── People (people.md)
+  └── Workspaces (e.g. "Birthday Campaign")
+      ├── Diagram views (Architecture, Org Chart, etc.)
+      └── Memory notes (logic.md, session-log.md, etc.)
+```
+
+Users belong to organizations. Each org has shared tabs (people,
+environment) and multiple workspaces for individual projects.
+
+---
+
+## 4. Tabs
 
 Every tab is markdown. Some contain inline Mermaid diagrams. No
 separate "diagram type" vs "document type" — just content.
 
+### Org-level tabs (shared across all projects)
+
 | Tab | What it answers | Default permission |
 |-----|----------------|-------------------|
-| Architecture | How does the system flow? | view-all (everyone reads, admins edit) |
+| SFMC Setup | Where do I find this ID/URL/key? | view-admins |
+| People | Who owns what? Who decides? | edit-all |
+
+### Project-level tabs
+
+| Tab | What it answers | Default permission |
+|-----|----------------|-------------------|
+| Architecture | How does the system flow? | view-all |
 | Campaign Logic | What are the business rules? | view-all |
-| People | Who owns what? Who decides? | edit-all (anyone can correct) |
-| Environment | Where do I find this ID/URL/key? | view-admins (has API credentials) |
+| Environment | Project-specific IDs and config | view-admins |
 | Session Log | What's done? What's left? | private (per user) |
 
 ---
 
-## 4. Tab Permissions
+## 5. Tab Permissions
 
 Each tab has a permission level that controls who can see and edit it.
 This is enforced at two levels: Postgres RLS policies (hard boundary)
@@ -61,29 +90,18 @@ and UI controls (lock icons, hidden Edit buttons).
 | `edit-all` | All workspace members | All workspace members |
 | `view-admins` | Only owners/admins | Only owners/admins |
 
-### Why this matters
-
-- **Environment tab** has API keys and credentials — hidden from
-  regular members by default (`view-admins`)
-- **Session Log** is personal — each user has their own (`private`)
-- **People** tab is open — anyone can correct who owns what (`edit-all`)
-- **Architecture and Logic** are visible to everyone but only
-  admins change them (`view-all`)
-
-### Workspace roles
-
-- `owner` — full access to everything, can manage members
-- `member` — access controlled by tab permission levels
-
 ---
 
-## 5. Supabase Backend
+## 6. Supabase Backend
 
 ### Tables
 
 | Table | Purpose |
 |-------|---------|
-| `workspaces` | Named workspaces (e.g. "Birthday Campaign") |
+| `organizations` | Named orgs (e.g. "Emory Healthcare") |
+| `org_members` | Who belongs to each org + role + active_workspace_id |
+| `org_memory_notes` | Org-level shared tabs (people, environment) |
+| `workspaces` | Named workspaces within an org |
 | `workspace_members` | Who belongs + role (owner/member) |
 | `diagram_views` | Mermaid diagrams with title, description, summary, permission |
 | `memory_notes` | Markdown documents with filename, content, permission |
@@ -96,12 +114,12 @@ Supabase Auth with email/password. First login auto-creates the account.
 
 ### Real-time
 
-`diagram_views` and `memory_notes` have Supabase Realtime enabled.
-When Claude writes via MCP, the web app updates live.
+`diagram_views`, `memory_notes`, and `org_memory_notes` have Supabase
+Realtime enabled. When Claude writes via MCP, the web app updates live.
 
 ---
 
-## 6. The MCP Server
+## 7. The MCP Server
 
 Runs locally via `npm run start:mcp` (stdio transport).
 Requires env vars: `DELMA_WORKSPACE_ID`, `DELMA_USER_ID`.
@@ -114,11 +132,37 @@ Requires env vars: `DELMA_WORKSPACE_ID`, `DELMA_USER_ID`.
 | `get_diagram_view` | Read one view by key |
 | `save_diagram_view` | Update a view (permission-checked) |
 | `append_memory_note` | Append to a memory file (permission-checked) |
-| `compose_claude_md` | Return static CLAUDE.md behavior instructions |
+| `sync_conversation_summary` | Sync facts from conversation into workspace (see below) |
+| `compose_claude_md` | Return CLAUDE.md behavior instructions |
 | `list_history` | List history snapshots |
 
 All write operations check permissions before executing. If a user
 doesn't have edit access, the MCP server returns a clear error.
+
+### Conversation Sync
+
+The `sync_conversation_summary` tool is the primary way context flows
+from Claude Code conversations into Delma. Claude calls it every few
+exchanges with a plain-English summary of what was discussed.
+
+The tool:
+1. Reads all current workspace tabs from Supabase
+2. Sends the summary + current content to DeepSeek
+3. DeepSeek returns JSON patches for tabs that need updating
+4. Patches are applied to Supabase
+5. Supabase Realtime pushes changes to the web app
+
+This means the web app updates in real-time as the user talks to
+Claude — no manual syncing, no polling.
+
+### CLAUDE.md Instructions
+
+CLAUDE.md tells Claude when to sync:
+- After a decision is confirmed
+- When a new person or system is mentioned
+- After working out technical details
+- When finishing a task or switching topics
+- If 5+ exchanges have passed without a sync
 
 ### MCP Call Logger
 
@@ -127,31 +171,73 @@ input, duration, and success/error.
 
 ---
 
-## 7. Context Loading
+## 8. Context Loading
 
-### Hook (reading)
+Context flows into Claude Code through two mechanisms at different
+stages of a conversation:
 
-A Claude Code hook (`hooks/load-workspace.sh`) runs at session start
-and loads the full workspace context from Supabase. Claude has all
-5 tabs of content before the first message.
+### Session start: full content (via hook)
 
-### CLAUDE.md (writing behavior)
+A Claude Code hook (`hooks/load-workspace.sh`) runs once at session
+start and loads the full workspace content from Supabase — all tabs
+dumped to stdout. Claude has every detail before the first message.
 
-Static file — never changes. Three lines:
+### Ongoing: summary in CLAUDE.md (auto-updated)
 
-```
-Write to Delma when the user confirms a fact:
-- append_memory_note for people, logic, environment, or session updates
-- save_diagram_view for architecture or diagram changes
+After every MCP write, `refreshClaudeMd()` reads all tabs, sends
+them to DeepSeek, and writes a condensed summary to CLAUDE.md locally.
+Claude Code auto-loads CLAUDE.md, so it always has the latest workspace
+context without dumping raw content each turn.
 
-Only write confirmed facts. Never write inferences. Batch updates.
-```
+This matters because Claude Code compacts earlier messages as the
+context window fills. The full tab content from the hook gets
+compacted away, but CLAUDE.md survives — so Claude retains the
+summary even in long conversations.
 
-The hook handles reading. CLAUDE.md handles writing rules.
+### Tradeoff
+
+Summaries are token-efficient but lose detail. Full content is
+accurate but burns context. The current approach balances this:
+full detail at session start, summary for persistence.
 
 ---
 
-## 8. Bidirectional Editing
+## 9. Web App Features
+
+### Natural Language Editing
+
+Users can edit any tab using plain English. Type a description of the
+change, press Apply, and DeepSeek rewrites the content using a JSON
+patch format (fast — only outputs the diff, not the full document).
+
+Flow: Apply → loading dots → editor highlights changed lines →
+auto-saves → switches to view mode → content fades in.
+
+### Proactive Questions
+
+DeepSeek analyzes tab content and surfaces questions about gaps
+(missing people, unclear logic, incomplete diagrams). Questions appear
+in a fixed action slot below the tab header.
+
+Timing: first check 30s after load, then every 5 minutes.
+User must be idle 3s before a question fires.
+Dismissed questions don't reappear for that tab.
+
+### Mermaid Diagrams
+
+Diagrams render with custom branding (cream/red palette), zoom
+controls, pinch-to-zoom, drag-to-pan. Inline Mermaid in markdown
+tabs is auto-rendered.
+
+### Real-time Sync
+
+When another client (Claude via MCP or another browser tab) writes
+to Supabase, the active tab fades and re-renders with the new content.
+Inactive tabs show a dot indicator.
+
+---
+
+## 10. Bidirectional Editing
 
 Both Claude and the user write to the same Supabase tables.
 Supabase Realtime pushes changes to all connected clients.
@@ -162,7 +248,7 @@ make any overwrite recoverable.
 
 ---
 
-## 9. The Product Thesis
+## 11. The Product Thesis
 
 Delma is a **context layer that makes AI assistants usable by
 non-technical people** on technical projects.

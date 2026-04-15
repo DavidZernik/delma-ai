@@ -5,8 +5,8 @@ export const LEFT_FRAC = 0.40
 
 export function initScene() {
   const scene = new THREE.Scene()
-  scene.background = new THREE.Color(0xF5F4F2)
-  scene.fog = new THREE.Fog(0xF5F4F2, 17, 30)
+  scene.background = new THREE.Color(0xD8D4CE)
+  scene.fog = new THREE.Fog(0xD8D4CE, 20, 35)
 
   // ── Camera — elevated front-left, sees all 4 characters ──────────────────
   const w = Math.round(window.innerWidth * LEFT_FRAC)
@@ -90,7 +90,7 @@ function buildRoom(scene) {
   scene.add(floor)
 
   // ── Ceiling — white with subtle warm tone ───────
-  const ceilMat = new THREE.MeshLambertMaterial({ color: 0xF8F5F0 })
+  const ceilMat = new THREE.MeshLambertMaterial({ color: 0xDDD8D0 })
   const ceil = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_W, ROOM_D), ceilMat)
   ceil.rotation.x = Math.PI / 2
   ceil.position.set(0, ROOM_H, -ROOM_D / 2)
@@ -100,11 +100,15 @@ function buildRoom(scene) {
   // Back wall — panels around large window opening
   addBackWindow(scene, ROOM_W, ROOM_H, ROOM_D)
 
-  // Left wall — warm off-white
-  addWall(scene, new THREE.PlaneGeometry(ROOM_D, ROOM_H), -ROOM_W / 2, ROOM_H / 2, -ROOM_D / 2, Math.PI / 2)
+  // Left wall — warm greige
+  const leftWallMat = new THREE.MeshLambertMaterial({ color: 0xE8E2D8 })
+  const leftWall = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_D, ROOM_H), leftWallMat)
+  leftWall.position.set(-ROOM_W / 2, ROOM_H / 2, -ROOM_D / 2)
+  leftWall.rotation.y = Math.PI / 2
+  scene.add(leftWall)
 
-  // Front wall (entrance) — warm off-white
-  const frontWallMat = new THREE.MeshLambertMaterial({ color: 0xF8F7F5 })
+  // Front wall — warm greige
+  const frontWallMat = new THREE.MeshLambertMaterial({ color: 0xE8E2D8 })
   const frontWall = new THREE.Mesh(new THREE.PlaneGeometry(ROOM_W, ROOM_H), frontWallMat)
   frontWall.position.set(0, ROOM_H / 2, 0)
   frontWall.rotation.y = Math.PI
@@ -140,17 +144,26 @@ function buildRoom(scene) {
   addChair(scene,  1.8, -9,   false)  // Marcus
   addChair(scene,  0.2, -14,  true)   // Priya — reversed chair (on -Z side)
 
-  // ── Paintings — Renaissance style ───────────────
-  // Left wall — landscape paintings (safe, no windows)
-  addPainting(scene, -4.35, 2.5, -4.5,  'left', 'colorfield')
-  addPainting(scene, -4.35, 2.5, -10.5, 'left', 'gestural')
-  addPainting(scene, -4.35, 2.5, -16.5, 'left', 'geometric')
-  // (right wall is now glass — no paintings)
+  // ── Paintings ───────────────────────────────────
+  // Left wall — gallery-style arrangement
+  addPainting(scene, -4.35, 2.8, -2.5,   'left', 'colorfield')
+  addPainting(scene, -4.35, 2.5, -5.5,   'left', 'botanical', true)
+  addPainting(scene, -4.35, 2.8, -8.5,   'left', 'gestural')
+  addPainting(scene, -4.35, 2.5, -11.5,  'left', 'geometric')
+  addPainting(scene, -4.35, 2.8, -17,    'left', 'colorfield')
 
   // ── Whiteboard (left wall, mid-room) ─────────────
   addWhiteboard(scene, -4.3, 2.1, -14)
 
-  // bookshelf removed
+  // ── Wall shelves on left wall ────────────────────
+  addWallShelf(scene, -4.35, 1.6, -7)
+  addWallShelf(scene, -4.35, 1.6, -18)
+
+  // ── Coffee station (front wall) ───────────────────
+  addCoffeeStation(scene, -2.5, -0.3)
+
+  // ── Wall clock (left wall) ──────────────────────
+  addWallClock(scene, -4.34, 3.6, -6.5)
 
   // ── Plants ───────────────────────────────────────
   addPlant(scene,  3.4,  -1.5, 2.4)
@@ -239,23 +252,73 @@ function addOfficeBeyondGlass(scene, wallX, roomH, roomD) {
   offCeil.position.set(wallX + 4, roomH, -roomD / 2)
   scene.add(offCeil)
 
-  // Far wall — clearly tinted so it reads through glass
-  const farWallMat = new THREE.MeshLambertMaterial({ color: 0xC8C0B4 })
+  // Far wall — dark warm tone so it reads clearly through glass
+  const farWallMat = new THREE.MeshLambertMaterial({ color: 0x6A6058 })
   const farWall = new THREE.Mesh(new THREE.PlaneGeometry(roomD, roomH), farWallMat)
-  farWall.rotation.y = Math.PI / 2
+  farWall.rotation.y = -Math.PI / 2  // faces -X toward glass
   farWall.position.set(wallX + 8, roomH / 2, -roomD / 2)
   scene.add(farWall)
 
-  // Office ambient light
-  const ambLight = new THREE.PointLight(0xFFF5E8, 0.5, 12)
-  ambLight.position.set(wallX + 4, 4, -10)
+  // End walls to close off the office space
+  const endWallMat = new THREE.MeshLambertMaterial({ color: 0x8A8078 })
+  const frontEndWall = new THREE.Mesh(new THREE.PlaneGeometry(8, roomH), endWallMat)
+  frontEndWall.rotation.y = Math.PI
+  frontEndWall.position.set(wallX + 4, roomH / 2, 0)
+  scene.add(frontEndWall)
+
+  // Paintings on front end wall (faces -Z into the office)
+  addEndWallPaintingReversed(scene, wallX + 3, 2.6, -0.04, 'colorfield')
+  addEndWallPaintingReversed(scene, wallX + 6, 2.6, -0.04, 'geometric')
+
+  const backEndWall = new THREE.Mesh(new THREE.PlaneGeometry(8, roomH), endWallMat)
+  backEndWall.position.set(wallX + 4, roomH / 2, -roomD)
+  scene.add(backEndWall)
+
+  // Paintings on back end wall (faces +Z toward camera)
+  const backEndZ = -roomD + 0.04
+  addEndWallPainting(scene, wallX + 2.5, 2.6, backEndZ, 'gestural')
+  addEndWallPainting(scene, wallX + 5.5, 2.6, backEndZ, 'botanical')
+
+  // Light to illuminate back end wall art
+  const backEndLight = new THREE.PointLight(0xFFF8F0, 0.8, 5)
+  backEndLight.position.set(wallX + 4, 3.8, -roomD + 1.5)
+  scene.add(backEndLight)
+
+  // Office ambient light — brighter to illuminate far wall
+  const ambLight = new THREE.PointLight(0xFFF5E8, 1.2, 14)
+  ambLight.position.set(wallX + 6, 4, -10)
   scene.add(ambLight)
+  const ambLight2 = new THREE.PointLight(0xFFF5E8, 0.8, 12)
+  ambLight2.position.set(wallX + 6, 4, -4)
+  scene.add(ambLight2)
+  const ambLight3 = new THREE.PointLight(0xFFF5E8, 0.8, 12)
+  ambLight3.position.set(wallX + 6, 4, -16)
+  scene.add(ambLight3)
+
+  // ── Windows on far office wall ─────────────────
+  const farWallX = wallX + 7.98
+  const offGlassMat = new THREE.MeshLambertMaterial({
+    color: 0xB8D0E0, transparent: true, opacity: 0.4,
+    emissive: 0x90B8D0, emissiveIntensity: 0.5
+  })
+  const offFrameMat = new THREE.MeshLambertMaterial({ color: 0x666060 })
+  for (const wz of [-6.5, -13.5]) {
+    // Window frame
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(0.06, 2.4, 1.8), offFrameMat)
+    frame.position.set(farWallX - 0.02, 2.5, wz); scene.add(frame)
+    // Glass pane
+    const glass = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 2.2), offGlassMat)
+    glass.rotation.y = -Math.PI / 2
+    glass.position.set(farWallX - 0.05, 2.5, wz); scene.add(glass)
+    // Light spill from windows
+    const winLight = new THREE.PointLight(0xE8F0FF, 0.6, 6)
+    winLight.position.set(farWallX - 1, 2.5, wz); scene.add(winLight)
+  }
 
   // ── Big paintings on far office wall ───────────
-  const farWallX = wallX + 7.96
-  addFarWallPainting(scene, farWallX, 2.5, -4,  'colorfield')
+  addFarWallPainting(scene, farWallX, 2.5, -3,  'colorfield')
   addFarWallPainting(scene, farWallX, 2.5, -10, 'gestural')
-  addFarWallPainting(scene, farWallX, 2.5, -16, 'geometric')
+  addFarWallPainting(scene, farWallX, 2.5, -17, 'geometric')
 
   // ── Static office workers at desks ─────────────
   const workerDefs = [
@@ -334,14 +397,82 @@ function addOfficeBeyondGlass(scene, wallX, roomH, roomD) {
       scene.add(leg)
     }
   }
+
+  // ── Standing person at whiteboard ──────────────
+  addStandingPerson(scene, wallX + 7.4, -8.5)
+
+  // ── Office whiteboard ─────────────────────────
+  const obMat = new THREE.MeshLambertMaterial({ color: 0xF0EDE8, emissive: 0x080806, emissiveIntensity: 0.05 })
+  const oBoard = new THREE.Mesh(new THREE.BoxGeometry(0.04, 1.2, 1.8), obMat)
+  oBoard.position.set(wallX + 7.94, 2.0, -8.5); scene.add(oBoard)
+  const oBoardFrame = new THREE.Mesh(new THREE.BoxGeometry(0.05, 1.28, 1.88),
+    new THREE.MeshLambertMaterial({ color: 0x888888 }))
+  oBoardFrame.position.set(wallX + 7.96, 2.0, -8.5); scene.add(oBoardFrame)
+}
+
+function addStandingPerson(scene, x, z) {
+  const skinMat  = new THREE.MeshLambertMaterial({ color: 0xD4956A })
+  const shirtMat = new THREE.MeshLambertMaterial({ color: 0x4A3A6A })
+  const pantsMat = new THREE.MeshLambertMaterial({ color: 0x1E1E28 })
+  const shoeMat  = new THREE.MeshLambertMaterial({ color: 0x1A1A1A })
+
+  // Legs
+  for (const side of [-1, 1]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.80, 0.14), pantsMat)
+    leg.position.set(x, 0.40, z + side * 0.08); scene.add(leg)
+    const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.06, 0.20), shoeMat)
+    shoe.position.set(x, 0.03, z + side * 0.08); scene.add(shoe)
+  }
+
+  // Torso
+  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.50, 0.24), shirtMat)
+  torso.position.set(x, 1.08, z); scene.add(torso)
+
+  // Head
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 6), skinMat)
+  head.position.set(x, 1.48, z); scene.add(head)
+
+  // Arm raised toward whiteboard
+  const armUp = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.38, 0.09), shirtMat)
+  armUp.rotation.z = -0.4
+  armUp.position.set(x - 0.10, 1.35, z - 0.08); scene.add(armUp)
+  const handUp = new THREE.Mesh(new THREE.SphereGeometry(0.04, 6, 4), skinMat)
+  handUp.position.set(x - 0.18, 1.52, z - 0.08); scene.add(handUp)
+
+  // Other arm relaxed at side
+  const armDown = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.34, 0.09), shirtMat)
+  armDown.position.set(x, 0.92, z + 0.14); scene.add(armDown)
 }
 
 function addWainscoting(scene, w, h, d) {
-  // removed — visible against white walls
+  const panelH = 1.0
+  const panelMat = new THREE.MeshLambertMaterial({ color: 0xC8BDA8 })
+  const capMat   = new THREE.MeshLambertMaterial({ color: 0xB8AD98 })
+
+  // Left wall wainscoting
+  const leftPanel = new THREE.Mesh(new THREE.PlaneGeometry(d, panelH), panelMat)
+  leftPanel.rotation.y = Math.PI / 2
+  leftPanel.position.set(-w / 2 + 0.01, panelH / 2, -d / 2)
+  scene.add(leftPanel)
+
+  // Cap rail on left wall
+  const leftCap = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.04, d), capMat)
+  leftCap.position.set(-w / 2 + 0.03, panelH, -d / 2)
+  scene.add(leftCap)
+
+  // Front wall wainscoting
+  const frontPanel = new THREE.Mesh(new THREE.PlaneGeometry(w, panelH), panelMat)
+  frontPanel.rotation.y = Math.PI
+  frontPanel.position.set(0, panelH / 2, -0.01)
+  scene.add(frontPanel)
+
+  const frontCap = new THREE.Mesh(new THREE.BoxGeometry(w, 0.04, 0.06), capMat)
+  frontCap.position.set(0, panelH, -0.03)
+  scene.add(frontCap)
 }
 
 function addCornice(scene, w, h, d) {
-  const mat = new THREE.MeshLambertMaterial({ color: 0xF5F4F2 })
+  const mat = new THREE.MeshLambertMaterial({ color: 0xCCC8C0 })
   const height = 0.1
   const geo = new THREE.BoxGeometry(w, height, 0.12)
   const front = new THREE.Mesh(geo, mat); front.position.set(0, h - height / 2, 0); scene.add(front)
@@ -527,6 +658,157 @@ function addPainting(scene, x, y, z, wall, style, portrait = false) {
   picGlow.position.set(x + sign * 0.8, y + paintH / 2 + 0.1, z); scene.add(picGlow)
 }
 
+function addWallShelf(scene, x, y, z) {
+  const shelfMat = new THREE.MeshLambertMaterial({ color: 0x6B4C32 })
+  const shelf = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.03, 0.9), shelfMat)
+  shelf.position.set(x + 0.07, y, z)
+  scene.add(shelf)
+
+  // Bracket
+  const bracketMat = new THREE.MeshLambertMaterial({ color: 0x3A3A3A })
+  for (const dz of [-0.3, 0.3]) {
+    const bracket = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.10, 0.02), bracketMat)
+    bracket.position.set(x + 0.05, y - 0.06, z + dz)
+    scene.add(bracket)
+  }
+
+  // Small objects on shelf — books + small pot
+  const bookMat1 = new THREE.MeshLambertMaterial({ color: 0x2A4A6A })
+  const bookMat2 = new THREE.MeshLambertMaterial({ color: 0x6A2A2A })
+  const bookMat3 = new THREE.MeshLambertMaterial({ color: 0x3A5A3A })
+
+  const book1 = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.16, 0.10), bookMat1)
+  book1.position.set(x + 0.10, y + 0.10, z - 0.25); scene.add(book1)
+  const book2 = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.13, 0.10), bookMat2)
+  book2.position.set(x + 0.10, y + 0.085, z - 0.14); scene.add(book2)
+  const book3 = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.18, 0.10), bookMat3)
+  book3.position.set(x + 0.10, y + 0.11, z - 0.03); scene.add(book3)
+
+  // Small decorative pot
+  const potMat = new THREE.MeshLambertMaterial({ color: 0xD4C4A8 })
+  const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.03, 0.08, 8), potMat)
+  pot.position.set(x + 0.10, y + 0.055, z + 0.20); scene.add(pot)
+  const miniLeaf = new THREE.Mesh(new THREE.SphereGeometry(0.04, 6, 4),
+    new THREE.MeshLambertMaterial({ color: 0x2A5A28 }))
+  miniLeaf.position.set(x + 0.10, y + 0.13, z + 0.20); scene.add(miniLeaf)
+}
+
+function addCoffeeStation(scene, x, z) {
+  const cabinetMat = new THREE.MeshLambertMaterial({ color: 0x5A4030 })
+  const topMat     = new THREE.MeshLambertMaterial({ color: 0x8A7A68 })
+  const metalMat   = new THREE.MeshLambertMaterial({ color: 0x4A4A4A })
+  const mugMat1    = new THREE.MeshLambertMaterial({ color: 0xF0EAE0 })
+  const mugMat2    = new THREE.MeshLambertMaterial({ color: 0x2A4A6A })
+
+  // Cabinet
+  const cabinet = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.85, 0.45), cabinetMat)
+  cabinet.position.set(x, 0.425, z); scene.add(cabinet)
+
+  // Countertop
+  const top = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.04, 0.50), topMat)
+  top.position.set(x, 0.87, z); scene.add(top)
+
+  // Coffee machine
+  const machine = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.32, 0.20), metalMat)
+  machine.position.set(x - 0.3, 1.05, z); scene.add(machine)
+  const spout = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.06, 6), metalMat)
+  spout.position.set(x - 0.3, 0.91, z + 0.06); scene.add(spout)
+
+  // Mugs
+  for (let i = 0; i < 3; i++) {
+    const mat = i === 1 ? mugMat2 : mugMat1
+    const mug = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.025, 0.07, 8), mat)
+    mug.position.set(x + 0.1 + i * 0.10, 0.925, z + 0.05); scene.add(mug)
+    // Handle
+    const handle = new THREE.Mesh(new THREE.TorusGeometry(0.018, 0.005, 6, 8, Math.PI),
+      new THREE.MeshLambertMaterial({ color: mat.color }))
+    handle.rotation.y = Math.PI / 2
+    handle.position.set(x + 0.1 + i * 0.10, 0.925, z + 0.08); scene.add(handle)
+  }
+
+  // Small tray
+  const tray = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.015, 0.18),
+    new THREE.MeshLambertMaterial({ color: 0x3A3A3A }))
+  tray.position.set(x + 0.2, 0.895, z + 0.05); scene.add(tray)
+}
+
+function addWallClock(scene, x, y, z) {
+  const frameMat = new THREE.MeshLambertMaterial({ color: 0x2A2A2A })
+  const faceMat  = new THREE.MeshLambertMaterial({ color: 0xF5F2EC })
+  const handMat  = new THREE.MeshLambertMaterial({ color: 0x1A1A1A })
+
+  // Frame ring
+  const frame = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.02, 12, 32), frameMat)
+  frame.rotation.y = Math.PI / 2
+  frame.position.set(x, y, z); scene.add(frame)
+
+  // Face
+  const face = new THREE.Mesh(new THREE.CircleGeometry(0.21, 24), faceMat)
+  face.rotation.y = Math.PI / 2
+  face.position.set(x + 0.01, y, z); scene.add(face)
+
+  // Hour markers
+  for (let i = 0; i < 12; i++) {
+    const angle = (i / 12) * Math.PI * 2
+    const marker = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.03, 0.008), handMat)
+    marker.position.set(x + 0.015, y + Math.cos(angle) * 0.17, z + Math.sin(angle) * 0.17)
+    scene.add(marker)
+  }
+
+  // Hour hand (static — ~10:10 position)
+  const hourHand = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.10, 0.015), handMat)
+  hourHand.rotation.x = -0.85
+  hourHand.position.set(x + 0.015, y + 0.04, z - 0.02); scene.add(hourHand)
+
+  // Minute hand
+  const minHand = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.14, 0.012), handMat)
+  minHand.rotation.x = 0.85
+  minHand.position.set(x + 0.015, y + 0.02, z + 0.05); scene.add(minHand)
+
+  // Center dot
+  const dot = new THREE.Mesh(new THREE.SphereGeometry(0.012, 8, 6), handMat)
+  dot.position.set(x + 0.015, y, z); scene.add(dot)
+}
+
+function addEndWallPaintingReversed(scene, x, y, z, style) {
+  const paintW = 2.2, paintH = 1.6
+  const fw = paintW + 0.08, fh = paintH + 0.08
+
+  const texFn = { colorfield: makeColorField, geometric: makeGeometric, gestural: makeGestural, botanical: makeBotanical }
+  const tex = (texFn[style] || makeColorField)(paintW, paintH)
+  const canvasMat = new THREE.MeshLambertMaterial({ map: tex })
+
+  const frameMat = new THREE.MeshLambertMaterial({ color: 0x181818 })
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(fw, fh, 0.04), frameMat)
+  frame.position.set(x, y, z); scene.add(frame)
+
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(paintW, paintH), canvasMat)
+  mesh.rotation.y = Math.PI
+  mesh.position.set(x, y, z - 0.03); scene.add(mesh)
+
+  const picGlow = new THREE.PointLight(0xFFF8F0, 0.5, 3)
+  picGlow.position.set(x, y + paintH / 2 + 0.3, z - 1); scene.add(picGlow)
+}
+
+function addEndWallPainting(scene, x, y, z, style) {
+  const paintW = 2.2, paintH = 1.6
+  const fw = paintW + 0.08, fh = paintH + 0.08
+
+  const texFn = { colorfield: makeColorField, geometric: makeGeometric, gestural: makeGestural, botanical: makeBotanical }
+  const tex = (texFn[style] || makeColorField)(paintW, paintH)
+  const canvasMat = new THREE.MeshLambertMaterial({ map: tex })
+
+  const frameMat = new THREE.MeshLambertMaterial({ color: 0x181818 })
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(fw, fh, 0.04), frameMat)
+  frame.position.set(x, y, z); scene.add(frame)
+
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(paintW, paintH), canvasMat)
+  mesh.position.set(x, y, z + 0.03); scene.add(mesh)
+
+  const picGlow = new THREE.PointLight(0xFFF8F0, 0.5, 3)
+  picGlow.position.set(x, y + paintH / 2 + 0.3, z + 1); scene.add(picGlow)
+}
+
 function addFarWallPainting(scene, x, y, z, style) {
   const paintW = 2.8, paintH = 1.8
   const fw = paintW + 0.09, fh = paintH + 0.09
@@ -540,11 +822,11 @@ function addFarWallPainting(scene, x, y, z, style) {
   frame.position.set(x, y, z); scene.add(frame)
 
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(paintW, paintH), canvasMat)
-  mesh.rotation.y = Math.PI / 2  // faces -X toward the glass
+  mesh.rotation.y = -Math.PI / 2  // faces -X toward the glass
   mesh.position.set(x - 0.04, y, z); scene.add(mesh)
 
-  const picGlow = new THREE.PointLight(0xFFF8F0, 0.3, 3)
-  picGlow.position.set(x - 0.8, y + paintH / 2 + 0.1, z); scene.add(picGlow)
+  const picGlow = new THREE.PointLight(0xFFF8F0, 0.8, 4)
+  picGlow.position.set(x - 1.2, y + 0.3, z); scene.add(picGlow)
 }
 
 function _paintCanvas(w, h, res = 512) {
@@ -1119,8 +1401,8 @@ function makeFloorTexture() {
 // ── Back wall with large window opening ───────────────────────────────────
 
 function addBackWindow(scene, roomW, roomH, roomD) {
-  const wallMat  = new THREE.MeshLambertMaterial({ color: 0xF8F7F5 })
-  const revealMat = new THREE.MeshLambertMaterial({ color: 0xFAFAF8 })
+  const wallMat  = new THREE.MeshLambertMaterial({ color: 0xE8E2D8 })
+  const revealMat = new THREE.MeshLambertMaterial({ color: 0xEDE8E0 })
   const z = -roomD
   const depth = 0.30
 
@@ -1157,7 +1439,7 @@ function addBackWindow(scene, roomW, roomH, roomD) {
   topRev.position.set(winCX, winTop, z + depth / 2)
   scene.add(topRev)
 
-  const sillMat = new THREE.MeshLambertMaterial({ color: 0xF2F0EC })
+  const sillMat = new THREE.MeshLambertMaterial({ color: 0x4A4640 })
   const sill = new THREE.Mesh(new THREE.BoxGeometry(winW + 0.12, 0.04, depth + 0.08), sillMat)
   sill.position.set(winCX, winBottom, z + depth / 2)
   scene.add(sill)
@@ -1188,15 +1470,15 @@ function addBackWindow(scene, roomW, roomH, roomD) {
   scene.add(glass)
 
   // ── Frame bars ─────────────────────────────────
-  const frameMat = new THREE.MeshLambertMaterial({ color: 0xDDD5C4 })
-  const ft = 0.05, fd = 0.06
+  const frameMat = new THREE.MeshLambertMaterial({ color: 0x3A3632 })
+  const ft = 0.07, fd = 0.08
   ;[
     [new THREE.BoxGeometry(winW + ft * 2, ft, fd), [winCX, winTop,           z + depth]],
     [new THREE.BoxGeometry(winW + ft * 2, ft, fd), [winCX, winBottom,        z + depth]],
     [new THREE.BoxGeometry(ft, winH, fd),           [winCX - winW/2, winCY,  z + depth]],
     [new THREE.BoxGeometry(ft, winH, fd),           [winCX + winW/2, winCY,  z + depth]],
-    [new THREE.BoxGeometry(winW, ft * 0.6, fd),     [winCX, winCY,           z + depth]],
-    [new THREE.BoxGeometry(ft * 0.6, winH, fd),     [winCX, winCY,           z + depth]],
+    [new THREE.BoxGeometry(winW, ft * 0.7, fd),     [winCX, winCY,           z + depth]],
+    [new THREE.BoxGeometry(ft * 0.7, winH, fd),     [winCX, winCY,           z + depth]],
   ].forEach(([geo, pos]) => {
     const bar = new THREE.Mesh(geo, frameMat)
     bar.position.set(...pos)
