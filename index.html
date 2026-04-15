@@ -270,6 +270,9 @@
     .meta-block {
       min-width: 0;
       overflow: hidden;
+      /* Reserve consistent height across tabs so the diagram card sits at
+         the same vertical position regardless of description length. */
+      min-height: 80px;
     }
 
     .meta-label {
@@ -282,6 +285,7 @@
       letter-spacing: -0.035em;
       color: var(--ink);
       line-height: 1.1;
+      min-height: 24px;
     }
 
     .meta-copy {
@@ -290,6 +294,8 @@
       font-size: 13px;
       line-height: 1.4;
       max-width: 520px;
+      /* Reserve 2 lines of space — most tab descriptions are 1-2 lines. */
+      min-height: 36px;
     }
 
     .meta-provenance {
@@ -297,6 +303,7 @@
       font-size: 11px;
       color: var(--muted);
       letter-spacing: 0.01em;
+      min-height: 14px;
     }
 
     .mode-toggle {
