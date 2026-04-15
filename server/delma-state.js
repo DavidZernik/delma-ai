@@ -24,35 +24,30 @@
 
 import { supabase } from './lib/supabase.js'
 
+// Project-level memory files. People lives in org_memory_notes, not here.
 export const MEMORY_FILES = [
   'environment.md',
-  'logic.md',
-  'people.md',
   'session-log.md'
 ]
 
 // Default permission for each memory file when creating a new workspace.
 // These encode the product opinion about what should be visible to whom.
+// Project-level memory tabs. People is at the org level (org_memory_notes),
+// not here. logic.md was removed — it was seeded but never shown in the UI.
 const DEFAULT_PERMISSIONS = {
   'environment.md': 'view-admins',  // has API keys — admins only
-  'logic.md': 'view-all',          // everyone reads business rules, admins edit
-  'people.md': 'edit-all',         // anyone can correct info about people
-  'session-log.md': 'private'      // personal per user
+  'session-log.md': 'private'       // personal per user
 }
 
 // Legacy visibility mapping (kept for backward compat with older workspace code)
 const VISIBILITY_RULES = {
   'environment.md': 'shared',
-  'logic.md': 'shared',
-  'people.md': 'shared',
   'session-log.md': 'private'
 }
 
 const DEFAULT_MEMORY_CONTENT = {
-  'environment.md': '# Environment\n\nTech stack, dependencies, infrastructure, and repo setup.\n',
-  'logic.md': '# Logic\n\nBusiness logic, architecture decisions, and implementation details.\n',
-  'people.md': '# People\n\nOwnership, stakeholders, preferences, and tribal knowledge.\n',
-  'session-log.md': '# Session Log\n'
+  'environment.md': '# Environment\n\nSFMC Business Unit, MIDs, Data Extensions, Journeys, Automations, CloudPages, and other project-specific IDs and configuration.\n',
+  'session-log.md': '# Session Log\n\nCurrent status. What is done. What is pending. Recent decisions.\n'
 }
 
 // ── Permission Helpers ──────────────────────────────────────────────────────

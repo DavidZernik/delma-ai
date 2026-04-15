@@ -73,18 +73,12 @@ separate "diagram type" vs "document type" — just content.
 | Environment | environment.md | memory | IDs, DEs, journeys, automations | view-admins |
 | Session Log | session-log.md | memory | What's done? What's left? | private |
 
-### Known backend/frontend drift
+### MCP write routing
 
-The backend `createWorkspace()` seeds two extra records that the UI
-never displays:
-
-- `logic.md` — seeded but not in `MEMORY_TAB_LABELS`. Dead data.
-- `people.md` at the workspace level — the UI reads People from
-  `org_memory_notes` (org level), so the workspace-level seed is orphaned.
-
-Cleanup: remove `logic.md` and `people.md` from `DEFAULT_MEMORY_CONTENT`
-in `server/delma-state.js`. Or add them back to the frontend if they
-were intended to be visible.
+- `append_memory_note` → `environment.md` or `session-log.md` only
+- `save_diagram_view` → Architecture (and any future diagram views)
+- `sync_conversation_summary` → handles People (org-level) plus
+  cross-tab routing. The only way Claude can update the People tab.
 
 ---
 

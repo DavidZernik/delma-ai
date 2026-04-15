@@ -29,8 +29,15 @@ sync_conversation_summary({
 ## Direct writes
 
 For targeted updates, use the specific tools:
-- `append_memory_note` for people, logic, environment, or session updates
-- `save_diagram_view` for architecture or diagram changes
+- `append_memory_note` for environment.md or session-log.md
+- `save_diagram_view` for the Architecture diagram
+- `sync_conversation_summary` for People updates and anything cross-tab
+
+Available tabs:
+- **People** (org-level) — team, roles, ownership. Update via sync tool.
+- **Architecture** (diagram) — system flow. Update via save_diagram_view.
+- **Environment** — SFMC IDs, DEs, journeys, automations, CloudPages.
+- **Session Log** — status, done/pending, recent decisions.
 
 Only write confirmed facts. Never write inferences. Batch updates.
 Before writing to a tab, re-read it first to avoid overwriting recent edits.

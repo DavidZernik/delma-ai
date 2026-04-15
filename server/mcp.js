@@ -251,9 +251,9 @@ server.registerTool(
   'append_memory_note',
   {
     title: 'Append Memory Note',
-    description: 'Append text to a memory file (environment.md, logic.md, people.md, session-log.md).',
+    description: 'Append text to a project-level memory file (environment.md or session-log.md). For People updates (org-level), use sync_conversation_summary.',
     inputSchema: {
-      file: z.enum(['environment.md', 'logic.md', 'people.md', 'session-log.md']),
+      file: z.enum(['environment.md', 'session-log.md']),
       note: z.string(),
       heading: z.string().optional()
     }
