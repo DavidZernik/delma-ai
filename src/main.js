@@ -362,12 +362,26 @@ function isCurrentTab(tabKey) {
 function handleRealtimeChange(table, payload) {
   const record = payload.new || payload.old || {}
   const tabKey = getTabKeyForChange(table, record)
+  console.log('[delma realtime] change:', table, tabKey, 'current:', isCurrentTab(tabKey), 'mode:', state.diagramMode)
+
   if (isCurrentTab(tabKey)) {
+    if (state.diagramMode === 'edit') {
+      // In edit mode — don't overwrite the editor, but show a notification
+      console.log('[delma realtime] in edit mode, showing update banner')
+      setWorkspaceStatus('Content updated externally — save or cancel to see changes.')
+      return
+    }
+
+    // View mode — fade and re-render
     els.diagramOutput.style.transition = 'opacity 150ms ease'
     els.diagramOutput.style.opacity = '0.3'
     void refreshWorkspace().then(() => {
       requestAnimationFrame(() => {
+        els.diagramOutput.style.transition = 'opacity 400ms ease'
         els.diagramOutput.style.opacity = '1'
+        els.diagramOutput.classList.add('diagram-updated-flash')
+        setTimeout(() => els.diagramOutput.classList.remove('diagram-updated-flash'), 2100)
+        console.log('[delma realtime] view refreshed with flash')
       })
     })
   } else {
@@ -375,6 +389,7 @@ function handleRealtimeChange(table, payload) {
     tabsWithUpdates.add(tabKey)
     renderViewTabs()
     void refreshWorkspace()
+    console.log('[delma realtime] inactive tab dotted:', tabKey)
   }
 }
 
