@@ -50,6 +50,104 @@ function findByName(list, name) {
     || list.find(p => (p.name || '').toLowerCase().includes(lower))
 }
 
+// ── Dedup helpers ────────────────────────────────────────────────────
+// Handler-level dedup is the core lesson from today's overnight runs: the
+// LLM was being told "don't duplicate" in prose and cheerfully ignored it.
+// Enforce in code. When a near-duplicate is detected, throw with a clear
+// error message pointing to the existing id and the right op to use — the
+// LLM sees that as a tool_result and typically adapts on the next turn.
+
+// Very cheap stemmer — good enough to collapse "ships"/"shipping"/"ship"
+// and "fridays"/"friday", which is what today's critic complaints require.
+function stemWord(w) {
+  if (w.length <= 4) return w
+  let s = w.replace(/ing$/, '').replace(/ed$/, '').replace(/es$/, '').replace(/s$/, '')
+  // Undouble terminal consonant ("shipp" from stripping "ing" off "shipping" → "ship")
+  if (/([bcdfglmnprst])\1$/.test(s)) s = s.slice(0, -1)
+  return s
+}
+
+// Low-value filler words that should not count as distinctive matches.
+// Kept small — over-aggressive stop-listing creates false negatives.
+const STOPWORDS = new Set([
+  'the', 'and', 'for', 'that', 'this', 'with', 'from', 'not', 'any', 'all',
+  'use', 'set', 'add', 'new', 'get', 'can', 'will', 'are', 'was', 'have',
+  'has', 'had', 'is', 'be', 'do', 'does', 'our', 'us', 'we', 'you', 'it',
+  'its', 'no', 'yes', 'still', 'now', 'then', 'so', 'an', 'a', 'on', 'in',
+  'at', 'to', 'of', 'by', 'as', 'or', 'if', 'but'
+])
+
+// Normalize free-text for similarity comparison:
+// lowercase, strip punctuation + version numbers, collapse whitespace.
+function normalizeText(s) {
+  return String(s || '')
+    .toLowerCase()
+    .replace(/[_\-.]+/g, ' ')            // unify id-style separators with word breaks
+    .replace(/([a-z])([A-Z])/g, '$1 $2') // split camelCase (before lowercasing above — but we already lowercased, so this is a no-op here; keep for readability)
+    .replace(/\bv\d+(\.\d+)?\b/g, '')     // drop version suffixes (v3, v1.2)
+    .replace(/\b\d{4,}\b/g, '')           // drop 4+ digit numbers (year, IDs)
+    .replace(/[^\w\s]/g, ' ')             // strip punctuation
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+// Extract distinctive word stems (drop stopwords, stem what's left).
+function distinctiveStems(s) {
+  return normalizeText(s)
+    .split(' ')
+    .filter(w => w.length > 2 && !STOPWORDS.has(w))
+    .map(stemWord)
+}
+
+// True if `a` and `b` share enough distinctive content to be considered the
+// same concept. Uses coverage of the SHORTER term: if ≥ 2 distinctive stems
+// match AND those matches cover ≥ 60% of the shorter term, it's a dup. This
+// catches the patterns today's critic flagged ("nothing ships on fridays"
+// vs "no shipping on friday"; "7 Friday rules") without over-matching rules
+// that merely share filler words.
+function textsAreNearDup(a, b) {
+  const aw = distinctiveStems(a)
+  const bw = distinctiveStems(b)
+  if (aw.length === 0 || bw.length === 0) return false
+  const aset = new Set(aw), bset = new Set(bw)
+  let matches = 0
+  for (const w of aset) if (bset.has(w)) matches++
+  const shorter = Math.min(aset.size, bset.size)
+  // Short terms (≤2 distinctive stems): require ALL to match.
+  if (shorter <= 2) return matches === shorter
+  return matches >= 2 && matches / shorter >= 0.6
+}
+
+// True if one normalized string is a character-subsequence of the other
+// (with ≥ 80% coverage of the shorter). Designed for id/label dedup where
+// "newsubs_daily" should collapse with "New_Subscribers_Daily" even though
+// the word sets don't overlap cleanly.
+function labelsAreSubseq(a, b) {
+  const na = normalizeText(a).replace(/\s+/g, '')
+  const nb = normalizeText(b).replace(/\s+/g, '')
+  if (!na || !nb) return false
+  const [shorter, longer] = na.length <= nb.length ? [na, nb] : [nb, na]
+  let si = 0
+  for (let li = 0; li < longer.length && si < shorter.length; li++) {
+    if (longer[li] === shorter[si]) si++
+  }
+  return si / shorter.length >= 0.8
+}
+
+// Find the FIRST item whose text/label is a near-duplicate of the candidate.
+function findNearDupText(list, candidate, field = 'text') {
+  if (!candidate) return null
+  const nc = normalizeText(candidate)
+  if (!nc) return null
+  // Normalized equality is the strong signal (cheapest, always fires first).
+  const exact = list.find(item => normalizeText(item[field] || '') === nc)
+  if (exact) return exact
+  for (const item of list) {
+    if (textsAreNearDup(item[field] || '', candidate)) return item
+  }
+  return null
+}
+
 // ── Renderers ────────────────────────────────────────────────────────────
 // Each turns structured data into the markdown the user sees. Keep outputs
 // identical (or close) to what the prompt-driven system produces, so the
@@ -343,11 +441,32 @@ const OPS = {
   // Playbook
   add_playbook_rule(data, { text, section }) {
     if (!text) throw new Error('text required')
+    // Only LIVE rules (not already superseded) block new adds. If an older
+    // rule has been explicitly superseded, a fresh rule on the same topic
+    // is legitimate (e.g. policy flips back after a flip-flop).
+    const liveRules = (data.rules || []).filter(r => !r.superseded_by)
+    const dup = findNearDupText(liveRules, text, 'text')
+    if (dup) {
+      throw new Error(`Near-duplicate playbook rule already exists: "${dup.text}" (${dup.id}). If this supersedes it, call supersede_rule; otherwise skip.`)
+    }
     const rules = [...(data.rules || []), { id: `r_${Math.random().toString(36).slice(2, 7)}`, text, section: section || null }]
     return { ...data, rules }
   },
   remove_playbook_rule(data, { id }) {
     return { ...data, rules: (data.rules || []).filter(r => r.id !== id) }
+  },
+  // Mark an old rule as superseded and add a new one linked to it — preserves
+  // audit trail ("the policy used to be X, now it's Y") instead of silently
+  // deleting or creating contradictions.
+  supersede_rule(data, { id, new_text, section }) {
+    if (!id || !new_text) throw new Error('id and new_text required')
+    const rules = data.rules || []
+    const old = rules.find(r => r.id === id)
+    if (!old) throw new Error(`unknown rule: ${id}`)
+    const newId = `r_${Math.random().toString(36).slice(2, 7)}`
+    const updated = rules.map(r => r.id === id ? { ...r, superseded_by: newId } : r)
+    updated.push({ id: newId, text: new_text, section: section || old.section || null, supersedes: id })
+    return { ...data, rules: updated }
   },
 
   // Environment
@@ -366,6 +485,11 @@ const OPS = {
   // Decisions
   add_decision(data, { text, owner }) {
     if (!text) throw new Error('text required')
+    const existing = (data.decisions || []).filter(d => !d.superseded_by)  // only live decisions block adds
+    const dup = findNearDupText(existing, text, 'text')
+    if (dup) {
+      throw new Error(`Near-duplicate decision already exists: "${dup.text}" (${dup.id}). If this replaces it (e.g. user said "scratch that" / "instead"), call supersede_decision; otherwise skip.`)
+    }
     const decisions = [...(data.decisions || []), { id: `d_${Math.random().toString(36).slice(2, 7)}`, text, owner: owner || null }]
     return { ...data, decisions }
   },
@@ -418,7 +542,24 @@ const OPS = {
     if (!ARCH_KINDS.includes(kind)) throw new Error(`invalid kind: ${kind}. Use one of ${ARCH_KINDS.join(', ')}`)
     const nodes = [...(data.nodes || [])]
     if (nodes.find(n => n.id === id)) throw new Error(`node ${id} already exists`)
-    nodes.push({ id, label: label || id, kind, note: note || null, layer: layer || null })
+    // LABEL-level dedup. The id-collision check above only catches exact id
+    // reuse. Today's critic consistently flagged "NewSubscribers_Daily" added
+    // as newsubs_de / new_subscribers_de / newsubscribers_daily with the same
+    // intent. Two tiers of check:
+    //   1. Normalized equality on id or label (catches "loan_trigger" vs "loan-trigger")
+    //   2. Character-subsequence match (catches "newsubs_daily" vs "NewSubscribers_Daily")
+    const effLabel = label || id
+    const dup = nodes.find(n => {
+      const nLabel = n.label || n.id
+      return normalizeText(nLabel) === normalizeText(effLabel)
+          || normalizeText(n.id) === normalizeText(id)
+          || labelsAreSubseq(nLabel, effLabel)
+          || labelsAreSubseq(n.id, id)
+    })
+    if (dup) {
+      throw new Error(`Near-duplicate architecture node already exists: "${dup.label}" (${dup.id}, kind:${dup.kind}). Reuse that id for edges, or call merge_nodes if you meant to consolidate.`)
+    }
+    nodes.push({ id, label: effLabel, kind, note: note || null, layer: layer || null })
     return { ...data, nodes }
   },
   set_node_label(data, { id, label }) {
@@ -442,6 +583,34 @@ const OPS = {
     const nodes = (data.nodes || []).filter(n => n.id !== id)
     const edges = (data.edges || []).filter(e => e.from !== id && e.to !== id)
     return { ...data, nodes, edges }
+  },
+  // Collapse a duplicate into a canonical node. Rewrites every edge that
+  // referenced `remove_id` to point at `keep_id`, then drops the dup row.
+  // Dedup-safe: resulting duplicate edges (same from→to, same label) are
+  // collapsed so we don't trade one kind of noise for another.
+  merge_nodes(data, { keep_id, remove_id }) {
+    if (!keep_id || !remove_id) throw new Error('keep_id and remove_id required')
+    if (keep_id === remove_id) throw new Error('keep_id and remove_id must differ')
+    const nodes = data.nodes || []
+    if (!nodes.find(n => n.id === keep_id)) throw new Error(`unknown node: ${keep_id}`)
+    if (!nodes.find(n => n.id === remove_id)) throw new Error(`unknown node: ${remove_id}`)
+    const rewritten = (data.edges || []).map(e => ({
+      from: e.from === remove_id ? keep_id : e.from,
+      to:   e.to   === remove_id ? keep_id : e.to,
+      label: e.label || null
+    })).filter(e => e.from !== e.to)   // drop self-loops created by the merge
+    const seen = new Set()
+    const edges = []
+    for (const e of rewritten) {
+      const key = `${e.from}→${e.to}|${e.label || ''}`
+      if (seen.has(key)) continue
+      seen.add(key); edges.push(e)
+    }
+    return {
+      ...data,
+      nodes: nodes.filter(n => n.id !== remove_id),
+      edges
+    }
   },
   add_edge(data, { from, to, label }) {
     if (!from || !to) throw new Error('from and to required')
@@ -480,11 +649,11 @@ const OPS = {
 // Which op names are valid for which tab?
 export const OPS_BY_TAB = {
   'people.md': ['add_person', 'set_role', 'remove_person', 'add_reporting_line', 'remove_reporting_line', 'set_manager'],
-  'playbook.md': ['add_playbook_rule', 'remove_playbook_rule'],
+  'playbook.md': ['add_playbook_rule', 'remove_playbook_rule', 'supersede_rule'],
   'environment.md': ['set_environment_key', 'remove_environment_key'],
   'decisions.md': ['add_decision', 'add_action', 'complete_action', 'complete_action_by_text', 'remove_decision', 'supersede_decision'],
   'my-notes.md': ['append_my_note', 'replace_my_notes'],
-  'architecture': ['set_prose', 'add_node', 'set_node_label', 'set_node_note', 'set_node_kind', 'move_node_to_layer', 'remove_node', 'add_edge', 'remove_edge', 'add_layer', 'remove_layer']
+  'architecture': ['set_prose', 'add_node', 'set_node_label', 'set_node_note', 'set_node_kind', 'move_node_to_layer', 'remove_node', 'merge_nodes', 'add_edge', 'remove_edge', 'add_layer', 'remove_layer']
 }
 
 export function listOps() {

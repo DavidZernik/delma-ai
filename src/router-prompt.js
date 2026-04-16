@@ -26,7 +26,8 @@ TABS AND THEIR OPS:
 
 ─ org:playbook.md  (processes, norms, gotchas)
    add_playbook_rule     { text, section? }
-   remove_playbook_rule  { id }
+   supersede_rule        { id, new_text, section? }   // preserves audit trail — use when a policy reverses ("we can ship Fridays now" after "never ship Fridays")
+   remove_playbook_rule  { id }                       // hard-delete, no audit trail
 
 ─ memory:environment.md  (SFMC IDs, DE names, keys, technical config)
    set_environment_key     { key, value, note? }
@@ -58,7 +59,8 @@ TABS AND THEIR OPS:
    set_node_label        { id, label }
    set_node_note         { id, note }                              // floating italic annotation, 2-5 words
    set_node_kind         { id, kind }
-   move_node_to_layer    { id, layer }
+   move_node_to_layer    { id, layer }                             // use this when user names a layer — DON'T leave nodes layer:null
+   merge_nodes           { keep_id, remove_id }                    // collapse a duplicate into a canonical node (rewrites edges)
    remove_node           { id }                                    // also drops edges touching it
    add_edge              { from, to, label? }
    remove_edge           { from, to }
@@ -84,15 +86,84 @@ ROUTING RULES:
 - If the input replaces info ("Keyona is actually the PM"), emit set_role — don't add a duplicate.
 - If the input is UNCLEAR, AMBIGUOUS, or doesn't match any tab, return [].
 
+REVERSAL / SUPERSESSION — critical. When the user reverses or changes a prior decision/rule, DO NOT call add_decision or add_playbook_rule (you'll get a near-duplicate error and leave the workspace contradicting itself). Use the superseded_by version instead:
+  - "actually, scratch that — use X instead" → supersede_decision { id: d_prev, new_text: "use X" }
+  - "we can ship Fridays now" (after a prior no-Friday rule) → supersede_rule { id: r_prev, new_text: "We can ship Fridays" }
+  - Signals to watch for: "scratch that", "actually", "instead", "changed our mind", "new policy", "updated", any direct negation of a prior entry.
+  - If you can't find the prior id in the current state, emit the add op anyway — the handler will tell you the existing id in its error, and you can supersede on the next turn.
+
+NODE DEDUP IN ARCHITECTURE — when referring to an object already in the diagram, REUSE its id in add_edge / set_node_note etc. Don't invent a new id for a concept that already has one. If you accidentally created a duplicate (different id, same concept), call merge_nodes to collapse them.
+
+LAYER ASSIGNMENT — if the user names layers explicitly ("Trigger Layer", "Engagement Layer"), assign nodes to those layers via add_node.layer or move_node_to_layer. Don't create the layer and leave it empty.
+
 Return ONLY the JSON array. No prose, no explanation, no code fences.`
 
-// Renders the "### key — title\nScope: ...\nCurrent data:\n..." block for
-// each tab. For structured tabs, we send the JSON data (not rendered markdown)
-// so the LLM understands shape. For legacy free-form tabs, send raw content.
+// Renders the "### key — title\n...\nCurrent data:\n..." block for each tab.
+// For structured tabs, we send the JSON data (not rendered markdown) so the
+// LLM understands shape. For legacy free-form tabs, send raw content.
+//
+// STATE COMPRESSION: long-running workspaces accumulate dozens of rows. The
+// LLM's attention gets diluted and it stops noticing existing entries → dup
+// pollution + missed supersessions. For each list inside the structured data,
+// we keep the first N rows in full detail and compress the tail into a count
+// + id/label index so the LLM can still see "this exists, but I won't drown
+// you in details." Full data is never hidden from dedup — that runs server-
+// side in tab-ops handlers.
+const LIST_FIELDS_FULL_HEAD = 5       // show this many in full
+const LIST_FIELDS_FULL_HEAD_NODES = 10 // architecture nodes get a bigger head
+
+function compressStructured(structured, filename) {
+  if (!structured || typeof structured !== 'object') return structured
+  const out = { ...structured }
+  const compressList = (arr, head, indexFields) => {
+    if (!Array.isArray(arr) || arr.length <= head) return arr
+    const kept = arr.slice(0, head)
+    const tail = arr.slice(head)
+    const index = tail.map(item => {
+      const parts = []
+      for (const f of indexFields) {
+        if (item[f] !== undefined && item[f] !== null && item[f] !== '') {
+          parts.push(`${f}:${String(item[f]).slice(0, 60)}`)
+        }
+      }
+      return '  ' + parts.join(' ')
+    })
+    return [
+      ...kept,
+      { __compressed__: `+${tail.length} more; showing id+summary only to save context:\n${index.join('\n')}` }
+    ]
+  }
+  // tab-specific compression
+  if (filename === 'people.md' && Array.isArray(out.people)) {
+    out.people = compressList(out.people, LIST_FIELDS_FULL_HEAD, ['id', 'name', 'role', 'kind'])
+  }
+  if (filename === 'playbook.md' && Array.isArray(out.rules)) {
+    out.rules = compressList(out.rules, LIST_FIELDS_FULL_HEAD, ['id', 'text', 'superseded_by'])
+  }
+  if (filename === 'environment.md' && Array.isArray(out.entries)) {
+    out.entries = compressList(out.entries, LIST_FIELDS_FULL_HEAD * 3, ['key', 'value'])  // env keys are short; keep more
+  }
+  if (filename === 'decisions.md') {
+    if (Array.isArray(out.decisions)) out.decisions = compressList(out.decisions, LIST_FIELDS_FULL_HEAD, ['id', 'text', 'superseded_by'])
+    if (Array.isArray(out.actions))   out.actions   = compressList(out.actions,   LIST_FIELDS_FULL_HEAD, ['id', 'text', 'done'])
+  }
+  if (filename === 'architecture') {
+    if (Array.isArray(out.nodes)) out.nodes = compressList(out.nodes, LIST_FIELDS_FULL_HEAD_NODES, ['id', 'label', 'kind', 'layer'])
+    if (Array.isArray(out.edges) && out.edges.length > 20) {
+      // edges are compact; just trim raw count
+      out.edges = [...out.edges.slice(0, 20), { __compressed__: `+${out.edges.length - 20} more edges omitted` }]
+    }
+  }
+  return out
+}
+
 export function buildTabsBlock(tabs) {
   return tabs.map(t => {
-    const body = t.structured
-      ? `Current data (JSON):\n\`\`\`json\n${JSON.stringify(t.structured, null, 2)}\n\`\`\``
+    // Derive filename from key if not set — memory:decisions.md → decisions.md
+    const filename = t.filename || (t.key ? t.key.split(':')[1] : '') || ''
+    const compressed = t.structured ? compressStructured(t.structured, filename) : null
+    const body = compressed
+      ? `Current data (JSON):\n\`\`\`json\n${JSON.stringify(compressed, null, 2)}\n\`\`\``
       : `Current content:\n\`\`\`\n${(t.content || '').substring(0, 1200)}${(t.content || '').length > 1200 ? '\n...' : ''}\n\`\`\``
     return `### ${t.key} — ${t.title}\n${body}`
   }).join('\n\n')

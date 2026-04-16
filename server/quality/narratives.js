@@ -343,27 +343,31 @@ export const NARRATIVES = [
 
 async function ensureSimWorkspace(label) {
   const SIM_USER = '00000000-0000-0000-0000-000000000001'
-  const ORG_NAME = 'Delma QA Simulation Org'
 
-  // Ensure user exists in user_notes (used as proxy for user existence)
-  // Actually user must be in auth.users — we just need a uuid that won't collide.
-  // The org_members + workspace_members rows are what matter for /api/op auth.
+  // PER-NARRATIVE ORG. Each run gets its own Organization so org-level tabs
+  // (people, playbook) start empty. Previously narratives shared one big sim
+  // org, and state leaked across runs — the critic kept (correctly) flagging
+  // "14 ghost people" and "7 Friday rules" that were artifacts of prior sims,
+  // not the current test. Cleanup runs on age, not per-run delete, so a few
+  // days of sim orgs accumulate — `cleanupOldQaSimOrgs` sweeps them.
+  const ts = new Date().toISOString().slice(0, 16).replace('T', ' ')
+  const rand = Math.random().toString(36).slice(2, 7)
+  const orgName = `QA Sim · ${label} · ${ts} · ${rand}`
+  const orgSlug = `qa-sim-${label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-${rand}`.slice(0, 60)
 
-  let { data: org } = await sb.from('organizations').select('id').eq('name', ORG_NAME).maybeSingle()
-  if (!org) {
-    const { data: newOrg } = await sb.from('organizations')
-      .insert({ name: ORG_NAME, slug: 'delma-qa-sim', created_by: SIM_USER })
-      .select().single()
-    org = newOrg
-    await sb.from('org_members').insert({ org_id: org.id, user_id: SIM_USER, role: 'admin' }).then(() => {})
-  }
+  const { data: org, error: orgErr } = await sb.from('organizations')
+    .insert({ name: orgName, slug: orgSlug, created_by: SIM_USER })
+    .select().single()
+  if (orgErr || !org) throw new Error(`sim org create failed: ${orgErr?.message || 'null row'}`)
+  await sb.from('org_members').insert({ org_id: org.id, user_id: SIM_USER, role: 'admin' })
 
-  const wsName = `${label} ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`
-  const { data: ws } = await sb.from('workspaces')
+  const wsName = `${label} ${ts}`
+  const { data: ws, error: wsErr } = await sb.from('workspaces')
     .insert({ name: wsName, org_id: org.id, created_by: SIM_USER }).select().single()
-  await sb.from('workspace_members').insert({ workspace_id: ws.id, user_id: SIM_USER, role: 'owner' }).then(() => {})
+  if (wsErr || !ws) throw new Error(`sim workspace create failed: ${wsErr?.message || 'null row'}`)
+  await sb.from('workspace_members').insert({ workspace_id: ws.id, user_id: SIM_USER, role: 'owner' })
 
-  return { orgId: org.id, workspaceId: ws.id, userId: SIM_USER, workspaceName: wsName }
+  return { orgId: org.id, workspaceId: ws.id, userId: SIM_USER, workspaceName: wsName, orgName }
 }
 
 // ── Native Anthropic tool-use: define each typed op as a tool ──────────
@@ -422,7 +426,10 @@ const SCHEMA_BY_OP = {
   add_edge: { type: 'object', properties: { from: { type: 'string' }, to: { type: 'string' }, label: { type: 'string' } }, required: ['from', 'to'] },
   remove_edge: { type: 'object', properties: { from: { type: 'string' }, to: { type: 'string' } }, required: ['from', 'to'] },
   add_layer: { type: 'object', properties: { id: { type: 'string' }, title: { type: 'string' } }, required: ['id', 'title'] },
-  remove_layer: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] }
+  remove_layer: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+  // New ops added for handler-level dedup escapes
+  merge_nodes: { type: 'object', properties: { keep_id: { type: 'string' }, remove_id: { type: 'string' } }, required: ['keep_id', 'remove_id'] },
+  supersede_rule: { type: 'object', properties: { id: { type: 'string' }, new_text: { type: 'string' }, section: { type: 'string' } }, required: ['id', 'new_text'] }
 }
 
 const CLAUDE_SYS = `You are Claude, the assistant a PM is talking to. You have access to Delma's typed-op tools. After each user message:
@@ -432,6 +439,10 @@ const CLAUDE_SYS = `You are Claude, the assistant a PM is talking to. You have a
 Tools are named <filename>__<op>, e.g. people_md__add_person. Each tool's input_schema describes its args. Call as many tools per turn as needed; the user might mention several facts in one message.
 
 Use the most specific tool available. For "X reports to Y instead of Z", prefer set_manager (replaces) over add_reporting_line (adds). For decisions that contradict prior ones, prefer supersede_decision over remove_decision. For an action whose id you don't know, use complete_action_by_text.
+
+When the user REVERSES a prior decision or rule ("scratch that", "actually", "instead", "changed our mind", a direct contradiction), DO NOT call add_decision or add_playbook_rule — the handler will error on the near-duplicate and you'll leave the workspace with contradictions. Use supersede_decision or supersede_rule instead. If the prior id isn't obvious from the current state, emit add_* anyway — the error message will give you the existing id so you can supersede on the next turn.
+
+For architecture nodes, REUSE existing ids when you reference an object that's already in the diagram. Don't invent a new id for the same concept (the handler blocks near-duplicate labels). If you realize two different ids point at the same thing, call merge_nodes to collapse them.
 
 If nothing concrete was said (chitchat, questions, vague hedges), don't call any tool. Just reply naturally.`
 
@@ -646,28 +657,39 @@ export async function runNarrative(narrative) {
   return { narrative_id: narrative.id, score: crit.overall, totalMs, candidates: candidates.length }
 }
 
-// Delete QA workspaces older than N days so the test org doesn't accumulate
-// hundreds of stale rows over time. Each narrative run creates a fresh ws.
+// Delete per-sim QA orgs older than N days (and everything under them).
+// Each narrative run now creates its own org; this keeps accumulation bounded.
+// Matches on slug prefix `qa-sim-` (new-style, per-narrative) plus the legacy
+// shared org slug `delma-qa-sim` for anything lingering from pre-refactor.
 export async function cleanupOldQaWorkspaces(daysOld = 3) {
-  const ORG_NAME = 'Delma QA Simulation Org'
-  const { data: org } = await sb.from('organizations').select('id').eq('name', ORG_NAME).maybeSingle()
-  if (!org) return { deleted: 0 }
   const cutoff = new Date(Date.now() - daysOld * 86400 * 1000).toISOString()
-  const { data: stale } = await sb.from('workspaces')
-    .select('id').eq('org_id', org.id).lt('created_at', cutoff)
-  if (!stale?.length) return { deleted: 0 }
-  // Children first (cascade may not be set on every FK)
-  const ids = stale.map(w => w.id)
-  await sb.from('memory_notes').delete().in('workspace_id', ids)
-  await sb.from('diagram_views').delete().in('workspace_id', ids)
-  await sb.from('history_snapshots').delete().in('workspace_id', ids)
-  await sb.from('mcp_call_logs').delete().in('workspace_id', ids)
-  await sb.from('api_op_logs').delete().in('workspace_id', ids)
-  await sb.from('quality_router_calls').delete().in('workspace_id', ids)
-  await sb.from('workspace_members').delete().in('workspace_id', ids)
-  await sb.from('workspaces').delete().in('id', ids)
-  console.log('[quality:nar] cleanup —', ids.length, 'stale QA workspaces deleted')
-  return { deleted: ids.length }
+  const { data: orgs } = await sb.from('organizations')
+    .select('id, slug, name')
+    .or('slug.like.qa-sim-%,slug.eq.delma-qa-sim')
+    .lt('created_at', cutoff)
+  if (!orgs?.length) return { deleted_orgs: 0, deleted_workspaces: 0 }
+
+  const orgIds = orgs.map(o => o.id)
+  const { data: wss } = await sb.from('workspaces').select('id').in('org_id', orgIds)
+  const wsIds = (wss || []).map(w => w.id)
+
+  if (wsIds.length) {
+    await sb.from('memory_notes').delete().in('workspace_id', wsIds)
+    await sb.from('diagram_views').delete().in('workspace_id', wsIds)
+    await sb.from('history_snapshots').delete().in('workspace_id', wsIds)
+    await sb.from('mcp_call_logs').delete().in('workspace_id', wsIds)
+    await sb.from('api_op_logs').delete().in('workspace_id', wsIds)
+    await sb.from('quality_router_calls').delete().in('workspace_id', wsIds)
+    await sb.from('workspace_members').delete().in('workspace_id', wsIds)
+    await sb.from('workspaces').delete().in('id', wsIds)
+  }
+  // Org-level tabs + members, then the org itself
+  await sb.from('org_memory_notes').delete().in('org_id', orgIds)
+  await sb.from('org_members').delete().in('org_id', orgIds)
+  await sb.from('organizations').delete().in('id', orgIds)
+
+  console.log('[quality:nar] cleanup —', orgIds.length, 'stale QA orgs deleted (with', wsIds.length, 'workspaces)')
+  return { deleted_orgs: orgIds.length, deleted_workspaces: wsIds.length }
 }
 
 // Run all (or one specific) narrative
