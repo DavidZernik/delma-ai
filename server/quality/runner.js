@@ -44,7 +44,7 @@ async function recordStatus(layer, ms, error) {
 
 import { CASES as EVAL_CASES, runCases } from './eval-cases.js'
 
-async function layer1RegressionEvals() {
+async function layer1RegressionEvals({ runId = null } = {}) {
   const t0 = Date.now()
   console.log('[quality] L1 — regression evals starting...')
   try {
@@ -53,7 +53,8 @@ async function layer1RegressionEvals() {
       case_name: r.name, pass: r.pass, ms: r.ms,
       ops_emitted: r.ops, raw_response: r.raw,
       failure_reasons: r.checks.filter(c => !c.ok).map(c => c.desc),
-      model: HAIKU
+      model: HAIKU,
+      run_id: runId
     }))
     if (rows.length) await sb.from('quality_eval_runs').insert(rows)
     const passed = results.filter(r => r.pass).length
@@ -83,7 +84,7 @@ severity mapping: 5→clean, 4→minor, 3→minor, 2→suspicious, 1→wrong.
 
 No prose outside the JSON.`
 
-async function layer2ProductionCritique() {
+async function layer2ProductionCritique({ runId = null } = {}) {
   const t0 = Date.now()
   console.log('[quality] L2 — production critique starting...')
   try {
@@ -133,7 +134,7 @@ async function layer2ProductionCritique() {
 // ── Layer 3: SQL data hygiene ─────────────────────────────────────────────
 // Pure SQL/JS — no LLM. Quick sanity checks on structured tab content.
 
-async function layer3StateChecks() {
+async function layer3StateChecks({ runId = null } = {}) {
   const t0 = Date.now()
   console.log('[quality] L3 — state hygiene starting...')
   try {
@@ -210,7 +211,10 @@ async function layer3StateChecks() {
       }
     }
 
-    if (findings.length) await sb.from('quality_state_checks').insert(findings)
+    if (findings.length) {
+      const tagged = findings.map(f => ({ ...f, run_id: runId }))
+      await sb.from('quality_state_checks').insert(tagged)
+    }
     console.log(`[quality] L3 done — ${findings.length} findings in ${Date.now() - t0}ms`)
     await recordStatus('layer3_state', Date.now() - t0, null)
   } catch (err) {
@@ -223,7 +227,7 @@ async function layer3StateChecks() {
 // Look at recent router calls. Find: empty-ops responses, fan-outs, repeat
 // inputs. Have Sonnet propose what's missing.
 
-async function layer4RouterSignals() {
+async function layer4RouterSignals({ runId = null } = {}) {
   const t0 = Date.now()
   console.log('[quality] L4 — router signal mining starting...')
   try {
@@ -290,7 +294,7 @@ const CANDIDATES = [
   { name: 'sonnet', model: SONNET, prompt: ROUTER_SYSTEM_PROMPT }
 ]
 
-async function layer5Experiments() {
+async function layer5Experiments({ runId = null } = {}) {
   const t0 = Date.now()
   console.log('[quality] L5 — A/B experiments starting...')
   try {
@@ -323,16 +327,16 @@ function median(arr) {
 
 // ── Master entry ──────────────────────────────────────────────────────────
 
-export async function runAllLayers({ skipExpensive = false } = {}) {
+export async function runAllLayers({ skipExpensive = false, runId = null } = {}) {
   console.log('[quality] runner start, skipExpensive:', skipExpensive)
   const t0 = Date.now()
-  await layer1RegressionEvals()
-  await layer3StateChecks()              // cheap, always run
-  await timelinessLayer()                // pure JS, free
-  await layer4RouterSignals()
+  await layer1RegressionEvals({ runId })
+  await layer3StateChecks({ runId })              // cheap, always run
+  await timelinessLayer({ runId })                // pure JS, free
+  await layer4RouterSignals({ runId })
   if (!skipExpensive) {
-    await layer2ProductionCritique()     // Sonnet $$
-    await layer5Experiments()             // 2x eval suite $
+    await layer2ProductionCritique({ runId })     // Sonnet $$
+    await layer5Experiments({ runId })             // 2x eval suite $
   }
   console.log(`[quality] runner done in ${Date.now() - t0}ms`)
 }
@@ -340,34 +344,49 @@ export async function runAllLayers({ skipExpensive = false } = {}) {
 // Headline overnight job: replay yesterday's real ops if we have any,
 // otherwise fall back to running the curated narrative library.
 // Both write to quality_simulations / quality_observations.
-export async function runOvernight() {
+export async function runOvernight(opts = {}) {
   console.log('[quality] overnight start')
   const t0 = Date.now()
   await recordStatus('overnight_start', 0, null)
+
+  // Start a run row so every child log row groups under it. trigger differs
+  // based on whether this came from the scheduler or a manual POST.
+  const { startRun, completeRun } = await import('./run-tracker.js')
+  const { NARRATIVES } = await import('./narratives.js')
+  const run = await startRun({
+    trigger: opts.trigger || 'overnight-manual',
+    label: opts.label || 'overnight pipeline',
+    narratives: NARRATIVES.map(n => n.id)
+  })
+  const runId = run.id
+
   try {
-    // Try replay first — only if we have meaningful real activity yesterday.
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
-    const { data: realOps, count } = await sb.from('api_op_logs')
+    const { count } = await sb.from('api_op_logs')
       .select('id', { count: 'exact', head: true }).gte('created_at', since)
     const realCount = count || 0
     if (realCount >= 5) {
       console.log(`[quality] overnight: ${realCount} real ops in last 24h — replay mode`)
-      await runReplay({ hoursBack: 24, max: 30 })
+      await runReplay({ hoursBack: 24, max: 30, runId })
     } else {
       console.log(`[quality] overnight: only ${realCount} real ops — narrative mode`)
-      await runAllNarratives()
+      const { runAllNarratives } = await import('./narratives.js')
+      await runAllNarratives({ runId })
     }
-    // Always also run the cheap layers nightly
-    await runAllLayers({ skipExpensive: true })
+    await runAllLayers({ skipExpensive: true, runId })
     await recordStatus('overnight_done', Date.now() - t0, null)
-    console.log(`[quality] overnight done in ${Date.now() - t0}ms`)
+
+    // Aggregate + generate the Sonnet "what to act on" summary.
+    await completeRun(runId, { ranHygiene: true, ranSignals: true })
+    console.log(`[quality] overnight done in ${Date.now() - t0}ms (run ${runId})`)
   } catch (err) {
     console.error('[quality] overnight failed:', err)
     await recordStatus('overnight_done', Date.now() - t0, err.message)
+    try { await completeRun(runId, { ranHygiene: true, ranSignals: true }) } catch {}
   }
 }
 
-async function timelinessLayer() {
+async function timelinessLayer({ runId = null } = {}) {
   const t0 = Date.now()
   try {
     const { findings } = await runTimeliness({ hoursBack: 24 })

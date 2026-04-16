@@ -367,7 +367,10 @@ app.post('/api/save-structured-tab', async (req, res) => {
 
 app.get('/logs', async (req, res) => {
   try {
-    const html = await renderLogsPage()
+    // /logs              → list of runs
+    // /logs?run=<uuid>   → detail view for a specific run
+    const runId = typeof req.query.run === 'string' ? req.query.run : null
+    const html = await renderLogsPage(runId)
     res.set('Content-Type', 'text/html; charset=utf-8').send(html)
   } catch (err) {
     res.status(500).send(`<pre>logs render failed: ${err.message}</pre>`)

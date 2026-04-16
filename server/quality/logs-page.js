@@ -1,13 +1,44 @@
-// Renders the /logs HTML page. Public, no auth — internal observability.
-// Pulls from all quality_* tables and stitches a single readable view.
+// Renders the /logs HTML page(s). Public, no auth — internal observability.
+//
+// Two views, same endpoint:
+//   /logs            → list of recent runs as cards. Each card shows the
+//                      run trigger, narratives, average score, and the
+//                      Sonnet-generated "what to act on" summary. Below
+//                      the list: cross-run candidate-eval triage queue.
+//   /logs?run=<id>   → detail view for a single run. Shows only that run's
+//                      narratives, critiques, regression evals, state
+//                      hygiene findings, and candidate evals.
+//
+// Older rows (pre-migration 014) have run_id = null; they surface on the
+// home view as a single "ungrouped" section so nothing is hidden.
+//
+// Rendered server-side as plain HTML. No client JS.
 
 import { supabase as sb } from '../lib/supabase.js'
 
 const css = `
   body { font-family: -apple-system, system-ui, sans-serif; max-width: 1100px; margin: 0 auto; padding: 24px; background: #FBF8F2; color: #2B1F1F; }
   h1 { font-size: 24px; margin: 0 0 4px; }
+  h1 a { color: inherit; text-decoration: none; }
   .subtitle { color: #6B5A5A; font-size: 13px; margin-bottom: 24px; }
   h2 { font-size: 16px; margin: 32px 0 8px; padding-bottom: 4px; border-bottom: 2px solid #7A1E1E; color: #7A1E1E; text-transform: uppercase; letter-spacing: 0.05em; }
+  h3 { font-size: 14px; margin: 18px 0 6px; color: #2B1F1F; }
+  a { color: #7A1E1E; }
+  .run-card { background: #FFFFFF; border: 1px solid #E8D8D2; border-radius: 8px; margin: 12px 0; padding: 16px 20px; display: block; text-decoration: none; color: inherit; transition: background 0.1s; }
+  .run-card:hover { background: #FFFCF5; }
+  .run-card .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 10px; flex-wrap: wrap; }
+  .run-card .title { font-size: 15px; font-weight: 600; color: #2B1F1F; margin: 0; }
+  .run-card .meta { font-size: 11px; color: #6B5A5A; margin-top: 4px; }
+  .run-card .score-pill { font-size: 13px; font-weight: 600; padding: 4px 12px; border-radius: 99px; background: #FAF3E6; color: #8A5A00; white-space: nowrap; }
+  .run-card .score-pill.good { background: #E9F2E2; color: #3F6B25; }
+  .run-card .score-pill.mid { background: #FAF3E6; color: #8A5A00; }
+  .run-card .score-pill.bad { background: #FCE9E6; color: #A73; }
+  .run-card .summary { font-size: 13px; line-height: 1.55; color: #2B1F1F; margin: 8px 0 4px; white-space: pre-wrap; }
+  .run-card .footer { font-size: 11px; color: #6B5A5A; margin-top: 10px; padding-top: 10px; border-top: 1px dashed #F0E5E0; display: flex; gap: 18px; flex-wrap: wrap; }
+  .trigger-pill { display: inline-block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 8px; border-radius: 4px; background: #F4F0EA; color: #6B5A5A; margin-right: 6px; }
+  .trigger-pill.overnight { background: #EAE6F2; color: #4B3D7A; }
+  .trigger-pill.smoke { background: #F4ECE6; color: #6B4823; }
+  .status-running { color: #C56F2B; font-weight: 600; }
   .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 16px 0; }
   .stat { background: #FFFFFF; border: 1px solid #E8D8D2; border-radius: 8px; padding: 14px; }
   .stat .num { font-size: 24px; font-weight: 600; color: #7A1E1E; }
@@ -19,20 +50,15 @@ const css = `
   tr td:last-child { border-top-right-radius: 6px; border-bottom-right-radius: 6px; }
   .pass { color: #6B8E5C; }
   .fail { color: #B33; }
-  .sev-clean { color: #6B8E5C; }
-  .sev-minor { color: #C9A878; }
-  .sev-suspicious { color: #C56F2B; }
   .sev-wrong { color: #B33; font-weight: 600; }
+  .sev-suspicious { color: #C56F2B; }
   .sev-info { color: #6B5A5A; }
   .sev-warn { color: #C56F2B; }
-  pre { background: #F4F0EA; padding: 8px; border-radius: 4px; font-size: 11px; max-width: 600px; overflow-x: auto; margin: 0; }
+  pre { background: #F4F0EA; padding: 8px; border-radius: 4px; font-size: 11px; overflow-x: auto; margin: 0; }
   code { font-family: ui-monospace, monospace; font-size: 11px; background: #F4F0EA; padding: 1px 4px; border-radius: 3px; }
   .ts { color: #6B5A5A; font-size: 11px; white-space: nowrap; }
   .empty { color: #6B5A5A; font-style: italic; padding: 12px; }
   details summary { cursor: pointer; color: #7A1E1E; font-size: 12px; }
-  .layer-status { display: flex; gap: 16px; flex-wrap: wrap; margin: 8px 0 24px; font-size: 12px; color: #6B5A5A; }
-  .layer-status span { background: #FFFFFF; border: 1px solid #E8D8D2; padding: 4px 10px; border-radius: 4px; }
-  .exec-summary { background: #FFFFFF; border-left: 4px solid #7A1E1E; padding: 14px 18px; margin: 16px 0 24px; border-radius: 4px; font-size: 14px; line-height: 1.5; }
   .sim-card { background: #FFFFFF; border: 1px solid #E8D8D2; border-radius: 8px; margin: 12px 0; padding: 14px 18px; }
   .sim-card summary { cursor: pointer; font-size: 14px; }
   .sim-card .sim-body { margin-top: 14px; }
@@ -42,15 +68,12 @@ const css = `
   .sim-scores { font-size: 12px; color: #6B5A5A; margin-bottom: 8px; }
   .transcript { background: #FBF8F2; border-radius: 6px; padding: 8px 12px; margin: 8px 0; max-height: 460px; overflow-y: auto; }
   .transcript > div { padding: 6px 0; border-bottom: 1px solid #F0E5E0; font-size: 13px; }
-  .transcript > div:last-child { border-bottom: none; }
   .t-label { display: inline-block; min-width: 56px; font-weight: 600; font-size: 11px; text-transform: uppercase; color: #6B5A5A; }
   .t-user .t-label { color: #7A1E1E; }
   .t-claude .t-label { color: #6B8E5C; }
-  .t-text { display: inline; }
   .t-ops { margin-top: 4px; margin-left: 56px; }
-  .t-ops code { font-size: 10px; background: #F4F0EA; padding: 1px 5px; border-radius: 3px; margin-right: 4px; }
-  table.mini th, table.mini td { font-size: 12px; }
-  /* Mobile */
+  .t-ops code { font-size: 10px; margin-right: 4px; }
+  .back { display: inline-block; margin-bottom: 12px; font-size: 12px; }
   @media (max-width: 640px) {
     body { padding: 12px; max-width: 100%; }
     h1 { font-size: 20px; }
@@ -58,8 +81,6 @@ const css = `
     .summary { grid-template-columns: 1fr 1fr; }
     table { font-size: 11px; display: block; overflow-x: auto; max-width: 100%; }
     .transcript { font-size: 12px; }
-    pre { max-width: 100%; }
-    .layer-status { font-size: 11px; }
   }
 `
 
@@ -68,198 +89,294 @@ const ago = (iso) => {
   if (!iso) return '—'
   const ms = Date.now() - new Date(iso).getTime()
   const m = Math.floor(ms / 60000)
+  if (m < 1) return 'just now'
   if (m < 60) return `${m}m ago`
   const h = Math.floor(m / 60)
   if (h < 24) return `${h}h ago`
   return `${Math.floor(h / 24)}d ago`
 }
 
-export async function renderLogsPage() {
-  // Pull everything in parallel
-  const [
-    statusRes, simRes, evalRes, obsRes, stateRes, signalsRes, expRes, opsRes, routerRes, candRes
-  ] = await Promise.all([
-    sb.from('quality_runner_status').select('*'),
-    sb.from('quality_simulations').select('*').order('ran_at', { ascending: false }).limit(7),
-    sb.from('quality_eval_runs').select('*').order('run_at', { ascending: false }).limit(100),
-    sb.from('quality_observations').select('*').order('observed_at', { ascending: false }).limit(50),
-    sb.from('quality_state_checks').select('*').order('checked_at', { ascending: false }).limit(50),
-    sb.from('quality_signals').select('*').order('found_at', { ascending: false }).limit(20),
-    sb.from('quality_experiments').select('*').order('ran_at', { ascending: false }).limit(20),
-    sb.from('api_op_logs').select('*').order('created_at', { ascending: false }).limit(30),
-    sb.from('quality_router_calls').select('*').order('created_at', { ascending: false }).limit(30),
-    sb.from('quality_candidate_evals').select('*').eq('status', 'pending').order('found_at', { ascending: false }).limit(30)
+// Lightweight markdown → HTML. Handles headings, bullets, bold, line breaks.
+// Used for Sonnet-generated run summaries which are plain markdown.
+function md(text) {
+  if (!text) return ''
+  const lines = String(text).split('\n')
+  const out = []
+  let inList = false
+  for (let raw of lines) {
+    const line = raw.trim()
+    if (!line) { if (inList) { out.push('</ul>'); inList = false } out.push('<br/>'); continue }
+    if (line.startsWith('- ') || line.startsWith('* ')) {
+      if (!inList) { out.push('<ul>'); inList = true }
+      out.push(`<li>${inline(line.slice(2))}</li>`)
+      continue
+    }
+    if (inList) { out.push('</ul>'); inList = false }
+    if (line.startsWith('### ')) { out.push(`<h4>${inline(line.slice(4))}</h4>`); continue }
+    if (line.startsWith('## '))  { out.push(`<h3>${inline(line.slice(3))}</h3>`); continue }
+    if (line.startsWith('# '))   { out.push(`<h2>${inline(line.slice(2))}</h2>`); continue }
+    out.push(`<p>${inline(line)}</p>`)
+  }
+  if (inList) out.push('</ul>')
+  return out.join('\n')
+}
+
+function inline(s) {
+  return esc(s)
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/`(.+?)`/g, '<code>$1</code>')
+}
+
+function scoreClass(score) {
+  if (score == null) return ''
+  if (score >= 4) return 'good'
+  if (score >= 3) return 'mid'
+  return 'bad'
+}
+
+function triggerClass(t) {
+  if (!t) return ''
+  if (t.startsWith('overnight')) return 'overnight'
+  return 'smoke'
+}
+
+// ── Top-level dispatch ──────────────────────────────────────────────────
+
+export async function renderLogsPage(runId = null) {
+  if (runId) return renderRunDetail(runId)
+  return renderRunList()
+}
+
+// ── Home view: list of runs ─────────────────────────────────────────────
+
+async function renderRunList() {
+  const [{ data: runs }, { data: candRaw }] = await Promise.all([
+    sb.from('quality_runs').select('*').order('started_at', { ascending: false }).limit(30),
+    sb.from('quality_candidate_evals')
+      .select('id, found_at, category, finding_text, run_id, source_simulation_id, status')
+      .eq('status', 'pending').order('found_at', { ascending: false }).limit(30)
   ])
-  const sims = simRes.data || []
-  const candidates = candRes.data || []
-  const status = statusRes.data || []
-  const evals = evalRes.data || []
-  const obs = obsRes.data || []
-  const state = stateRes.data || []
-  const signals = signalsRes.data || []
-  const exps = expRes.data || []
-  const ops = opsRes.data || []
-  const routerCalls = routerRes.data || []
 
-  // Aggregate latest eval run
-  const latestRun = evals.length ? evals.reduce((acc, r) => (r.run_at > acc ? r.run_at : acc), evals[0].run_at) : null
-  const latestRunRows = evals.filter(r => r.run_at === latestRun)
-  const passed = latestRunRows.filter(r => r.pass).length
-  const passRate = latestRunRows.length ? Math.round((passed / latestRunRows.length) * 100) : 0
+  const body = `
+    <h1>Delma Quality Lab</h1>
+    <div class="subtitle">Test runs — smoke (quick iteration) and overnight (full 12-narrative suite). Each card below is one run.</div>
 
-  const obsCounts = { clean: 0, minor: 0, suspicious: 0, wrong: 0 }
-  for (const o of obs) obsCounts[o.severity] = (obsCounts[o.severity] || 0) + 1
-
-  const latestSim = sims[0]
-  // Build a compact "exec summary" string from the latest sim + counts.
-  // No LLM call — render-time only. Keeps /logs free of network deps.
-  const execSummary = (() => {
-    const parts = []
-    if (latestSim) {
-      parts.push(`Latest overnight: <strong>${latestSim.overall_score || '?'}/5</strong> (${latestSim.transcript?.narrative_title || latestSim.transcript?.narrative_id || 'unknown narrative'}).`)
-      if (latestSim.critique?.summary) parts.push(esc(latestSim.critique.summary))
+    <h2>Runs — latest first</h2>
+    ${(runs || []).length === 0 ? `<div class="empty">No runs yet. Fire one with <code>npm run smoke</code> or <code>npm run overnight</code>.</div>` :
+      runs.map(r => renderRunCard(r)).join('')
     }
-    if (latestRunRows.length) parts.push(`Eval suite: <strong>${passed}/${latestRunRows.length}</strong> passing.`)
-    return parts.join(' ')
-  })()
 
-  // ── Build "Things to act on" — the most actionable distillation ────
-  const actionItems = []
-  // Failed eval cases (latest run)
-  for (const r of latestRunRows.filter(r => !r.pass)) {
-    actionItems.push({
-      severity: 'wrong',
-      what: `Eval case "${r.case_name}" failed`,
-      why: r.failure_reasons?.join(' · ') || 'see eval row',
-      where: 'Layer 1 (regression evals)'
-    })
-  }
-  // Suspicious + wrong observations from production critique / replay
-  for (const o of obs.filter(o => o.severity === 'wrong' || o.severity === 'suspicious')) {
-    actionItems.push({
-      severity: o.severity,
-      what: o.finding,
-      why: o.suggestion || '',
-      where: `Layer 2 (${o.source}#${o.source_id || ''})`
-    })
-  }
-  // State warnings
-  for (const s of state.filter(s => s.severity === 'warn')) {
-    actionItems.push({
-      severity: 'warn',
-      what: s.detail,
-      why: s.check_name,
-      where: 'Layer 3 (state hygiene)'
-    })
-  }
-  // Latest sim findings
-  for (const sim of sims.slice(0, 1)) {
-    if (sim.critique?.missed?.length) {
-      for (const m of sim.critique.missed) actionItems.push({
-        severity: 'suspicious',
-        what: `Sim missed: ${m}`,
-        why: sim.transcript?.narrative_title || 'overnight simulation',
-        where: 'Overnight (missed)'
-      })
-    }
-    if (sim.critique?.wrong?.length) {
-      for (const w of sim.critique.wrong) actionItems.push({
-        severity: 'wrong',
-        what: `Sim wrong: ${w}`,
-        why: sim.transcript?.narrative_title || 'overnight simulation',
-        where: 'Overnight (wrong)'
-      })
-    }
-  }
-  // Sort: wrong > suspicious > warn > info
-  const sevRank = { wrong: 0, suspicious: 1, warn: 2, info: 3, minor: 4, clean: 5 }
-  actionItems.sort((a, b) => (sevRank[a.severity] ?? 9) - (sevRank[b.severity] ?? 9))
+    <h2>Candidate eval queue (cross-run)</h2>
+    <div style="color:#6B5A5A; font-size:12px; margin-bottom:8px;">Critic findings auto-filed from all runs. Triage: accept → add to permanent regression suite, reject if mis-grade.</div>
+    ${(candRaw || []).length === 0 ? `<div class="empty">Queue clear.</div>` : `
+      <table>
+        <thead><tr><th>When</th><th>Category</th><th>Finding</th><th>From</th></tr></thead>
+        <tbody>
+          ${candRaw.map(c => `
+            <tr>
+              <td class="ts">${ago(c.found_at)}</td>
+              <td class="sev-${c.category === 'wrong' ? 'wrong' : 'suspicious'}">${esc(c.category)}</td>
+              <td>${esc(c.finding_text).slice(0, 240)}</td>
+              <td class="ts">${c.run_id ? `<a href="/logs?run=${c.run_id}">run</a>` : `sim#${c.source_simulation_id || '—'}`}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `}
+  `
+  return wrap('Delma Quality Lab', body)
+}
 
+function renderRunCard(r) {
+  const scoreTxt = r.overall_score != null ? `${r.overall_score}/5` : (r.status === 'running' ? 'running…' : '—')
+  const scoreCls = scoreClass(r.overall_score)
+  const tCls = triggerClass(r.trigger)
+  const title = r.label || r.trigger
+  const narratives = (r.narratives_run || []).slice(0, 5)
+  const moreNarr = (r.narratives_run || []).length - narratives.length
+  const statusHtml = r.status === 'running' ? `<span class="status-running">⟳ running</span>` : `${ago(r.ended_at || r.started_at)}`
+  const summaryHtml = r.summary ? md(r.summary) : (r.status === 'running' ? '<p style="color:#6B5A5A;font-style:italic;">Summary will appear here when the run completes.</p>' : '<p style="color:#6B5A5A;font-style:italic;">No summary available.</p>')
+
+  return `
+    <a class="run-card" href="/logs?run=${r.id}">
+      <div class="head">
+        <div>
+          <h3 class="title"><span class="trigger-pill ${tCls}">${esc(r.trigger)}</span>${esc(title.replace(r.trigger + ': ', ''))}</h3>
+          <div class="meta">${statusHtml} · ${r.num_complete || 0}/${r.num_narratives || 0} narratives${narratives.length ? ' · ' + narratives.map(esc).join(', ') : ''}${moreNarr > 0 ? ` (+${moreNarr})` : ''}</div>
+        </div>
+        <div class="score-pill ${scoreCls}">${scoreTxt}</div>
+      </div>
+      <div class="summary">${summaryHtml}</div>
+      <div class="footer">
+        ${r.num_candidates ? `<span>📝 ${r.num_candidates} candidate${r.num_candidates === 1 ? '' : 's'} filed</span>` : ''}
+        ${r.num_regression_fails ? `<span class="fail">✗ ${r.num_regression_fails} regression fail${r.num_regression_fails === 1 ? '' : 's'}</span>` : r.ran_regression ? `<span class="pass">✓ evals passing</span>` : ''}
+        ${r.num_state_warnings ? `<span>⚠ ${r.num_state_warnings} state warnings</span>` : ''}
+        <span>View details →</span>
+      </div>
+    </a>
+  `
+}
+
+// ── Detail view: a single run ───────────────────────────────────────────
+
+async function renderRunDetail(runId) {
+  const [{ data: run }, { data: sims }, { data: evals }, { data: candidates }, { data: stateChecks }] = await Promise.all([
+    sb.from('quality_runs').select('*').eq('id', runId).maybeSingle(),
+    sb.from('quality_simulations').select('*').eq('run_id', runId).order('ran_at', { ascending: true }),
+    sb.from('quality_eval_runs').select('*').eq('run_id', runId).order('ran_at', { ascending: true }),
+    sb.from('quality_candidate_evals').select('*').eq('run_id', runId).order('found_at', { ascending: true }),
+    sb.from('quality_state_checks').select('*').eq('run_id', runId).order('checked_at', { ascending: true })
+  ])
+
+  if (!run) {
+    return wrap('Run not found', `<a class="back" href="/logs">← All runs</a><div class="empty">No run with id ${esc(runId)}.</div>`)
+  }
+
+  const scoreTxt = run.overall_score != null ? `${run.overall_score}/5` : (run.status === 'running' ? 'running…' : '—')
+  const duration = run.ended_at ? Math.round((new Date(run.ended_at) - new Date(run.started_at)) / 1000) : null
+
+  const body = `
+    <a class="back" href="/logs">← All runs</a>
+    <h1>${esc(run.label || run.trigger)}</h1>
+    <div class="subtitle">
+      <span class="trigger-pill ${triggerClass(run.trigger)}">${esc(run.trigger)}</span>
+      ${ago(run.started_at)}${duration ? ` · ${duration}s` : ''}${run.status === 'running' ? ` · <span class="status-running">⟳ running</span>` : ''}
+    </div>
+
+    <h2>Summary</h2>
+    <div class="exec-summary" style="background:#FFFFFF; border-left:4px solid #7A1E1E; padding:14px 18px; border-radius:4px; line-height:1.55;">
+      ${run.summary ? md(run.summary) : '<div class="empty">No summary — run may still be processing.</div>'}
+    </div>
+
+    <div class="summary">
+      <div class="stat"><div class="num">${scoreTxt}</div><div class="lab">Overall Score</div></div>
+      <div class="stat"><div class="num">${run.num_complete || 0}/${run.num_narratives || 0}</div><div class="lab">Narratives</div></div>
+      <div class="stat"><div class="num">${run.num_regression_fails ?? 0}</div><div class="lab">Regression Fails</div></div>
+      <div class="stat"><div class="num">${run.num_candidates ?? 0}</div><div class="lab">Candidate Evals</div></div>
+    </div>
+
+    <h2>Narratives (${(sims || []).length})</h2>
+    ${(sims || []).length === 0 ? '<div class="empty">No narratives scored in this run yet.</div>' :
+      sims.map(s => renderSim(s)).join('')
+    }
+
+    <h2>Regression Evals (${(evals?.[0]?.results || []).length || 0})</h2>
+    ${renderEvalsForRun(evals)}
+
+    <h2>Candidate Evals from this run (${(candidates || []).length})</h2>
+    ${(candidates || []).length === 0 ? '<div class="empty">No findings filed from this run.</div>' : `
+      <table>
+        <thead><tr><th>Category</th><th>Finding</th><th>From sim</th></tr></thead>
+        <tbody>
+          ${candidates.map(c => `
+            <tr>
+              <td class="sev-${c.category === 'wrong' ? 'wrong' : 'suspicious'}">${esc(c.category)}</td>
+              <td>${esc(c.finding_text)}</td>
+              <td class="ts">${c.source_simulation_id ? `sim#${c.source_simulation_id}` : '—'}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `}
+
+    <h2>State Hygiene (${(stateChecks || []).length})</h2>
+    ${(stateChecks || []).length === 0 ? '<div class="empty">No state issues flagged in this run.</div>' : `
+      <table>
+        <thead><tr><th>Check</th><th>Severity</th><th>Detail</th></tr></thead>
+        <tbody>
+          ${stateChecks.map(s => `
+            <tr>
+              <td><code>${esc(s.check_name)}</code></td>
+              <td class="sev-${s.severity}">${esc(s.severity)}</td>
+              <td>${esc(s.detail)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `}
+  `
+  return wrap(`${run.label || run.trigger} — Delma Quality Lab`, body)
+}
+
+function renderEvalsForRun(evalRows) {
+  // Each row is a per-case result from runCases; we bundled them into one
+  // insert with `results: [...]`. Older schema may have one row per case.
+  if (!evalRows || !evalRows.length) return '<div class="empty">Regression evals did not run in this run.</div>'
+  const first = evalRows[0]
+  const results = Array.isArray(first.results) ? first.results : evalRows.map(r => ({
+    name: r.case_name, pass: r.pass, ms: r.ms, error: (r.failure_reasons || [])[0] || null
+  }))
+  if (!results.length) return '<div class="empty">No eval cases.</div>'
+  return `
+    <table class="mini">
+      <thead><tr><th>Case</th><th>Result</th><th>ms</th><th>Notes</th></tr></thead>
+      <tbody>
+        ${results.map(r => `
+          <tr>
+            <td>${esc(r.name)}</td>
+            <td class="${r.pass ? 'pass' : 'fail'}">${r.pass ? '✓ pass' : '✗ fail'}</td>
+            <td class="ts">${r.ms || '—'}</td>
+            <td>${esc(r.error || '—')}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `
+}
+
+function renderSim(s) {
+  const nar = s.transcript?.narrative_id || 'unknown'
+  const title = s.transcript?.narrative_title || nar
+  const sc = s.critique?.scores || {}
+  const scoreCls = scoreClass(s.overall_score)
+
+  return `
+    <details class="sim-card">
+      <summary>
+        <strong>${esc(title)}</strong> ·
+        <span class="score-pill ${scoreCls}" style="padding:2px 8px;font-size:11px;">${s.overall_score ?? '?'}/5</span> ·
+        <span class="ts">${Math.round((s.total_duration_ms || 0) / 1000)}s · ${(s.ops_applied || []).length} ops</span>
+      </summary>
+      <div class="sim-body">
+        <p>${esc(s.critique?.summary || '(no summary)')}</p>
+        <div class="sim-scores">
+          accuracy: ${sc.accuracy ?? '?'}/5 ·
+          coverage: ${sc.coverage ?? '?'}/5 ·
+          timeliness: ${sc.timeliness ?? '?'}/5 ·
+          correctness: ${sc.correctness ?? '?'}/5
+        </div>
+        ${s.critique?.wrong?.length ? `<h4>What Delma got wrong</h4><ul>${s.critique.wrong.map(w => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
+        ${s.critique?.missed?.length ? `<h4>What was missed</h4><ul>${s.critique.missed.map(m => `<li>${esc(m)}</li>`).join('')}</ul>` : ''}
+        ${s.critique?.praise?.length ? `<h4>What worked</h4><ul>${s.critique.praise.map(p => `<li>${esc(p)}</li>`).join('')}</ul>` : ''}
+        ${s.transcript?.turns?.length ? `
+          <h4>Conversation transcript</h4>
+          <div class="transcript">
+            ${s.transcript.turns.map(t => `
+              <div class="t-${t.role}">
+                <span class="t-label">${t.role}</span><span class="t-text">${esc(t.text)}</span>
+                ${t.ops?.length ? `<div class="t-ops">${t.ops.map(o => `<code>${esc(o.tab)}/${esc(o.op)}</code>`).join('')}</div>` : ''}
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+      </div>
+    </details>
+  `
+}
+
+// ── Wrapper ──────────────────────────────────────────────────────────────
+
+function wrap(title, body) {
   return `<!doctype html>
-<html><head><meta charset="utf-8"><title>Delma — Logs</title><style>${css}</style></head><body>
-<h1>Delma Quality Lab</h1>
-<div class="subtitle">Public observability — overnight test (10pm–7am PT). Last 24–72h.</div>
-
-${execSummary ? `<div class="exec-summary">${execSummary}</div>` : ''}
-
-<h2>Things to act on (today)</h2>
-${actionItems.length ? `<table><tr><th>Severity</th><th>What</th><th>Why / suggestion</th><th>Source</th></tr>
-${actionItems.slice(0, 30).map(a => `<tr><td class="sev-${a.severity}">${esc(a.severity)}</td><td>${esc(a.what)}</td><td>${esc(a.why)}</td><td class="ts">${esc(a.where)}</td></tr>`).join('')}
-</table>${actionItems.length > 30 ? `<div class="empty">+ ${actionItems.length - 30} more lower-priority items below.</div>` : ''}` : '<div class="empty">All clear. Nothing actionable in the last cycle.</div>'}
-
-<div class="summary">
-  <div class="stat"><div class="num">${passed}/${latestRunRows.length || 0}</div><div class="lab">Eval Pass Rate (${passRate}%)</div></div>
-  <div class="stat"><div class="num">${ops.length}</div><div class="lab">Recent /api/op writes</div></div>
-  <div class="stat"><div class="num">${routerCalls.length}</div><div class="lab">Recent router calls</div></div>
-  <div class="stat"><div class="num">${obsCounts.suspicious + obsCounts.wrong}</div><div class="lab">Suspicious + wrong</div></div>
-  <div class="stat"><div class="num">${state.length}</div><div class="lab">State warnings</div></div>
-  <div class="stat"><div class="num">${signals.length}</div><div class="lab">Signal patterns</div></div>
-</div>
-
-<div class="layer-status">
-  ${status.map(s => `<span><strong>${esc(s.layer)}</strong> · ${ago(s.last_run_at)} · ${s.last_duration_ms ?? '?'}ms${s.last_error ? ' · <span class="fail">' + esc(s.last_error) + '</span>' : ''}</span>`).join('') || '<span class="empty">no runs yet</span>'}
-</div>
-
-<h2>Candidate eval cases (auto-promoted from critic findings)</h2>
-${candidates.length ? `<p style="font-size:13px;color:#6B5A5A;margin:0 0 8px;">Each row is something the overnight critic flagged. Triage in the morning: accept → add to permanent eval suite, or reject if it's a critic mis-grade.</p>
-<table><tr><th>When</th><th>Category</th><th>Finding</th><th>From sim</th></tr>
-${candidates.map(c => `<tr><td class="ts">${ago(c.found_at)}</td><td class="sev-${c.category === 'wrong' ? 'wrong' : 'suspicious'}">${esc(c.category)}</td><td>${esc(c.finding_text)}</td><td class="ts">${c.source_simulation_id ? `sim#${c.source_simulation_id}` : '—'}</td></tr>`).join('')}
-</table>` : '<div class="empty">No pending candidates. (Critic either hasn\'t found anything actionable, or all findings have been triaged.)</div>'}
-
-<h2>Overnight runs — latest first</h2>
-${sims.length ? sims.map((s, i) => {
-  const turns = Array.isArray(s.transcript?.turns) ? s.transcript.turns : []
-  const c = s.critique || {}
-  const open = i === 0 ? 'open' : ''
-  return `<details ${open} class="sim-card">
-  <summary><strong>${esc(s.transcript?.narrative_title || s.transcript?.narrative_id || 'run')}</strong> · <span class="${(s.overall_score || 0) >= 4 ? 'pass' : 'fail'}">${s.overall_score || '?'}/5</span> · ${ago(s.ran_at)} · ${(s.total_duration_ms / 1000).toFixed(1)}s · ${s.ops_applied?.length || 0} ops</summary>
-  <div class="sim-body">
-    ${c.summary ? `<p><em>${esc(c.summary)}</em></p>` : ''}
-    ${c.scores ? `<div class="sim-scores">${Object.entries(c.scores).map(([k, v]) => `<span><strong>${esc(k)}:</strong> ${v}/5</span>`).join(' · ')}</div>` : ''}
-    ${(c.wrong?.length) ? `<h4 class="sev-wrong">What Delma got wrong</h4><ul>${c.wrong.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
-    ${(c.missed?.length) ? `<h4 class="sev-suspicious">What was missed</h4><ul>${c.missed.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
-    ${(c.praise?.length) ? `<h4 class="sev-clean">What worked</h4><ul>${c.praise.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
-    ${turns.length ? `<h4>Conversation transcript</h4><div class="transcript">${turns.map(t => `<div class="t-${t.role}"><span class="t-label">${esc(t.role)}</span><span class="t-text">${esc((t.text || '').substring(0, 600))}</span>${(t.ops && t.ops.length) ? `<div class="t-ops">${t.ops.map(o => `<code>${esc(o.tab || '')}/${esc(o.op || '')}</code>`).join(' ')}</div>` : ''}</div>`).join('')}</div>` : ''}
-    ${s.ops_applied?.length ? `<h4>Op apply timings</h4><table class="mini"><tr><th>Tab</th><th>Op</th><th>ms</th><th>Result</th></tr>${s.ops_applied.map(o => `<tr><td><code>${esc(o.tab || '')}</code></td><td>${esc(o.op)}</td><td>${o.ms ?? '?'}</td><td class="${o.ok ? 'pass' : 'fail'}">${o.ok ? '✓' : '✗ ' + esc(o.error || '')}</td></tr>`).join('')}</table>` : ''}
-    <details><summary>final structured state JSON</summary><pre>${esc(JSON.stringify(s.final_state, null, 2))}</pre></details>
-  </div>
-</details>`
-}).join('') : '<div class="empty">No overnight runs yet. Trigger one with <code>POST /quality/run-overnight</code> or wait for the 10pm-7am PT window.</div>'}
-
-<h2>Layer 1 — Regression Evals (latest run)</h2>
-${latestRunRows.length ? `<table><tr><th>Case</th><th>Result</th><th>ms</th><th>Failures</th></tr>
-${latestRunRows.map(r => `<tr><td>${esc(r.case_name)}</td><td class="${r.pass ? 'pass' : 'fail'}">${r.pass ? '✓ pass' : '✗ fail'}</td><td>${r.ms}</td><td>${r.failure_reasons?.length ? esc(r.failure_reasons.join(' · ')) : '—'}</td></tr>`).join('')}
-</table>` : '<div class="empty">No eval runs yet. Trigger one with <code>POST /quality/run</code> or wait for the next scheduled fire.</div>'}
-
-<h2>Layer 2 — Production Critique (Sonnet on real ops)</h2>
-${obs.length ? `<table><tr><th>When</th><th>Source</th><th>Severity</th><th>Score</th><th>Finding</th><th>Suggestion</th></tr>
-${obs.map(o => `<tr><td class="ts">${ago(o.observed_at)}</td><td>${esc(o.source)}#${esc(o.source_id || '')}</td><td class="sev-${o.severity}">${esc(o.severity)}</td><td>${o.score ?? '—'}</td><td>${esc(o.finding)}</td><td>${esc(o.suggestion || '—')}</td></tr>`).join('')}
-</table>` : '<div class="empty">No critiques yet — build up some real /api/op activity first, then wait for the next run.</div>'}
-
-<h2>Layer 3 — State Hygiene</h2>
-${state.length ? `<table><tr><th>When</th><th>Check</th><th>Severity</th><th>Detail</th><th>Ref</th></tr>
-${state.map(s => `<tr><td class="ts">${ago(s.checked_at)}</td><td>${esc(s.check_name)}</td><td class="sev-${s.severity}">${esc(s.severity)}</td><td>${esc(s.detail)}</td><td><details><summary>show</summary><pre>${esc(JSON.stringify(s.ref, null, 2))}</pre></details></td></tr>`).join('')}
-</table>` : '<div class="empty">No state warnings.</div>'}
-
-<h2>Layer 4 — Router Signal Mining</h2>
-${signals.length ? `<table><tr><th>When</th><th>Pattern</th><th>Count</th><th>Examples</th><th>Suggestion</th></tr>
-${signals.map(s => `<tr><td class="ts">${ago(s.found_at)}</td><td><strong>${esc(s.pattern)}</strong></td><td>${s.count}</td><td>${(s.examples || []).slice(0, 3).map(e => '<code>' + esc(e.substring(0, 80)) + '</code>').join('<br>')}</td><td>${esc(s.suggestion || '—')}</td></tr>`).join('')}
-</table>` : '<div class="empty">No signal patterns yet.</div>'}
-
-<h2>Layer 5 — A/B Experiments</h2>
-${exps.length ? `<table><tr><th>When</th><th>Variant</th><th>Pass Rate</th><th>Median ms</th><th>vs Baseline</th></tr>
-${exps.map(e => `<tr><td class="ts">${ago(e.ran_at)}</td><td>${esc(e.name)}</td><td>${Math.round((e.pass_rate || 0) * 100)}%</td><td>${e.median_ms ?? '—'}</td><td>${e.vs_baseline_delta != null ? (e.vs_baseline_delta > 0 ? '+' : '') + Math.round(e.vs_baseline_delta * 100) + 'pp' : '—'}</td></tr>`).join('')}
-</table>` : '<div class="empty">No experiments yet.</div>'}
-
-<h2>Recent /api/op Writes</h2>
-${ops.length ? `<table><tr><th>When</th><th>Tab</th><th>Ops</th><th>Status</th></tr>
-${ops.map(o => `<tr><td class="ts">${ago(o.created_at)}</td><td><code>${esc(o.tab_key)}</code></td><td>${(o.ops || []).map(op => '<code>' + esc(op.op) + '</code>').join(' ')}</td><td class="${o.success ? 'pass' : 'fail'}">${o.success ? '✓' : '✗ ' + esc(o.error || '')}</td></tr>`).join('')}
-</table>` : '<div class="empty">No /api/op writes yet.</div>'}
-
-<h2>Recent Router Calls</h2>
-${routerCalls.length ? `<table><tr><th>When</th><th>Input</th><th>Ops</th><th>ms</th></tr>
-${routerCalls.map(c => `<tr><td class="ts">${ago(c.created_at)}</td><td>${esc(c.input.substring(0, 120))}</td><td>${(c.ops || []).map(op => '<code>' + esc(op.tab) + '/' + esc(op.op) + '</code>').join(' ')}${(!c.ops || !c.ops.length) ? '<span class="sev-info">[empty]</span>' : ''}</td><td>${c.duration_ms ?? '—'}</td></tr>`).join('')}
-</table>` : '<div class="empty">No router calls yet.</div>'}
-
-</body></html>`
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${esc(title)}</title>
+  <style>${css}</style>
+</head>
+<body>
+${body}
+</body>
+</html>`
 }

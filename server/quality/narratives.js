@@ -592,10 +592,11 @@ Critique this run.`
   catch { return { overall: 0, summary: 'Critic returned unparsable JSON: ' + raw.slice(0, 200), missed: [], wrong: [], praise: [], scores: {} } }
 }
 
-export async function runNarrative(narrative) {
+export async function runNarrative(narrative, opts = {}) {
   console.log('[quality:nar]', narrative.id, '— starting (native tool-use)')
   const t0 = Date.now()
   const ctx = await ensureSimWorkspace(`nar:${narrative.id}`)
+  const runId = opts.runId || null
   const transcript = []          // for /logs display
   const apiMessages = []         // Anthropic messages array (with tool_use/tool_result blocks)
   const allOpResults = []
@@ -636,7 +637,8 @@ export async function runNarrative(narrative) {
     transcript: { narrative_id: narrative.id, narrative_title: narrative.title, turns: transcript, turn_timings: turnTimings },
     ops_applied: allOpResults, final_state: finalState,
     critique: crit, total_duration_ms: totalMs,
-    overall_score: crit.overall || null
+    overall_score: crit.overall || null,
+    run_id: runId
   }).select('id').single()
 
   // Auto-promote critic findings into candidate eval cases for review.
@@ -645,11 +647,13 @@ export async function runNarrative(narrative) {
   const candidates = []
   for (const m of crit.missed || []) candidates.push({
     source_simulation_id: simRow?.id || null, category: 'missed',
-    finding_text: m, suggested_input: null, expected_op: null, expected_tab: null
+    finding_text: m, suggested_input: null, expected_op: null, expected_tab: null,
+    run_id: runId
   })
   for (const w of crit.wrong || []) candidates.push({
     source_simulation_id: simRow?.id || null, category: 'wrong',
-    finding_text: w, suggested_input: null, expected_op: null, expected_tab: null
+    finding_text: w, suggested_input: null, expected_op: null, expected_tab: null,
+    run_id: runId
   })
   if (candidates.length) await sb.from('quality_candidate_evals').insert(candidates)
 
@@ -693,7 +697,7 @@ export async function cleanupOldQaWorkspaces(daysOld = 3) {
 }
 
 // Run all (or one specific) narrative
-export async function runAllNarratives() {
+export async function runAllNarratives(opts = {}) {
   // Cleanup BEFORE so the morning view isn't polluted by yesterday's 3 sims
   // worth of dead workspaces.
   try { await cleanupOldQaWorkspaces(3) }
@@ -701,7 +705,7 @@ export async function runAllNarratives() {
 
   const out = []
   for (const n of NARRATIVES) {
-    try { out.push(await runNarrative(n)) }
+    try { out.push(await runNarrative(n, { runId: opts.runId })) }
     catch (err) { console.error('[quality:nar] failed', n.id, err.message); out.push({ narrative_id: n.id, error: err.message }) }
   }
   return out

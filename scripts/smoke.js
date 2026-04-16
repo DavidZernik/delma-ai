@@ -20,6 +20,10 @@ config({ override: true })
 
 import { runNarrative, NARRATIVES } from '../server/quality/narratives.js'
 import { CASES, runCases } from '../server/quality/eval-cases.js'
+import { startRun, completeRun } from '../server/quality/run-tracker.js'
+import { createClient } from '@supabase/supabase-js'
+
+const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
 
 const DEFAULT_NARRATIVES = ['sf-admin-config-only']  // fast + high-signal after today's fixes
 
@@ -63,27 +67,47 @@ async function main() {
   const narratives = evalsOnly ? [] : selectNarratives(args)
 
   const started = Date.now()
+  const trigger = args.full ? 'smoke-full' : args.medium ? 'smoke-medium' : evalsOnly ? 'smoke-evals' : 'smoke'
+  const label = `${trigger}: ${narratives.map(n => n.id).join(', ') || 'evals only'}`
+
+  // Create a quality_runs row so all rows from this run group under one id.
+  const run = await startRun({
+    trigger,
+    label,
+    narratives: narratives.map(n => n.id)
+  })
+
   console.log('─'.repeat(70))
   console.log(`SMOKE — ${narratives.length} narrative${narratives.length !== 1 ? 's' : ''}${runEvals ? ' + regression evals' : ''}`)
   if (narratives.length) console.log('  ' + narratives.map(n => n.id).join(', '))
+  console.log(`  run id: ${run.id}`)
   console.log('─'.repeat(70))
 
   // Evals first (fast, no external state changes)
   if (runEvals) {
     console.log('\n▶ Regression evals...')
     const evalStart = Date.now()
-    const results = await runCases(CASES)
-    const passed = results.filter(r => r.pass).length
-    const total = results.length
+    const evalResults = await runCases(CASES)
+    const passed = evalResults.filter(r => r.pass).length
+    const total = evalResults.length
     const evalMs = Date.now() - evalStart
     console.log(`  ${passed}/${total} passed (${evalMs}ms)`)
-    for (const r of results) {
+    for (const r of evalResults) {
       if (!r.pass) {
         const failedChecks = (r.checks || []).filter(c => !c.ok).map(c => c.desc)
         console.log(`    ✗ ${r.name}${r.error ? ` — ${r.error}` : ''}`)
         for (const d of failedChecks) console.log(`        · ${d}`)
       }
     }
+    // Persist regression eval results against this run
+    await sb.from('quality_eval_runs').insert({
+      suite: 'canonical',
+      passed,
+      total,
+      results: evalResults.map(r => ({ name: r.name, pass: r.pass, ms: r.ms, error: r.error || null })),
+      duration_ms: evalMs,
+      run_id: run.id
+    })
   }
 
   // Narratives
@@ -91,7 +115,7 @@ async function main() {
   for (const n of narratives) {
     const t0 = Date.now()
     try {
-      const r = await runNarrative(n)
+      const r = await runNarrative(n, { runId: run.id })
       results.push({ id: n.id, score: r.score, ms: Date.now() - t0, candidates: r.candidates })
     } catch (err) {
       results.push({ id: n.id, error: err.message, ms: Date.now() - t0 })
@@ -114,8 +138,18 @@ async function main() {
   }
   console.log('─'.repeat(70))
   console.log(`TOTAL: ${(totalMs / 1000).toFixed(1)}s`)
-  if (results.length) {
-    console.log('View in browser: https://delma-ai.onrender.com/logs  (or http://localhost:5173 if dev server is running)')
+
+  // Finalize the run — compute aggregates + generate the Sonnet summary.
+  console.log('\n▶ Generating summary...')
+  const { summary } = await completeRun(run.id)
+  if (summary) {
+    console.log('\nSummary:')
+    console.log(summary.split('\n').map(l => '  ' + l).join('\n'))
+  }
+
+  if (results.length || runEvals) {
+    console.log(`\nRun detail: https://delma-ai.onrender.com/logs/run/${run.id}`)
+    console.log(`All runs:   https://delma-ai.onrender.com/logs`)
   }
   process.exit(results.some(r => r.error) ? 1 : 0)
 }
