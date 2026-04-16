@@ -194,6 +194,165 @@ const cases = [
       { desc: 'returns empty ops (no guesses)',
         check: (ops) => ops.length === 0 }
     ]
+  },
+
+  // ── Curious edge cases (probing for system gaps) ────────────────────
+
+  // Multi-tab fan-out: one sentence touching two scopes.
+  {
+    name: 'multi-tab-fan-out',
+    input: 'Sarah is our new designer and we decided to ship the dark mode by Friday',
+    tabs: [tab(tabKey.people, seededPeople), tab(tabKey.decisions), tab(tabKey.environment)],
+    expect: [
+      { desc: 'emits at least one op per affected tab',
+        check: (ops) => {
+          const tabs = new Set(ops.map(o => o.tab))
+          return tabs.has(tabKey.people) && (tabs.has(tabKey.decisions) || ops.some(o => o.op === 'add_action'))
+        } },
+      { desc: 'does NOT touch environment',
+        check: (ops) => !ops.some(o => o.tab === tabKey.environment) }
+    ]
+  },
+
+  // Removal: "X is no longer on the team" should remove, not annotate.
+  {
+    name: 'remove-person',
+    input: 'David left the team last week, please remove him',
+    tabs: [tab(tabKey.people, {
+      people: [
+        { id: 'p_keyona', name: 'Keyona Abbott', role: 'PM', kind: 'manager', reports_to: [] },
+        { id: 'p_david', name: 'David Zernik', role: 'Engineer', kind: 'person', reports_to: ['p_keyona'] }
+      ]
+    })],
+    expect: [
+      { desc: 'emits remove_person',
+        check: (ops) => ops.some(o => o.op === 'remove_person' && /david/i.test(o.args?.name || '')) },
+      { desc: 'David gone from final state',
+        check: (_ops, finalData) => !(finalData[tabKey.people]?.people || []).some(p => /david/i.test(p.name)) }
+    ]
+  },
+
+  // Implicit pronoun with no antecedent — should NOT guess.
+  {
+    name: 'implicit-pronoun-no-context',
+    input: 'promote her to Senior PM',
+    tabs: [tab(tabKey.people, seededPeople)],
+    expect: [
+      { desc: 'either no-op OR correctly resolves "her" to the only female-name person (Keyona)',
+        check: (ops, finalData) => {
+          if (ops.length === 0) return true
+          const k = finalData[tabKey.people]?.people?.find(p => /Keyona/i.test(p.name))
+          return !!k && /senior/i.test(k.role || '')
+        } },
+      { desc: 'never invents a person',
+        check: (ops) => !ops.some(o => o.op === 'add_person') }
+    ]
+  },
+
+  // Restate existing fact — should be no-op (idempotent).
+  {
+    name: 'restate-existing-fact',
+    input: 'Keyona is the manager / PM',
+    tabs: [tab(tabKey.people, seededPeople)],
+    expect: [
+      { desc: 'no add_person (Keyona already exists)',
+        check: (ops) => !ops.some(o => o.op === 'add_person') }
+    ]
+  },
+
+  // Compound: add person + reporting line in one shot.
+  {
+    name: 'add-person-and-line-compound',
+    input: 'Add Sarah as a PM, and have David report to her instead of Keyona',
+    tabs: [tab(tabKey.people, {
+      people: [
+        { id: 'p_keyona', name: 'Keyona Abbott', role: 'PM', kind: 'manager', reports_to: [] },
+        { id: 'p_david', name: 'David Zernik', role: 'Engineer', kind: 'person', reports_to: ['p_keyona'] }
+      ]
+    })],
+    expect: [
+      { desc: 'Sarah added',
+        check: (_ops, finalData) => finalData[tabKey.people]?.people?.some(p => /sarah/i.test(p.name)) },
+      { desc: 'David eventually reports to Sarah, not Keyona',
+        check: (_ops, finalData) => {
+          const d = finalData[tabKey.people]?.people?.find(p => /david/i.test(p.name))
+          const sarah = finalData[tabKey.people]?.people?.find(p => /sarah/i.test(p.name))
+          if (!d || !sarah) return false
+          return (d.reports_to || []).includes(sarah.id) && !(d.reports_to || []).includes('p_keyona')
+        } }
+    ]
+  },
+
+  // Action completion by description (not by id).
+  {
+    name: 'complete-action-by-description',
+    input: 'I finished the Supabase Storage bucket setup',
+    tabs: [tab(tabKey.decisions, {
+      decisions: [],
+      actions: [
+        { id: 'a_bucket', text: 'David needs to set up Supabase Storage bucket', owner: 'David', due: 'Friday', done: false }
+      ]
+    })],
+    expect: [
+      { desc: 'either complete_action(a_bucket) OR a tolerated alternative',
+        check: (ops, finalData) => {
+          const completed = ops.some(o => o.op === 'complete_action' && o.args?.id === 'a_bucket')
+          const stateDone = (finalData[tabKey.decisions]?.actions || []).some(a => /bucket/i.test(a.text) && a.done)
+          return completed || stateDone
+        } }
+    ]
+  },
+
+  // Negation: cancel a previous decision.
+  {
+    name: 'cancel-prior-decision',
+    input: "we're NOT going with the pooler URL anymore",
+    tabs: [tab(tabKey.decisions, {
+      decisions: [{ id: 'd_pooler', text: 'use pooler URL for migrations', owner: null }],
+      actions: []
+    })],
+    expect: [
+      { desc: 'emits remove_decision OR adds a contradicting decision',
+        check: (ops) => ops.some(o => o.op === 'remove_decision' || o.op === 'add_decision') }
+    ]
+  },
+
+  // Hedged / soft commitment — should NOT record as decision.
+  {
+    name: 'hedged-not-a-decision',
+    input: 'maybe we should consider moving launches to Mondays — not sure yet',
+    tabs: [tab(tabKey.decisions), tab(tabKey.playbook)],
+    expect: [
+      { desc: 'does not record as a firm decision or playbook rule',
+        check: (ops) => !ops.some(o => o.op === 'add_decision' || o.op === 'add_playbook_rule') }
+    ]
+  },
+
+  // Tech ID stated in a People context — must still go to Environment.
+  {
+    name: 'misplaced-tech-id',
+    input: "By the way, Keyona's preferred SFMC sender ID is SP_Marketing_Promo",
+    tabs: [tab(tabKey.people, seededPeople), tab(tabKey.environment)],
+    expect: [
+      { desc: 'set_environment_key emitted',
+        check: (ops) => ops.some(o => o.tab === tabKey.environment && o.op === 'set_environment_key') },
+      { desc: 'does not stuff the ID into People role/notes',
+        check: (_ops, finalData) => {
+          const k = finalData[tabKey.people]?.people?.find(p => /Keyona/i.test(p.name))
+          return !k || !/SP_Marketing/i.test(k.role || '')
+        } }
+    ]
+  },
+
+  // Question, not a fact. Should be a no-op.
+  {
+    name: 'question-not-fact',
+    input: 'who is responsible for the deploy?',
+    tabs: [tab(tabKey.people, seededPeople), tab(tabKey.decisions)],
+    expect: [
+      { desc: 'returns empty ops',
+        check: (ops) => ops.length === 0 }
+    ]
   }
 ]
 

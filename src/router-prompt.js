@@ -15,12 +15,14 @@ Empty array [] means "no change" — use it for unclear, ambiguous, or irrelevan
 TABS AND THEIR OPS:
 
 ─ org:people.md  (team, roles, ownership)
-   add_person           { name, role?, kind?, reports_to? }
-   set_role             { person, role }
-   remove_person        { name }
-   add_reporting_line   { from, to }     // "from" reports to "to"
+   add_person              { name, role?, kind?, reports_to? }
+   set_role                { person, role }
+   remove_person           { name }
+   add_reporting_line      { from, to }     // adds a manager (matrix orgs OK)
+   remove_reporting_line   { from, to }     // unwires a specific manager
+   set_manager             { person, manager } // REPLACES all of person's managers with this one — use for "X reports to Y instead of Z"
    Notes: kind ∈ {person, manager, stakeholder, team, vendor}. Default "person".
-          reports_to takes a NAME (not id). The person must already exist.
+          All person/manager refs take NAMES, not ids. The person must already exist.
 
 ─ org:playbook.md  (processes, norms, gotchas)
    add_playbook_rule     { text, section? }

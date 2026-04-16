@@ -367,12 +367,24 @@ server.registerTool('delma_remove_person', {
 
 server.registerTool('delma_add_reporting_line', {
   title: 'Add Reporting Line',
-  description: 'Wire "from" reports to "to" (to is the manager).',
+  description: 'Wire "from" reports to "to" (to is the manager). Additive — keeps any existing managers. Use set_manager for replacement.',
   inputSchema: {
     from: z.string().describe('Person who reports'),
     to: z.string().describe('Manager they report to')
   }
 }, withLogging('delma_add_reporting_line', (args) => runOp('org:people.md', 'add_reporting_line', args)))
+
+server.registerTool('delma_remove_reporting_line', {
+  title: 'Remove Reporting Line',
+  description: 'Unwire a specific reporting line. Use when a manager is removed but the report stays under someone else.',
+  inputSchema: { from: z.string(), to: z.string() }
+}, withLogging('delma_remove_reporting_line', (args) => runOp('org:people.md', 'remove_reporting_line', args)))
+
+server.registerTool('delma_set_manager', {
+  title: 'Set Manager (replace)',
+  description: 'Replace ALL of person\'s managers with the named manager. Use for "X reports to Y instead of Z".',
+  inputSchema: { person: z.string(), manager: z.string() }
+}, withLogging('delma_set_manager', (args) => runOp('org:people.md', 'set_manager', args)))
 
 // Playbook ───────────────────────────────────────────────────────────────────
 

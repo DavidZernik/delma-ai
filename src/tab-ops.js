@@ -220,6 +220,28 @@ const OPS = {
     )
     return { ...data, people }
   },
+  remove_reporting_line(data, { from, to }) {
+    const fromP = findByName(data.people || [], from)
+    const toP = findByName(data.people || [], to)
+    if (!fromP || !toP) throw new Error(`unknown person: ${!fromP ? from : to}`)
+    const people = (data.people || []).map(p => p.id === fromP.id
+      ? { ...p, reports_to: (p.reports_to || []).filter(id => id !== toP.id) }
+      : p
+    )
+    return { ...data, people }
+  },
+  // Replace ALL of `person`'s managers with the single named manager.
+  // For "X reports to Y instead of Z" — the LLM doesn't have to know Z by name.
+  set_manager(data, { person, manager }) {
+    const personP = findByName(data.people || [], person)
+    const mgrP = findByName(data.people || [], manager)
+    if (!personP || !mgrP) throw new Error(`unknown person: ${!personP ? person : manager}`)
+    const people = (data.people || []).map(p => p.id === personP.id
+      ? { ...p, reports_to: [mgrP.id] }
+      : p
+    )
+    return { ...data, people }
+  },
 
   // Playbook
   add_playbook_rule(data, { text, section }) {
@@ -275,7 +297,7 @@ const OPS = {
 
 // Which op names are valid for which tab?
 export const OPS_BY_TAB = {
-  'people.md': ['add_person', 'set_role', 'remove_person', 'add_reporting_line'],
+  'people.md': ['add_person', 'set_role', 'remove_person', 'add_reporting_line', 'remove_reporting_line', 'set_manager'],
   'playbook.md': ['add_playbook_rule', 'remove_playbook_rule'],
   'environment.md': ['set_environment_key', 'remove_environment_key'],
   'decisions.md': ['add_decision', 'add_action', 'complete_action', 'remove_decision'],
