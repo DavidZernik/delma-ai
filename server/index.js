@@ -405,8 +405,8 @@ app.post('/quality/run-overnight', async (req, res) => {
 // Using Intl.DateTimeFormat handles DST automatically (PST in winter, PDT in
 // summer) so we never drift by an hour twice a year.
 let lastSimDate = null
-const FIRE_AT_PT_HOUR = 23
-const FIRE_AT_PT_MIN = 30
+const FIRE_AT_PT_HOUR = 0
+const FIRE_AT_PT_MIN = 0
 
 const PT_FORMATTER = new Intl.DateTimeFormat('en-US', {
   timeZone: 'America/Los_Angeles',
@@ -425,7 +425,7 @@ function todayPTKey() {
 async function maybeRunOvernight() {
   if (!process.env.ANTHROPIC_API_KEY) return
   const { hour, min } = ptNow()
-  // Fire window: 11:30pm-11:34pm PT (gives a 5-min margin if the minute tick is delayed)
+  // Fire window: 12:00am-12:04am PT (gives a 5-min margin if the minute tick is delayed)
   if (hour !== FIRE_AT_PT_HOUR || min < FIRE_AT_PT_MIN || min > FIRE_AT_PT_MIN + 4) return
   const key = todayPTKey()
   if (lastSimDate === key) return  // already ran tonight
