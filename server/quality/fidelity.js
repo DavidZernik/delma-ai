@@ -185,6 +185,33 @@ export async function computeFidelity(narrative, finalState) {
   const exp = narrative.expected || {}
   const captured = extractCapturedItems(finalState)
 
+  // Extract every identifier-shaped token the user explicitly named in the
+  // conversation itself, and add them as implicit expected items. This
+  // catches "Welcome_Email_Day3" mentioned in turn 5 even if the expected
+  // prose only says "three emails". Identifier pattern = snake_case,
+  // kebab-case, or PascalCase compound — so we don't pick up "Casey" or
+  // normal English from chitchat turns.
+  const turnEntities = new Set()
+  for (const turn of (narrative.turns || [])) {
+    for (const e of extractNamedEntities(String(turn))) turnEntities.add(e)
+  }
+  // Remove entities already explicitly listed in expected (they'll be
+  // picked up via the regular path).
+  const allExpectedProse = [
+    ...(exp.architecture || []),
+    ...(exp.environment || []),
+    ...(exp.decisions || []),
+    ...(exp.people || []),
+    ...(exp.playbook || []),
+    ...(exp.actions || [])
+  ].join(' ')
+  for (const e of extractNamedEntities(allExpectedProse)) turnEntities.delete(e)
+  // Remove ones the narrative explicitly told us NOT to capture.
+  for (const n of (exp.shouldNOTcapture || [])) {
+    for (const e of extractNamedEntities(String(n))) turnEntities.delete(e)
+  }
+  const implicitFromTurns = [...turnEntities]
+
   // Architecture is a single flat bucket in captured but expected often
   // comes in as one long prose string that mentions nodes + edges + layers
   // together. Score it as a single bucket.
@@ -194,7 +221,13 @@ export async function computeFidelity(narrative, finalState) {
     actions:      await scoreTab(exp.actions || [],      captured.actions),
     environment:  await scoreTab(exp.environment || [],  captured.environment),
     playbook:     await scoreTab(exp.playbook || [],     captured.playbook),
-    architecture: await scoreTab(exp.architecture || [], captured.architecture)
+    architecture: await scoreTab(exp.architecture || [], captured.architecture),
+    // Catch-all bucket for identifier-shaped tokens from turns that the
+    // expected prose didn't name. Most of these end up in architecture
+    // or environment in practice.
+    turn_entities: implicitFromTurns.length
+      ? await scoreTab(implicitFromTurns, [...captured.architecture, ...captured.environment, ...captured.playbook, ...captured.people])
+      : { expected: 0, captured: 0, matched: 0, missed: [], score: 1 }
   }
 
   const allCaptured = Object.values(captured).flat()
