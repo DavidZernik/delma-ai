@@ -45,13 +45,18 @@ export async function completeRun(runId, opts = {}) {
     .select('id')
     .eq('run_id', runId)
 
+  // Regression evals are stored one row per case. Grab everything for this
+  // run and present as a per-case array to the summary generator.
   const { data: evalRows } = await sb
     .from('quality_eval_runs')
-    .select('results')
+    .select('case_name, pass, ms, failure_reasons')
     .eq('run_id', runId)
-    .order('ran_at', { ascending: false })
-    .limit(1)
-  const latestEvalResults = evalRows?.[0]?.results || []
+  const latestEvalResults = (evalRows || []).map(r => ({
+    name: r.case_name,
+    pass: r.pass,
+    ms: r.ms,
+    error: (r.failure_reasons || [])[0] || null
+  }))
   const numRegressionFails = latestEvalResults.filter(r => !r.pass).length
 
   const { data: stateWarnRows } = await sb

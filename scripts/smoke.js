@@ -99,15 +99,20 @@ async function main() {
         for (const d of failedChecks) console.log(`        · ${d}`)
       }
     }
-    // Persist regression eval results against this run
-    await sb.from('quality_eval_runs').insert({
-      suite: 'canonical',
-      passed,
-      total,
-      results: evalResults.map(r => ({ name: r.name, pass: r.pass, ms: r.ms, error: r.error || null })),
-      duration_ms: evalMs,
+    // Persist regression eval results — one row per case, matching the
+    // schema the nightly runner uses (case_name, pass, ms, failure_reasons).
+    // Letting run-tracker read the same shape whether smoke or overnight fired.
+    const rows = evalResults.map(r => ({
+      case_name: r.name,
+      pass: r.pass,
+      ms: r.ms,
+      ops_emitted: r.ops || [],
+      raw_response: r.raw || '',
+      failure_reasons: (r.checks || []).filter(c => !c.ok).map(c => c.desc),
+      model: 'claude-haiku-4-5',
       run_id: run.id
-    })
+    }))
+    if (rows.length) await sb.from('quality_eval_runs').insert(rows)
   }
 
   // Narratives
