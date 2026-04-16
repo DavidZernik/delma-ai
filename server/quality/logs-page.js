@@ -157,9 +157,32 @@ async function renderRunList() {
       .eq('status', 'pending').order('found_at', { ascending: false }).limit(30)
   ])
 
+  // Top-of-page at-a-glance numbers. Only counts complete runs so the
+  // score averages aren't polluted by in-progress ones that haven't
+  // scored their narratives yet.
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const runsToday = (runs || []).filter(r => new Date(r.started_at) >= today)
+  const completeToday = runsToday.filter(r => r.status === 'complete' && r.overall_score != null)
+  const avgToday = completeToday.length
+    ? (completeToday.reduce((a, b) => a + Number(b.overall_score), 0) / completeToday.length).toFixed(2)
+    : '—'
+  const latest = runs?.[0]
+  const running = (runs || []).filter(r => r.status === 'running').length
+
+  const headerStats = latest
+    ? `<div class="summary">
+        <div class="stat"><div class="num">${runsToday.length}</div><div class="lab">Runs today</div></div>
+        <div class="stat"><div class="num">${avgToday}</div><div class="lab">Avg score today</div></div>
+        <div class="stat"><div class="num">${ago(latest.started_at).replace(' ago', '')}</div><div class="lab">Latest run</div></div>
+        ${running ? `<div class="stat"><div class="num status-running">⟳ ${running}</div><div class="lab">Running now</div></div>` : ''}
+      </div>`
+    : ''
+
   const body = `
     <h1>Delma Quality Lab</h1>
-    <div class="subtitle">Test runs — smoke (quick iteration) and overnight (full 12-narrative suite). Each card below is one run.</div>
+    <div class="subtitle">Every smoke or overnight test fires a run. Each card is one run with its own summary. Click through for full detail.</div>
+
+    ${headerStats}
 
     <h2>Runs — latest first</h2>
     ${(runs || []).length === 0 ? `<div class="empty">No runs yet. Fire one with <code>npm run smoke</code> or <code>npm run overnight</code>.</div>` :
@@ -220,12 +243,13 @@ function renderRunCard(r) {
 // ── Detail view: a single run ───────────────────────────────────────────
 
 async function renderRunDetail(runId) {
-  const [{ data: run }, { data: sims }, { data: evals }, { data: candidates }, { data: stateChecks }] = await Promise.all([
+  const [{ data: run }, { data: sims }, { data: evals }, { data: candidates }, { data: stateChecks }, { data: signals }] = await Promise.all([
     sb.from('quality_runs').select('*').eq('id', runId).maybeSingle(),
     sb.from('quality_simulations').select('*').eq('run_id', runId).order('ran_at', { ascending: true }),
     sb.from('quality_eval_runs').select('*').eq('run_id', runId).order('ran_at', { ascending: true }),
     sb.from('quality_candidate_evals').select('*').eq('run_id', runId).order('found_at', { ascending: true }),
-    sb.from('quality_state_checks').select('*').eq('run_id', runId).order('checked_at', { ascending: true })
+    sb.from('quality_state_checks').select('*').eq('run_id', runId).order('checked_at', { ascending: true }),
+    sb.from('quality_signals').select('*').eq('run_id', runId).order('checked_at', { ascending: true })
   ])
 
   if (!run) {
@@ -235,17 +259,26 @@ async function renderRunDetail(runId) {
   const scoreTxt = run.overall_score != null ? `${run.overall_score}/5` : (run.status === 'running' ? 'running…' : '—')
   const duration = run.ended_at ? Math.round((new Date(run.ended_at) - new Date(run.started_at)) / 1000) : null
 
+  const isRunning = run.status === 'running'
+
   const body = `
     <a class="back" href="/logs">← All runs</a>
     <h1>${esc(run.label || run.trigger)}</h1>
     <div class="subtitle">
       <span class="trigger-pill ${triggerClass(run.trigger)}">${esc(run.trigger)}</span>
-      ${ago(run.started_at)}${duration ? ` · ${duration}s` : ''}${run.status === 'running' ? ` · <span class="status-running">⟳ running</span>` : ''}
+      ${ago(run.started_at)}${duration ? ` · ${duration}s` : ''}${isRunning ? ` · <span class="status-running">⟳ running</span>` : ''}
     </div>
+
+    ${isRunning ? `
+      <div style="background:#FAF3E6; border-left:4px solid #C56F2B; padding:12px 16px; border-radius:4px; margin:12px 0; font-size:13px;">
+        <strong>Run in progress</strong> — narratives score one at a time. This page doesn't auto-refresh; reload to see new results as they land.
+        ${run.num_narratives ? `<div style="margin-top:6px; color:#6B5A5A;">Progress: ${run.num_complete || 0}/${run.num_narratives} narratives complete</div>` : ''}
+      </div>
+    ` : ''}
 
     <h2>Summary</h2>
     <div class="exec-summary" style="background:#FFFFFF; border-left:4px solid #7A1E1E; padding:14px 18px; border-radius:4px; line-height:1.55;">
-      ${run.summary ? md(run.summary) : '<div class="empty">No summary — run may still be processing.</div>'}
+      ${run.summary ? md(run.summary) : (isRunning ? '<div class="empty">Summary will be generated when the run completes.</div>' : '<div class="empty">No summary available.</div>')}
     </div>
 
     <div class="summary">
@@ -260,7 +293,7 @@ async function renderRunDetail(runId) {
       sims.map(s => renderSim(s)).join('')
     }
 
-    <h2>Regression Evals (${(evals?.[0]?.results || []).length || 0})</h2>
+    <h2>Regression Evals (${(evals || []).length})</h2>
     ${renderEvalsForRun(evals)}
 
     <h2>Candidate Evals from this run (${(candidates || []).length})</h2>
@@ -289,6 +322,23 @@ async function renderRunDetail(runId) {
               <td><code>${esc(s.check_name)}</code></td>
               <td class="sev-${s.severity}">${esc(s.severity)}</td>
               <td>${esc(s.detail)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `}
+
+    <h2>Router Signal Mining (${(signals || []).length})</h2>
+    ${(signals || []).length === 0 ? '<div class="empty">No router signals from this run.</div>' : `
+      <table>
+        <thead><tr><th>Pattern</th><th>Count</th><th>Examples</th><th>Suggestion</th></tr></thead>
+        <tbody>
+          ${signals.map(s => `
+            <tr>
+              <td><code>${esc(s.pattern)}</code></td>
+              <td class="ts">${s.count ?? 0}</td>
+              <td>${esc((s.examples || []).slice(0, 3).join(' · ')).slice(0, 200) || '—'}</td>
+              <td>${esc(s.suggestion || '—')}</td>
             </tr>
           `).join('')}
         </tbody>
