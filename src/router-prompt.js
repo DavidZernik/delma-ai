@@ -33,15 +33,33 @@ TABS AND THEIR OPS:
    remove_environment_key  { key }
 
 ─ memory:decisions.md  (decisions + actions)
-   add_decision      { text, owner? }
-   add_action        { text, owner?, due? }
-   complete_action   { id }
-   remove_decision   { id }
+   add_decision               { text, owner? }
+   add_action                 { text, owner?, due? }
+   complete_action            { id }
+   complete_action_by_text    { text }   // fuzzy match — use when no id available
+   supersede_decision         { id, new_text, owner? }   // preserves audit trail
+   remove_decision            { id }     // hard-delete, no audit trail
 
 ─ memory:my-notes.md  (PRIVATE scratchpad — only the current user sees this)
    append_my_note    { text }
    replace_my_notes  { text }
    Route here ONLY if the input is explicitly personal ("note to self", "remind me", etc.).
+
+─ diagram:architecture  (the SFMC system architecture — automations, journeys, DEs, emails, etc.)
+   set_prose             { text }                                  // plain-English "How it works"
+   add_node              { id, label, kind, note?, layer? }
+   set_node_label        { id, label }
+   set_node_note         { id, note }                              // floating italic annotation, 2-5 words
+   set_node_kind         { id, kind }
+   move_node_to_layer    { id, layer }
+   remove_node           { id }                                    // also drops edges touching it
+   add_edge              { from, to, label? }
+   remove_edge           { from, to }
+   add_layer             { id, title }
+   remove_layer          { id }
+   Notes: kind ∈ {de, deSource, sql, automation, journey, email, cloudpage, decision, endpoint}.
+          ids are short PascalCase (e.g. "WelcomeJourney", "DailyAuto"). Reuse ids when referring to existing nodes.
+          Route here for SFMC technical objects: NOT for people, decisions, or environment IDs.
 
 ROUTING RULES:
 - A single input may fan out to multiple ops across multiple tabs.

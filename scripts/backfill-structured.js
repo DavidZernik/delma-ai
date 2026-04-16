@@ -47,13 +47,24 @@ async function backfillRows(table) {
   const { data: rows, error } = await sb.from(table).select('*')
   if (error) throw new Error(`${table}: ${error.message}`)
 
+  // diagram_views uses view_key + mermaid columns instead of filename + content.
+  const isDiagram = table === 'diagram_views'
+  const fileCol = isDiagram ? 'view_key' : 'filename'
+  const contentCol = isDiagram ? 'mermaid' : 'content'
+
   let done = 0, skipped = 0, failed = 0
   for (const row of rows) {
-    if (FILENAME_FILTER && row.filename !== FILENAME_FILTER) continue
-    if (!isStructuredTab(row.filename)) { skipped++; continue }
+    const filename = row[fileCol]
+    const content = row[contentCol]
+    if (FILENAME_FILTER && filename !== FILENAME_FILTER) continue
+    if (!isStructuredTab(filename)) { skipped++; continue }
     if (row.structured) { skipped++; continue }
 
-    console.log(`→ ${table}/${row.filename} (id=${row.id.slice(0, 8)}) ...`)
+    console.log(`→ ${table}/${filename} (id=${row.id.slice(0, 8)}) ...`)
+    // Patch the local row variable so the rest of the loop reads from the
+    // normalized fields without caring about table-specific column names.
+    row.filename = filename
+    row.content = content
 
     let structured
     if (looksEmpty(row.content)) {
@@ -64,6 +75,18 @@ async function backfillRows(table) {
         structured = await parseStructuredContent(row.filename, row.content, { anthropicKey: process.env.ANTHROPIC_API_KEY })
         const counts = summarize(row.filename, structured)
         console.log(`  parsed — ${counts}`)
+
+        // Round-trip safety: render the parsed JSON back to markdown, then
+        // count people/rules/entries/etc. in the original vs. the re-rendered.
+        // If counts diverge wildly, warn — likely the parser dropped data.
+        if (row.filename === 'people.md') {
+          const reRendered = render('people.md', structured)
+          const origNames = countPeopleNames(row.content)
+          const newNames = countPeopleNames(reRendered)
+          if (Math.abs(origNames - newNames) > 0) {
+            console.warn(`  ⚠ round-trip drift: ${origNames} names in original → ${newNames} after parse. Inspect manually before running live.`)
+          }
+        }
       } catch (err) {
         console.error(`  FAILED: ${err.message}`)
         failed++
@@ -71,20 +94,27 @@ async function backfillRows(table) {
       }
     }
 
-    const content = render(row.filename, structured)
+    const rendered = render(row.filename, structured)
+    const updatePayload = { structured, [contentCol]: rendered }
 
     if (DRY) {
-      console.log(`  [dry] would write structured (${JSON.stringify(structured).length} chars) + content (${content.length} chars)`)
+      console.log(`  [dry] would write structured (${JSON.stringify(structured).length} chars) + ${contentCol} (${rendered.length} chars)`)
       done++
       continue
     }
 
-    const { error: updErr } = await sb.from(table).update({ structured, content }).eq('id', row.id)
+    const { error: updErr } = await sb.from(table).update(updatePayload).eq('id', row.id)
     if (updErr) { console.error(`  save failed: ${updErr.message}`); failed++; continue }
     console.log(`  ✓ saved`)
     done++
   }
   return { done, skipped, failed }
+}
+
+// Count "Name<br/>Role" patterns inside Mermaid node labels — rough proxy for "how
+// many people does this people.md mention?" — used for round-trip diff after parse.
+function countPeopleNames(md) {
+  return (md.match(/\["[^"]+"\]/g) || []).length + (md.match(/\(\["[^"]+"\]\)/g) || []).length
 }
 
 function summarize(filename, data) {
@@ -93,6 +123,7 @@ function summarize(filename, data) {
   if (filename === 'environment.md') return `${data.entries?.length || 0} entries`
   if (filename === 'decisions.md') return `${data.decisions?.length || 0} decisions, ${data.actions?.length || 0} actions`
   if (filename === 'my-notes.md') return `${(data.text || '').length} chars`
+  if (filename === 'architecture') return `${data.nodes?.length || 0} nodes, ${data.edges?.length || 0} edges, ${data.layers?.length || 0} layers`
   return JSON.stringify(data).length + ' chars'
 }
 
@@ -101,7 +132,9 @@ if (FILENAME_FILTER) console.log(`filter: filename=${FILENAME_FILTER}`)
 
 const a = await backfillRows('memory_notes')
 const b = await backfillRows('org_memory_notes')
+const c = await backfillRows('diagram_views')
 
 console.log(`\n━━━ DONE ━━━`)
 console.log(`memory_notes:     ${a.done} done, ${a.skipped} skipped, ${a.failed} failed`)
 console.log(`org_memory_notes: ${b.done} done, ${b.skipped} skipped, ${b.failed} failed`)
+console.log(`diagram_views:    ${c.done} done, ${c.skipped} skipped, ${c.failed} failed`)

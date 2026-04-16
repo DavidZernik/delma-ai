@@ -27,6 +27,7 @@ import { supabase } from './lib/supabase.js'
 import { ROUTER_SYSTEM_PROMPT, buildTabsBlock, buildRouterUserMessage } from './router-prompt.js'
 import { extractJsonArray } from './extract-json-array.js'
 import { isStructuredTab } from './tab-ops.js'
+import { renderStructuredEditor } from './structured-editor.js'
 
 // Helper: get the current user's Supabase JWT for authenticated server calls.
 // Server endpoints verify this token and never trust a client-supplied userId.
@@ -1369,6 +1370,26 @@ async function renderMemoryDocument(filename, isOrg = false) {
   if (!els.modeToggle.hidden) setDiagramMode(state.diagramMode)
 
   if (state.diagramMode === 'edit' && editable) {
+    // Structured tabs get a form editor backed by typed ops. Raw markdown
+    // editing for these tabs is gone — it was the source of silent data loss
+    // (manual saves overwriting structured JSON).
+    if (isStructuredTab(filename)) {
+      els.diagramEditor.classList.remove('visible')
+      els.diagramOutput.hidden = false
+      els.diagramOutput.className = ''
+      els.diagramOutput.innerHTML = `<div class="diagram-card"><div class="struct-host"></div></div>`
+      const host = els.diagramOutput.querySelector('.struct-host')
+      const tabKey = `${isOrg ? 'org' : 'memory'}:${filename}`
+      const took = renderStructuredEditor(host, {
+        filename,
+        structured: row?.structured,
+        tabKey,
+        ctx: { workspaceId: state.workspaceId, orgId: state.org?.id },
+        authHeaders,
+        onAfter: () => triggerClaudeMdRefresh()
+      })
+      if (took) return
+    }
     els.diagramOutput.hidden = true
     els.diagramEditor.classList.add('visible')
     els.diagramEditor.value = content

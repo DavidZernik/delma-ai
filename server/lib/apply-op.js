@@ -20,7 +20,7 @@ export async function applyOpsToTab(sb, scope, ops) {
   }
 
   // Load existing row
-  const { table, filter, insertRow } = rowRefs(scope)
+  const { table, filter, insertRow, contentColumn } = rowRefs(scope)
 
   const { data: row, error: selErr } = await sb
     .from(table).select('*').match(filter).maybeSingle()
@@ -29,14 +29,13 @@ export async function applyOpsToTab(sb, scope, ops) {
   const currentData = row?.structured || emptyData(scope.filename)
   const { data: newData, applied, errors } = applyOps(scope.filename, currentData, ops)
   const content = render(scope.filename, newData)
+  const updatePayload = { structured: newData, [contentColumn]: content }
 
   if (row) {
-    const { error: updErr } = await sb.from(table)
-      .update({ structured: newData, content })
-      .eq('id', row.id)
+    const { error: updErr } = await sb.from(table).update(updatePayload).eq('id', row.id)
     if (updErr) throw new Error(`update failed: ${updErr.message}`)
   } else {
-    const { error: insErr } = await sb.from(table).insert({ ...insertRow, structured: newData, content })
+    const { error: insErr } = await sb.from(table).insert({ ...insertRow, ...updatePayload })
     if (insErr) throw new Error(`insert failed: ${insErr.message}`)
   }
 
@@ -47,6 +46,7 @@ function rowRefs(scope) {
   if (scope.kind === 'org') {
     return {
       table: 'org_memory_notes',
+      contentColumn: 'content',
       filter: { org_id: scope.orgId, filename: scope.filename },
       insertRow: {
         org_id: scope.orgId,
@@ -59,11 +59,26 @@ function rowRefs(scope) {
   if (scope.kind === 'project') {
     return {
       table: 'memory_notes',
+      contentColumn: 'content',
       filter: { workspace_id: scope.workspaceId, filename: scope.filename },
       insertRow: {
         workspace_id: scope.workspaceId,
         filename: scope.filename,
-        visibility: scope.filename === 'my-notes.md' ? 'private' : 'shared',
+        visibility: 'shared',
+        owner_id: scope.userId || null
+      }
+    }
+  }
+  if (scope.kind === 'diagram') {
+    return {
+      table: 'diagram_views',
+      contentColumn: 'mermaid',
+      filter: { workspace_id: scope.workspaceId, view_key: scope.filename },
+      insertRow: {
+        workspace_id: scope.workspaceId,
+        view_key: scope.filename,
+        title: scope.filename === 'architecture' ? 'Architecture' : scope.filename,
+        kind: 'flowchart',
         owner_id: scope.userId || null
       }
     }
@@ -71,12 +86,15 @@ function rowRefs(scope) {
   throw new Error(`unknown scope kind: ${scope.kind}`)
 }
 
-// Classify a tab key (e.g. "org:people.md", "memory:environment.md") into a scope.
-// Returns null if it's not a structured tab.
+// Classify a tab key into a scope. Returns null if not a structured tab.
+//   org:people.md / org:playbook.md  → org_memory_notes
+//   memory:decisions.md / ...        → memory_notes
+//   diagram:architecture / ...       → diagram_views
 export function parseTabKey(tabKey, { workspaceId, orgId, userId }) {
   const [prefix, filename] = (tabKey || '').split(':')
   if (!filename || !isStructuredTab(filename)) return null
   if (prefix === 'org') return { kind: 'org', orgId, userId, filename }
   if (prefix === 'memory') return { kind: 'project', workspaceId, userId, filename }
+  if (prefix === 'diagram') return { kind: 'diagram', workspaceId, userId, filename }
   return null
 }

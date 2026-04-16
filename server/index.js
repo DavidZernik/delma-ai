@@ -227,7 +227,7 @@ app.post('/api/op', async (req, res) => {
   // Authorize: the verified user must be a member of the relevant container.
   try {
     if (scope.kind === 'org') await requireOrgMembership(sb, user.id, orgId)
-    else if (scope.kind === 'project') await requireWorkspaceMembership(sb, user.id, workspaceId)
+    else if (scope.kind === 'project' || scope.kind === 'diagram') await requireWorkspaceMembership(sb, user.id, workspaceId)
   } catch (err) { return res.status(err.status || 403).json({ error: err.message }) }
 
   console.log('[server] op:', tabKey, 'ops:', ops.map(o => o.op).join(','), 'by', user.id.slice(0, 8))

@@ -332,6 +332,15 @@ async function runOp(tabKey, op, args) {
   const orgId = tabKey.startsWith('org:') ? await getActiveOrgId() : null
   const scope = parseTabKey(tabKey, { workspaceId, orgId, userId })
   if (!scope) throw new Error(`not a structured tab: ${tabKey}`)
+  // Membership check — same protection /api/op enforces. Stops a misconfigured
+  // DELMA_USER_ID from writing into a workspace/org the user doesn't belong to.
+  if (scope.kind === 'org') {
+    const { data: m } = await sbRoot.from('org_members').select('role').eq('user_id', userId).eq('org_id', orgId).maybeSingle()
+    if (!m) throw new Error(`user ${userId.slice(0, 8)} is not a member of org ${orgId.slice(0, 8)}`)
+  } else if (scope.kind === 'project') {
+    const { data: m } = await sbRoot.from('workspace_members').select('role').eq('user_id', userId).eq('workspace_id', workspaceId).maybeSingle()
+    if (!m) throw new Error(`user ${userId.slice(0, 8)} is not a member of workspace ${workspaceId.slice(0, 8)}`)
+  }
   const result = await applyOpsToTab(sbRoot, scope, [{ op, args }])
   void refreshClaudeMd()
   return text({ ok: true, applied: result.applied, errors: result.errors })
@@ -432,9 +441,101 @@ server.registerTool('delma_add_action', {
 
 server.registerTool('delma_complete_action', {
   title: 'Mark Action Done',
-  description: 'Mark an action item complete.',
+  description: 'Mark an action item complete by id.',
   inputSchema: { id: z.string().describe('Action id (from delma_add_action or get_workspace_state)') }
 }, withLogging('delma_complete_action', (args) => runOp('memory:decisions.md', 'complete_action', args)))
+
+server.registerTool('delma_complete_action_by_text', {
+  title: 'Mark Action Done by Text',
+  description: 'Mark an action complete by fuzzy text match (use when you don\'t have the id).',
+  inputSchema: { text: z.string().describe('Text or keywords from the action — e.g. "set up storage bucket"') }
+}, withLogging('delma_complete_action_by_text', (args) => runOp('memory:decisions.md', 'complete_action_by_text', args)))
+
+server.registerTool('delma_supersede_decision', {
+  title: 'Supersede Decision',
+  description: 'Mark an old decision as superseded and record the new one. Preserves the audit trail (vs. removing).',
+  inputSchema: {
+    id: z.string().describe('id of the decision being superseded'),
+    new_text: z.string().describe('the new decision'),
+    owner: z.string().optional()
+  }
+}, withLogging('delma_supersede_decision', (args) => runOp('memory:decisions.md', 'supersede_decision', args)))
+
+// Architecture diagram ──────────────────────────────────────────────────────
+// All ops route through the typed-op layer and re-render Mermaid from the
+// structured nodes/edges/layers — never raw Mermaid string editing.
+
+server.registerTool('delma_arch_set_prose', {
+  title: 'Architecture: Set "How it works" Prose',
+  description: 'Replace the plain-English "How it works" section above the diagram.',
+  inputSchema: { text: z.string() }
+}, withLogging('delma_arch_set_prose', (args) => runOp('diagram:architecture', 'set_prose', args)))
+
+server.registerTool('delma_arch_add_node', {
+  title: 'Architecture: Add Node',
+  description: 'Add a node to the architecture diagram.',
+  inputSchema: {
+    id: z.string().describe('Short identifier, e.g. "Auto" or "WelcomeJourney"'),
+    label: z.string().describe('Display label, may include <br/> for multiline'),
+    kind: z.enum(['de', 'deSource', 'sql', 'automation', 'journey', 'email', 'cloudpage', 'decision', 'endpoint']),
+    note: z.string().optional().describe('Floating italic annotation, 2-5 words'),
+    layer: z.string().optional().describe('Layer id this node belongs to')
+  }
+}, withLogging('delma_arch_add_node', (args) => runOp('diagram:architecture', 'add_node', args)))
+
+server.registerTool('delma_arch_set_node_label', {
+  title: 'Architecture: Set Node Label',
+  description: 'Change the display label of a node.',
+  inputSchema: { id: z.string(), label: z.string() }
+}, withLogging('delma_arch_set_node_label', (args) => runOp('diagram:architecture', 'set_node_label', args)))
+
+server.registerTool('delma_arch_set_node_note', {
+  title: 'Architecture: Set Node Note',
+  description: 'Change the floating italic annotation next to a node. Pass empty string to remove.',
+  inputSchema: { id: z.string(), note: z.string() }
+}, withLogging('delma_arch_set_node_note', (args) => runOp('diagram:architecture', 'set_node_note', args)))
+
+server.registerTool('delma_arch_set_node_kind', {
+  title: 'Architecture: Set Node Kind',
+  description: 'Reclassify a node (changes its shape and color).',
+  inputSchema: { id: z.string(), kind: z.enum(['de', 'deSource', 'sql', 'automation', 'journey', 'email', 'cloudpage', 'decision', 'endpoint']) }
+}, withLogging('delma_arch_set_node_kind', (args) => runOp('diagram:architecture', 'set_node_kind', args)))
+
+server.registerTool('delma_arch_move_node', {
+  title: 'Architecture: Move Node to Layer',
+  description: 'Move a node into a different layer (or pass empty string to remove from any layer).',
+  inputSchema: { id: z.string(), layer: z.string() }
+}, withLogging('delma_arch_move_node', (args) => runOp('diagram:architecture', 'move_node_to_layer', args)))
+
+server.registerTool('delma_arch_remove_node', {
+  title: 'Architecture: Remove Node',
+  description: 'Remove a node and any edges touching it.',
+  inputSchema: { id: z.string() }
+}, withLogging('delma_arch_remove_node', (args) => runOp('diagram:architecture', 'remove_node', args)))
+
+server.registerTool('delma_arch_add_edge', {
+  title: 'Architecture: Add Edge',
+  description: 'Connect two nodes with a directed arrow.',
+  inputSchema: { from: z.string(), to: z.string(), label: z.string().optional() }
+}, withLogging('delma_arch_add_edge', (args) => runOp('diagram:architecture', 'add_edge', args)))
+
+server.registerTool('delma_arch_remove_edge', {
+  title: 'Architecture: Remove Edge',
+  description: 'Remove the edge between two nodes.',
+  inputSchema: { from: z.string(), to: z.string() }
+}, withLogging('delma_arch_remove_edge', (args) => runOp('diagram:architecture', 'remove_edge', args)))
+
+server.registerTool('delma_arch_add_layer', {
+  title: 'Architecture: Add Layer',
+  description: 'Add a layer subgraph for grouping related nodes.',
+  inputSchema: { id: z.string(), title: z.string() }
+}, withLogging('delma_arch_add_layer', (args) => runOp('diagram:architecture', 'add_layer', args)))
+
+server.registerTool('delma_arch_remove_layer', {
+  title: 'Architecture: Remove Layer',
+  description: 'Remove a layer (its nodes are promoted to no-layer).',
+  inputSchema: { id: z.string() }
+}, withLogging('delma_arch_remove_layer', (args) => runOp('diagram:architecture', 'remove_layer', args)))
 
 // My Notes ──────────────────────────────────────────────────────────────────
 

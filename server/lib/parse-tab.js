@@ -70,6 +70,56 @@ export function parsePlaybook(md) {
   return { rules }
 }
 
+// Async: Architecture parsing requires LLM (Mermaid → structured nodes/edges/layers).
+export async function parseArchitectureWithLLM(md, anthropicKey) {
+  if (!anthropicKey) throw new Error('ANTHROPIC_API_KEY required to parse Architecture')
+  const sys = `Extract the SFMC architecture diagram from the markdown (which contains a Mermaid flowchart) into JSON matching this schema:
+
+{
+  "prose": "<everything before the Mermaid block, e.g. the '## How it works' section, as plain text>",
+  "layers": [{ "id": "<short_slug>", "title": "<display title>" }],
+  "nodes": [
+    { "id": "<short_id_from_mermaid>", "label": "<display label without emoji prefix>", "kind": "de" | "deSource" | "sql" | "automation" | "journey" | "email" | "cloudpage" | "decision" | "endpoint", "note": "<floating annotation if present, else null>", "layer": "<layer id or null>" }
+  ],
+  "edges": [{ "from": "<id>", "to": "<id>", "label": "<edge label or null>" }]
+}
+
+Rules:
+- Strip leading emoji (💾 ⚙️ 🔍 ⚡ 📧 🌐 🔀) from labels.
+- Infer kind from the Mermaid shape and class:
+  [(...)]:::de or :::deSource = data extension
+  [[...]]:::sql = sql/query
+  {{...}}:::automation = automation
+  ([...]):::journey = journey
+  [/.../]:::email = email
+  [\\...\\]:::cloudpage = cloudpage
+  {...}:::decision = decision split
+- Notes come from a paired "<id>_note" entry; capture that text into the node's note field.
+- Edges: parse "A --> B" lines. Skip subgraph wrappers, classDef, and style lines.
+- If empty / can't parse, return {"prose": "", "layers": [], "nodes": [], "edges": []}.
+
+Return ONLY valid JSON. No prose. No code fences.`
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': anthropicKey,
+      'anthropic-version': '2023-06-01'
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5', max_tokens: 4000, system: sys,
+      messages: [{ role: 'user', content: md || '' }]
+    })
+  })
+  if (!res.ok) throw new Error(`Anthropic ${res.status}: ${await res.text()}`)
+  const data = await res.json()
+  const raw = data.content?.[0]?.text?.trim() || '{}'
+  const cleaned = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '')
+  try { return JSON.parse(cleaned) }
+  catch { return { prose: '', layers: [], nodes: [], edges: [] } }
+}
+
 // Async: People parsing requires LLM because the source contains Mermaid.
 export async function parsePeopleWithLLM(md, anthropicKey) {
   if (!anthropicKey) throw new Error('ANTHROPIC_API_KEY required to parse People')
@@ -118,6 +168,7 @@ export async function parseStructuredContent(filename, content, { anthropicKey }
     case 'environment.md': return parseEnvironment(content)
     case 'playbook.md': return parsePlaybook(content)
     case 'people.md': return parsePeopleWithLLM(content, anthropicKey)
+    case 'architecture': return parseArchitectureWithLLM(content, anthropicKey)
     default: return null
   }
 }

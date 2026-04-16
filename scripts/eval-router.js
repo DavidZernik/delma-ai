@@ -37,7 +37,8 @@ const tabKey = {
   playbook: 'org:playbook.md',
   environment: 'memory:environment.md',
   decisions: 'memory:decisions.md',
-  myNotes: 'memory:my-notes.md'
+  myNotes: 'memory:my-notes.md',
+  architecture: 'diagram:architecture'
 }
 
 function tab(key, structured = null) {
@@ -46,10 +47,21 @@ function tab(key, structured = null) {
     [tabKey.playbook]: 'Playbook',
     [tabKey.environment]: 'Files, Locations & Keys',
     [tabKey.decisions]: 'Decisions & Actions',
-    [tabKey.myNotes]: 'My Notes'
+    [tabKey.myNotes]: 'My Notes',
+    [tabKey.architecture]: 'Architecture'
   }[key] || key
   const filename = key.split(':')[1]
   return { key, title, structured: structured ?? emptyData(filename), content: '' }
+}
+
+const seededArch = {
+  prose: 'The DailyAuto runs at 5am and triggers the WelcomeJourney.',
+  layers: [{ id: 'filter', title: 'Daily Filter' }],
+  nodes: [
+    { id: 'DailyAuto', label: 'Birthday_Daily_Send_Refresh', kind: 'automation', note: 'kicks off every morning', layer: 'filter' },
+    { id: 'WelcomeJourney', label: 'Welcome Journey', kind: 'journey', note: 'sends greeting email', layer: null }
+  ],
+  edges: [{ from: 'DailyAuto', to: 'WelcomeJourney', label: null }]
 }
 
 const seededPeople = {
@@ -312,8 +324,8 @@ const cases = [
       actions: []
     })],
     expect: [
-      { desc: 'emits remove_decision OR adds a contradicting decision',
-        check: (ops) => ops.some(o => o.op === 'remove_decision' || o.op === 'add_decision') }
+      { desc: 'emits supersede_decision (preferred), remove_decision, or contradicting add_decision',
+        check: (ops) => ops.some(o => ['supersede_decision', 'remove_decision', 'add_decision'].includes(o.op)) }
     ]
   },
 
@@ -352,6 +364,70 @@ const cases = [
     expect: [
       { desc: 'returns empty ops',
         check: (ops) => ops.length === 0 }
+    ]
+  },
+
+  // ── Architecture (the new structured surface) ──────────────────────
+  {
+    name: 'arch-add-email-and-edge',
+    input: 'add a Welcome email asset wired off the WelcomeJourney',
+    tabs: [tab(tabKey.architecture, seededArch)],
+    expect: [
+      { desc: 'emits add_node for an email',
+        check: (ops) => ops.some(o => o.tab === tabKey.architecture && o.op === 'add_node' && o.args?.kind === 'email') },
+      { desc: 'emits add_edge from WelcomeJourney to the new email',
+        check: (ops, finalData) => {
+          const newEmail = finalData[tabKey.architecture]?.nodes?.find(n => n.kind === 'email')
+          if (!newEmail) return false
+          return finalData[tabKey.architecture]?.edges?.some(e => e.from === 'WelcomeJourney' && e.to === newEmail.id)
+        } }
+    ]
+  },
+  {
+    name: 'arch-rename-node',
+    input: 'rename DailyAuto to MorningRefresh',
+    tabs: [tab(tabKey.architecture, seededArch)],
+    expect: [
+      { desc: 'either set_node_label OR remove+add (acceptable)',
+        check: (_ops, finalData) => {
+          const nodes = finalData[tabKey.architecture]?.nodes || []
+          // The id may stay or change — accept either as long as a node has the new label.
+          return nodes.some(n => /MorningRefresh/i.test(n.label || n.id))
+        } }
+    ]
+  },
+  {
+    name: 'arch-remove-node-cascades-edges',
+    input: 'remove the WelcomeJourney from the diagram',
+    tabs: [tab(tabKey.architecture, seededArch)],
+    expect: [
+      { desc: 'WelcomeJourney gone',
+        check: (_ops, finalData) => !(finalData[tabKey.architecture]?.nodes || []).some(n => n.id === 'WelcomeJourney') },
+      { desc: 'no edge mentions WelcomeJourney',
+        check: (_ops, finalData) => !(finalData[tabKey.architecture]?.edges || []).some(e => e.from === 'WelcomeJourney' || e.to === 'WelcomeJourney') }
+    ]
+  },
+  {
+    name: 'arch-routing-not-people',
+    input: 'we have a Daily Send DE that feeds the WelcomeJourney',
+    tabs: [tab(tabKey.architecture, seededArch), tab(tabKey.people, seededPeople)],
+    expect: [
+      { desc: 'updates architecture, not People',
+        check: (ops) => ops.some(o => o.tab === tabKey.architecture) && !ops.some(o => o.tab === tabKey.people) }
+    ]
+  },
+
+  // ── Audit-trail ops (supersede + complete-by-text) ─────────────────
+  {
+    name: 'supersede-decision-preserves-audit',
+    input: 'we changed our mind — use direct DB connection, not the pooler',
+    tabs: [tab(tabKey.decisions, {
+      decisions: [{ id: 'd_pooler', text: 'use pooler URL for migrations', owner: null }],
+      actions: []
+    })],
+    expect: [
+      { desc: 'emits supersede_decision (preferred) OR remove+add (tolerated)',
+        check: (ops) => ops.some(o => o.op === 'supersede_decision' || o.op === 'add_decision') }
     ]
   }
 ]
