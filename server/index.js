@@ -401,24 +401,26 @@ app.post('/quality/run-overnight', async (req, res) => {
   void runOvernight().catch(err => console.error('[quality] overnight run failed:', err))
 })
 
-// Scheduler: fire the overnight job once per night at 11:30pm Pacific.
-// We tick every minute and trigger when PT clock is 23:30 and we haven't
-// fired today yet. Using PT_OFFSET_MINUTES = -480 (PST). DST drift is
-// ~60 min once a year — acceptable for a "fire around 11:30pm" target.
+// Scheduler: fire the overnight job once per night at 11:30pm America/Los_Angeles.
+// Using Intl.DateTimeFormat handles DST automatically (PST in winter, PDT in
+// summer) so we never drift by an hour twice a year.
 let lastSimDate = null
-const PT_OFFSET_MINUTES = -480
 const FIRE_AT_PT_HOUR = 23
 const FIRE_AT_PT_MIN = 30
 
+const PT_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  timeZone: 'America/Los_Angeles',
+  year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', hour12: false
+})
+
 function ptNow() {
-  const utc = new Date()
-  const ptMinutes = utc.getUTCHours() * 60 + utc.getUTCMinutes() + PT_OFFSET_MINUTES
-  const wrapped = ((ptMinutes % (24 * 60)) + 24 * 60) % (24 * 60)
-  return { hour: Math.floor(wrapped / 60), min: wrapped % 60 }
+  const parts = Object.fromEntries(PT_FORMATTER.formatToParts(new Date()).map(p => [p.type, p.value]))
+  return { hour: parseInt(parts.hour, 10) % 24, min: parseInt(parts.minute, 10) }
 }
 function todayPTKey() {
-  const utc = new Date(Date.now() + PT_OFFSET_MINUTES * 60 * 1000)
-  return utc.toISOString().slice(0, 10)
+  const parts = Object.fromEntries(PT_FORMATTER.formatToParts(new Date()).map(p => [p.type, p.value]))
+  return `${parts.year}-${parts.month}-${parts.day}`
 }
 async function maybeRunOvernight() {
   if (!process.env.ANTHROPIC_API_KEY) return
