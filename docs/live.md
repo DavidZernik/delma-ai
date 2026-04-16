@@ -95,12 +95,15 @@ Day Campaign, or any project in any org. Like a notebook you carry.
 | Switch org | Everything project-level swaps. People + Playbook for the new org load. My Notes stays. |
 | Sign out | All workspace context cleared. My Notes preserved server-side. |
 
-### MCP write routing
+### How writes happen (structured ops, not content rewrites)
 
-- `append_memory_note` → `environment.md` or `session-log.md` only
-- `save_diagram_view` → Architecture (and any future diagram views)
-- `sync_conversation_summary` → handles People (org-level) plus
-  cross-tab routing. The only way Claude can update the People tab.
+Every memory tab is stored as **structured JSON** in a `structured`
+column, and the rendered markdown `content` is regenerated from it.
+The LLM (in the web router or in Claude Desktop via MCP) never
+rewrites entire tab content — it picks one of a small set of typed
+operations and fills 2–3 fields. Deterministic code does the actual
+mutation + render. This is the most important architectural invariant
+in Delma; see Section 13 for the full design.
 
 ---
 
@@ -168,15 +171,38 @@ Requires env vars: `DELMA_WORKSPACE_ID`, `DELMA_USER_ID`.
 
 | Tool | Purpose |
 |------|---------|
+**Read tools**
+| Tool | Purpose |
+|------|---------|
 | `open_workspace` | Set active workspace by name or ID |
 | `get_workspace_state` | Read all views, memory, and history |
-| `list_diagram_views` | List views with permission levels |
-| `get_diagram_view` | Read one view by key |
-| `save_diagram_view` | Update a view (permission-checked) |
-| `append_memory_note` | Append to a memory file (permission-checked) |
-| `sync_conversation_summary` | Sync facts from conversation into workspace (see below) |
+| `list_diagram_views` / `get_diagram_view` | Read diagrams |
 | `compose_claude_md` | Return CLAUDE.md behavior instructions |
 | `list_history` | List history snapshots |
+
+**Typed-op tools (structured tabs)** — one tool per operation. Claude
+Desktop picks the right tool from the conversation; deterministic code
+mutates the structured JSON + re-renders the view. No full rewrites.
+
+| Tool | Tab | Args |
+|------|-----|------|
+| `delma_add_person` | People | name, role?, kind?, reports_to? |
+| `delma_set_role` | People | person, role |
+| `delma_remove_person` | People | name |
+| `delma_add_reporting_line` | People | from, to |
+| `delma_add_playbook_rule` | Playbook | text, section? |
+| `delma_set_environment_key` | Environment | key, value, note? |
+| `delma_add_decision` | Decisions | text, owner? |
+| `delma_add_action` | Decisions | text, owner?, due? |
+| `delma_complete_action` | Decisions | id |
+| `delma_append_my_note` | My Notes | text |
+
+**Legacy tools (still present for diagram_views + bulk sync)**
+| Tool | Purpose |
+|------|---------|
+| `save_diagram_view` | Update a Mermaid diagram view (architecture, etc.) |
+| `append_memory_note` | Free-form append to a memory file (legacy) |
+| `sync_conversation_summary` | Bulk-sync facts from conversation (legacy) |
 
 All write operations check permissions before executing. If a user
 doesn't have edit access, the MCP server returns a clear error.
@@ -299,38 +325,37 @@ and writes a condensed summary to CLAUDE.md locally. Two trigger points:
 
 ## 9. Web App Features
 
-### Natural Language Editing — Unified Fact Router
+### Natural Language Editing — Typed-Op Router
 
 All user input (proactive question answers + manual NL edits) flows
-through a single **fact router** that uses Claude Haiku 4.5 via the
+through a **typed-op router** that uses Claude Haiku 4.5 via the
 `/api/chat` proxy.
 
 **How it works:**
-1. The router sees ALL workspace tabs (diagrams, project memory, org memory) with their scope definitions.
-2. It decides which tab(s) the user's input belongs on — 0, 1, or many.
-3. It returns full updated content per affected tab as JSON:
-   `[{ "tab": "org:people.md", "newContent": "..." }, ...]`
-4. Each tab is validated (Mermaid parseability for diagrams), then saved to Supabase.
-5. Realtime pushes changes to all connected clients.
+1. The router sees all tabs with their **current structured JSON state**
+   (not rendered markdown — the actual data shape).
+2. It returns a list of TYPED OPERATIONS as JSON:
+   `[{ "tab": "org:people.md", "op": "add_person", "args": {...} }, ...]`
+3. The web app POSTs each tab's ops to `/api/op`, which calls
+   `applyOpsToTab()` → mutates structured JSON → re-renders content →
+   writes both back to Supabase.
+4. Realtime pushes changes to all connected clients.
 
-**Rules baked into the system prompt:**
-- Respect each tab's scope. Never put people info on an Architecture diagram. Never put technical IDs on a People tab.
-- **Corrections**: when a user replaces stale info, remove the old entry — don't duplicate.
-- **Ambiguous references**: don't invent names for pronouns like "he"/"she".
-- **Diagrams**: removing a node removes its edges; reroute when merging.
-- **Out of scope**: if the input doesn't belong anywhere, return `[]`.
+**Why typed ops:**
+- LLM emits ~10 tokens (op name + args), not hundreds (rewritten content)
+- Zero syntax errors possible — code does the rendering
+- Every op is auditable, named, testable
+- New features = new handler + eval case, not more prompt rules
 
-**Cost**: ~$0.005 per input (single Haiku call seeing all tabs).
+**Rules in the (much smaller) system prompt:**
+- Respect each tab's scope.
+- "Corrections" use update-style ops (`set_role`) not add-style.
+- Ambiguous / irrelevant input → `[]` (no guessing, no prose).
 
-**UX flow**: Apply → loading dots → router runs → status bar shows
-"Updated: People, Session Log" → Realtime refreshes the UI with
-the red border flash on affected tabs.
+**Cost**: ~$0.001–0.003 per input (median ~800ms round-trip).
 
-**API proxy**: All Haiku calls go through `/api/chat` (server-side)
-so `ANTHROPIC_API_KEY` stays off the client.
-
-**Test harness**: `server/test-router.js` runs 14 scored test cases
-against the router. Current score: 100/100 average.
+**Test harness**: `scripts/eval-router.js` runs 9 scored cases against
+the live prompt. `npm run eval:router`. All passing.
 
 ### Proactive Questions
 
@@ -358,10 +383,8 @@ right style automatically.
 - Floating italic labels next to each technical node
 
 **People (org charts):**
-- Outlined avatar placeholder circle inside every person node
-- Drag a photo onto the People tab → enter the person's name → photo is
-  uploaded to Supabase Storage and replaces the placeholder in the
-  matching node (no layout shift; same dimensions)
+- Stored as `{people: [{id, name, role, kind, reports_to}]}` and
+  rendered to Mermaid by `src/tab-ops.js`
 - Shapes per role: rounded for ICs/managers, trapezoid for stakeholders,
   cylinder for teams, parallelogram for vendors
 
@@ -439,10 +462,9 @@ Console logs with prefixes trace every operation:
 | `[delma refresh]` | Frontend | Supabase fetch timing + error checking |
 | `[delma prompt]` | Frontend | Proactive engine ticks, questions, dismissals |
 | `[delma gap]` | Frontend | DeepSeek gap analysis (timing + responses) |
-| `[delma router]` | Frontend | Unified fact router — tabs seen, routing decision, patches applied |
+| `[delma router]` | Frontend | Typed-op router — tabs seen, ops parsed, /api/op posts |
 | `[delma edit]` | Frontend | Manual NL edit entry point |
 | `[delma onApply]` | Frontend | Proactive question answer entry point |
-| `[delma photo]` | Frontend | People tab photo upload + injection |
 | `[delma reveal]` | Frontend | Hide / reveal cycle for tab content |
 | `[delma inline-zoom]` | Frontend | Zoom on markdown tabs (text + diagrams together) |
 | `[delma fit]` | Frontend | SVG natural width vs wrapper width measurements |
@@ -451,3 +473,83 @@ Console logs with prefixes trace every operation:
 | `[mcp]` | Server | All MCP tool calls with timing |
 | `[mcp sync]` | Server | Conversation sync patches |
 | `[delma-state]` | Server | Supabase CRUD operations + errors |
+| `[server] op:` | Server | `/api/op` endpoint — typed-op application |
+
+---
+
+## 13. Structured Tabs (the architecture that beats prompt engineering)
+
+**Principle**: the LLM never rewrites tab content. It picks one of a
+small set of typed operations and fills 2–3 fields. Deterministic
+code does the actual mutation and rendering. This is what keeps
+Delma reliable as features grow.
+
+### The three layers
+
+| Layer | What it does | Cost when wrong |
+|---|---|---|
+| **Schema** (JSON in `structured` column) | Source of truth | Fix in code; data round-trips |
+| **Renderer / op handlers** (`src/tab-ops.js`) | Pure functions: data ↔ markdown | Fix in code; testable |
+| **LLM** (Haiku via `/api/chat` or Claude Desktop via MCP) | Classify intent, fill 2–3 fields | Bounded — can only call known ops |
+
+### File map
+
+| File | Role |
+|---|---|
+| `src/tab-ops.js` | Schemas, renderers, op handlers (pure). Shared browser+node. |
+| `src/router-prompt.js` | Compact system prompt that returns typed ops. |
+| `src/extract-json-array.js` | Robust JSON-array parser (ignores trailing prose). |
+| `server/lib/apply-op.js` | Reads row → applies ops → writes structured + content. |
+| `server/index.js` → `POST /api/op` | Web app endpoint for typed ops. |
+| `server/mcp.js` | `delma_*` MCP tools — one per op. |
+| `scripts/eval-router.js` | 9 scored eval cases. `npm run eval:router`. |
+| `scripts/backfill-structured.js` | One-shot legacy markdown → structured JSON. |
+| `supabase/migrations/007_structured_tabs.sql` | Adds `structured jsonb` columns + GIN indexes. |
+
+### Tab schemas
+
+```
+people.md     → { people: [{id, name, role, kind, reports_to: [id]}] }
+playbook.md   → { rules: [{id, text, section?}] }
+environment.md → { entries: [{key, value, note?}] }
+decisions.md  → { decisions: [{id, text, owner?}], actions: [{id, text, owner?, due?, done}] }
+my-notes.md   → { text: string }
+```
+
+`structured` is the source of truth. `content` (markdown) is regenerated
+from it on every write so what users see is always in sync.
+
+### Available ops
+
+Defined in `src/tab-ops.js` and exposed both via `/api/op` (web) and
+`delma_*` MCP tools (Claude Desktop). See Section 7 for the full
+MCP surface.
+
+### Two write paths, same handlers
+
+- **Web NL router**: input → Haiku returns `[{tab, op, args}]` →
+  `POST /api/op` → `applyOpsToTab`
+- **Claude Desktop**: in conversation → picks a `delma_*` MCP tool →
+  server-side `runOp` → same `applyOpsToTab`
+
+Both end at the exact same pure functions in `src/tab-ops.js`.
+
+### Backfill
+
+Existing rows with `content` but no `structured` were converted in a
+one-shot run of `scripts/backfill-structured.js`:
+- Deterministic regex parsers for Decisions, Environment, Playbook,
+  My Notes (simple bullet/heading structures)
+- Haiku-assisted parser for People (Mermaid → JSON)
+- Re-run is idempotent (skips rows already in structured mode)
+
+### Why this matters
+
+| Before (prompt-driven full rewrites) | After (typed ops) |
+|---|---|
+| LLM emits hundreds of tokens of markdown/Mermaid | LLM emits ~10 tokens of JSON |
+| Syntax errors possible on every edit | Zero — renderer is deterministic |
+| 2–5s per edit | ~800ms median |
+| Router prompt grew with every feature | Prompt shrunk; new feature = handler + eval case |
+| No record of "what changed" | Every op auditable, named, testable |
+| Photo loss, mangled diagrams, lost rules | Deterministic — can't lose what code didn't touch |

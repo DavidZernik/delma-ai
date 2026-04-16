@@ -24,6 +24,8 @@ import mermaid from 'mermaid'
 import elkLayouts from '@mermaid-js/layout-elk'
 import { marked } from 'marked'
 import { supabase } from './lib/supabase.js'
+import { ROUTER_SYSTEM_PROMPT, buildTabsBlock, buildRouterUserMessage } from './router-prompt.js'
+import { extractJsonArray } from './extract-json-array.js'
 
 mermaid.registerLayoutLoaders(elkLayouts)
 mermaid.initialize({
@@ -605,15 +607,12 @@ function renderActionBlock(question, modeClass, onApply) {
       } else {
         console.log('[delma apply] calling applyNaturalLanguageEdit...')
         await applyNaturalLanguageEdit(value)
-        console.log('[delma apply] NL edit done, showing highlights in editor')
+        console.log('[delma apply] NL edit done — router already persisted to Supabase')
 
-        // Show highlighted changes in editor for 1.5s before switching
-        console.log('[delma apply] pausing 1.5s to show editor highlights...')
-        await new Promise(r => setTimeout(r, 1500))
-
-        console.log('[delma apply] saving current tab...')
-        await saveCurrentTab()
-        console.log('[delma apply] save done')
+        // Router writes directly to Supabase. DO NOT call saveCurrentTab() —
+        // it reads the (stale) editor textarea and would clobber the router's
+        // save. Just pause briefly for UX, then refresh to show new content.
+        await new Promise(r => setTimeout(r, 600))
       }
 
       // Both paths land here: hide everything, fetch fresh, show view with flash
@@ -1279,124 +1278,6 @@ function populateEditor(view) {
 
 // ── Render a memory file as a readable document ─────────────────────────────
 
-// Find the Mermaid node whose label contains `personName` (or their first
-// name) and replace its avatar-placeholder span with an <img> tag so the
-// photo renders INSIDE that person's box at the same dimensions as the
-// placeholder (no layout shift).
-function injectPhotoIntoMermaid(content, personName, photoUrl) {
-  const firstName = personName.split(/\s+/)[0]
-  const imgTag = `<img src='${photoUrl}' class='node-photo' />`
-
-  // Match any quoted label inside a node and look for the placeholder span.
-  const labelRegex = /"([^"]*?)"/g
-  let replacedAny = false
-  const newContent = content.replace(labelRegex, (full, label) => {
-    if (replacedAny) return full
-    const lower = label.toLowerCase()
-    if (!lower.includes(personName.toLowerCase()) && !lower.includes(firstName.toLowerCase())) return full
-    if (label.includes('node-photo')) return full // already has a photo
-    replacedAny = true
-    console.log('[delma photo] injecting into label:', label.substring(0, 60))
-
-    // Replace the placeholder span with the photo. If no placeholder
-    // (older nodes), prepend the photo.
-    const placeholderRegex = /<span class=['"]avatar-placeholder['"]><\/span>/
-    const updatedLabel = placeholderRegex.test(label)
-      ? label.replace(placeholderRegex, imgTag)
-      : imgTag + label
-    return `"${updatedLabel}"`
-  })
-  return newContent
-}
-
-// Drag-drop photo zone for the People tab. Drops upload to Supabase Storage
-// and inject the photo into the matching person's node inside the Mermaid
-// org chart. The user is asked for the person's name via a prompt so we
-// know who to match.
-function wirePhotoDropZone(zone, filename, isOrg, row) {
-  if (!zone) return
-
-  const handleFile = async (file) => {
-    if (!file?.type?.startsWith('image/')) {
-      setWorkspaceStatus('Drop an image file (PNG, JPG, WebP).')
-      return
-    }
-    const personName = window.prompt('Whose photo is this? (e.g. "Keyona Abbott")')
-    if (!personName?.trim()) return
-
-    setWorkspaceStatus(`Uploading photo for ${personName}...`)
-    console.log('[delma photo] uploading', file.name, file.size, 'bytes for', personName)
-
-    // Slug for filename — lowercase, no spaces, timestamped
-    const ext = file.name.split('.').pop().toLowerCase()
-    const slug = personName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-    const path = `${state.org.id}/${slug}-${Date.now()}.${ext}`
-
-    const { error: uploadErr } = await supabase.storage
-      .from('people-photos')
-      .upload(path, file, { upsert: false, contentType: file.type })
-
-    if (uploadErr) {
-      console.error('[delma photo] upload failed:', uploadErr)
-      setWorkspaceStatus(`Upload failed: ${uploadErr.message}`)
-      return
-    }
-
-    const { data: urlData } = supabase.storage.from('people-photos').getPublicUrl(path)
-    const photoUrl = urlData.publicUrl
-    console.log('[delma photo] uploaded, public URL:', photoUrl)
-
-    // Inject the photo INTO the matching person's node inside the Mermaid
-    // org chart. We find a node label containing the person's name (or
-    // their first name) and prepend an <img> tag to the label.
-    const currentContent = isOrg ? state.orgMemory[filename] || '' : state.memory[filename] || ''
-    const newContent = injectPhotoIntoMermaid(currentContent, personName, photoUrl)
-
-    if (newContent === currentContent) {
-      console.warn('[delma photo] no matching node found for', personName)
-      setWorkspaceStatus(`No node found for "${personName}". Add them to the org chart first, then drop the photo again.`)
-      return
-    }
-
-    const table = isOrg ? 'org_memory_notes' : 'memory_notes'
-    const filter = isOrg
-      ? { org_id: state.org.id, filename }
-      : { workspace_id: state.workspaceId, filename }
-
-    const { error: saveErr } = await supabase.from(table).update({ content: newContent })
-      .match(filter)
-
-    if (saveErr) {
-      console.error('[delma photo] save failed:', saveErr)
-      setWorkspaceStatus(`Save failed: ${saveErr.message}`)
-      return
-    }
-
-    setWorkspaceStatus(`Photo added for ${personName}.`)
-    console.log('[delma photo] photo embedded in mermaid node')
-    // Realtime will refresh the view automatically
-  }
-
-  zone.addEventListener('dragover', (e) => {
-    e.preventDefault()
-    zone.classList.add('drag-over')
-  })
-  zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'))
-  zone.addEventListener('drop', (e) => {
-    e.preventDefault()
-    zone.classList.remove('drag-over')
-    const file = e.dataTransfer?.files?.[0]
-    if (file) handleFile(file)
-  })
-  zone.addEventListener('click', () => {
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.accept = 'image/*'
-    input.onchange = () => input.files?.[0] && handleFile(input.files[0])
-    input.click()
-  })
-}
-
 // Render the global My Notes (per-user). Stored in user_notes table —
 // follows the user across all orgs and projects.
 async function renderGlobalMyNotes() {
@@ -1468,15 +1349,8 @@ async function renderMemoryDocument(filename, isOrg = false) {
     // Wrap markdown in a .diagram-card so every tab matches Architecture's
     // visual treatment (white card on cream, dark red border).
     els.diagramOutput.className = ''
-    // People tab gets a photo drop zone above the markdown content.
-    const dropZoneHtml = (isOrg && filename === 'people.md')
-      ? `<div class="people-drop-zone" id="people-drop">
-           <div class="drop-zone-label">Drag a photo here to add it to a person</div>
-         </div>`
-      : ''
     els.diagramOutput.innerHTML = `
       <div class="diagram-card markdown-body">
-        ${dropZoneHtml}
         <div class="markdown-content"></div>
         <div class="diagram-zoom-controls" hidden>
           <button class="zoom-btn" data-zoom="in" title="Zoom in">+</button>
@@ -1500,10 +1374,6 @@ async function renderMemoryDocument(filename, isOrg = false) {
       console.log('[delma render] zoom controls wired —', svgs, 'inline mermaid svg(s) + prose')
     }
 
-    // Wire the drop zone if present
-    if (isOrg && filename === 'people.md') {
-      wirePhotoDropZone(card.querySelector('#people-drop'), filename, isOrg, row)
-    }
   }
 }
 
@@ -2064,59 +1934,35 @@ async function routeAndPatchFact(input, questionContext = null) {
     })
   }
 
-  // Project memory
+  // Project memory — include structured JSON when present so the LLM can
+  // output precise ops rather than guess at shape.
   for (const row of state.memoryRows) {
-    if (!row.content) continue
-    const scope =
-      row.filename === 'environment.md'
-        ? 'SFMC IDs, DE names, journey/automation keys, technical config. NOT people or business rules. Mermaid diagrams welcome for data flow or schema relationships.'
-      : row.filename === 'decisions.md'
-        ? 'Decisions made and actions needed. STRICT outline form: two H2 sections, "## Decisions" and "## Actions", each a bulleted list. One bullet per item. Short. Add owner in parentheses if known. NOT prose narrative — outline only.'
-      : row.filename === 'my-notes.md'
-        ? 'Personal private notes — only the current user sees this. Questions, reminders, half-baked thoughts, personal mental models. Route here only if the input is explicitly personal ("my note to self", "remind me to…"). Mermaid diagrams welcome for task dependencies, personal workflows, or quick sketches.'
-      : 'General project note.'
+    if (!row.content && !row.structured) continue
     tabs.push({
       key: `memory:${row.filename}`,
-      type: 'markdown',
       title: MEMORY_TAB_LABELS[row.filename]?.title || row.filename,
-      scope,
       content: row.content,
-      id: row.id,
-      table: 'memory_notes',
+      structured: row.structured || null,
       filename: row.filename
     })
   }
 
   // Org memory
   for (const row of state.orgMemoryRows) {
-    if (!row.content) continue
-    const scope =
-      row.filename === 'people.md'
-        ? 'Team members, roles, ownership. NOT system architecture or IDs. Mermaid org-chart diagrams welcome.'
-      : row.filename === 'playbook.md'
-        ? 'How work actually happens here: business processes, approval paths, unwritten rules, cultural norms, timing gotchas ("no Friday launches", "legal needs 48h"). NOT specific people details, NOT technical IDs. Mermaid diagrams welcome for approval flows, escalation paths, or decision trees.'
-      : 'Org-level note.'
+    if (!row.content && !row.structured) continue
     tabs.push({
       key: `org:${row.filename}`,
-      type: 'markdown',
       title: ORG_TAB_LABELS[row.filename]?.title || row.filename,
-      scope,
       content: row.content,
-      id: row.id,
-      table: 'org_memory_notes'
+      structured: row.structured || null,
+      filename: row.filename
     })
   }
 
   console.log('[delma router] tabs available:', tabs.map(t => t.key).join(', '))
 
-  // Build prompt
-  const tabsBlock = tabs.map(t =>
-    `### ${t.key} — ${t.title}\nScope: ${t.scope}\nContent:\n\`\`\`\n${t.content.substring(0, 1500)}${t.content.length > 1500 ? '\n...' : ''}\n\`\`\``
-  ).join('\n\n')
-
-  const userInput = questionContext
-    ? `Question asked: "${questionContext}"\nUser's answer: "${input}"`
-    : `User wrote: "${input}"`
+  const tabsBlock = buildTabsBlock(tabs)
+  const userMessage = buildRouterUserMessage(input, tabsBlock, questionContext)
 
   try {
     const res = await fetch('/api/chat', {
@@ -2125,219 +1971,8 @@ async function routeAndPatchFact(input, questionContext = null) {
       body: JSON.stringify({
         model: 'claude-haiku-4-5',
         max_tokens: 2000,
-        system: `You are a workspace router. Given a user's input, decide which workspace tab(s) the information belongs on, then return the updates.
-
-Rules:
-- An input may update 0, 1, or multiple tabs.
-- Respect each tab's scope. Never put people info on an architecture diagram. Never put technical IDs on a People tab.
-- If the input replaces existing info on a tab (e.g. "Keyona IS the PM, there is no separate PM"), remove the stale info rather than duplicating.
-- If the input doesn't belong on any tab, return [].
-
-INLINE DIAGRAM RULE (for any markdown tab — People, Playbook, My Notes, etc.):
-- If the content describes a flow, sequence, approval chain, decision tree,
-  hierarchy, or multi-step relationship, include a \`\`\`mermaid code fence.
-- Don't force diagrams when prose is clearer (simple lists, single facts).
-- ALWAYS wrap labels in DOUBLE QUOTES inside the shape brackets.
-
-PEOPLE TAB photo references — IMPORTANT:
-The People document may contain photo blocks like this:
-  <!-- photo:Keyona Abbott -->
-  ![Keyona Abbott](https://...supabase.../people-photos/...png)
-
-These represent uploaded photos. ALWAYS preserve them verbatim when
-updating the document. Do not remove or rewrite them. If you mention a
-person who has a photo block, place their content NEAR their photo so
-they read together.
-
-PEOPLE TAB vocabulary (org charts, reporting structures):
-
-EVERY person/manager/stakeholder node label STARTS with an outlined
-placeholder avatar — a small circle that shows where their photo will
-go. When a photo is uploaded later, the system replaces this placeholder
-with the actual <img>. The placeholder HTML must be exactly:
-
-  <span class='avatar-placeholder'></span>
-
-So the full node syntax is:
-
-| Concept                | Correct full syntax                                                                       |
-|------------------------|--------------------------------------------------------------------------------------------|
-| Person                 | NodeId(["<span class='avatar-placeholder'></span>Name<br/>Role"]):::person                 |
-| Manager / leader       | NodeId(["<span class='avatar-placeholder'></span>Name<br/>Title"]):::manager               |
-| Stakeholder / external | NodeId[/"<span class='avatar-placeholder'></span>Name<br/>Role"\\]:::stakeholder           |
-| Team / group           | NodeId[("<span class='avatar-placeholder'></span>Team Name")]:::team                       |
-| Vendor / contractor    | NodeId[/"<span class='avatar-placeholder'></span>Name"/]:::vendor                          |
-
-Do NOT use emoji (👤 👔 🤝) for people — the placeholder circle replaces them.
-
-Required classDef block at the END of any People diagram:
-  classDef person fill:#FAF6F0,stroke:#B8A88F,stroke-width:1.5px,color:#0F0A0A
-  classDef manager fill:#F5EFE6,stroke:#9F8C70,stroke-width:1.5px,color:#0F0A0A
-  classDef stakeholder fill:#F4F0EA,stroke:#A89887,stroke-width:1.5px,stroke-dasharray:4 3,color:#0F0A0A
-  classDef team fill:#FBEBEB,stroke:#C28080,stroke-width:1.5px,color:#0F0A0A
-  classDef vendor fill:#F2EBF5,stroke:#A18BB5,stroke-width:1.5px,color:#0F0A0A
-
-Reporting lines: solid arrow from manager to report (top-down).
-Collaboration lines: dotted -.->
-
-PLAYBOOK TAB vocabulary (process flows, approval paths, gotchas):
-
-| Concept                | Correct full syntax                                |
-|------------------------|-----------------------------------------------------|
-| Process step           | NodeId["📝 step name"]:::step                       |
-| Approval gate          | NodeId{"🚦 approval needed?"}:::approval            |
-| Wait / time delay      | NodeId{{"⏳ 48h wait"}}:::wait                       |
-| Action / outcome       | NodeId(["✅ action"]):::action                      |
-| Document / policy      | NodeId[/"📄 policy name"/]:::doc                    |
-| Hard rule / blocker    | NodeId{"🚫 rule"}:::rule                            |
-
-Required classDef block at the END of any Playbook diagram:
-  classDef step fill:#F4F1EC,stroke:#A89887,stroke-width:1.5px,color:#0F0A0A
-  classDef approval fill:#FAF1E5,stroke:#C9A878,stroke-width:1.5px,color:#0F0A0A
-  classDef wait fill:#F2F6FA,stroke:#7FA0BD,stroke-width:1.5px,stroke-dasharray:4 3,color:#0F0A0A
-  classDef action fill:#FFFFFF,stroke:#888,stroke-width:1.5px,color:#0F0A0A
-  classDef doc fill:#FCF8E8,stroke:#C9B864,stroke-width:1.5px,color:#0F0A0A
-  classDef rule fill:#FFFFFF,stroke:#8F0000,stroke-width:2px,color:#0F0A0A
-
-ARCHITECTURE DIAGRAM RULES (tabs typed "markdown-with-mermaid"):
-- The full document is markdown with an inline \`\`\`mermaid code fence.
-- Structure:
-    ## How it works
-    Plain-english paragraphs explaining the flow. Reference each node by
-    its technical name in **bold** so non-technical readers can map prose
-    to the diagram visually.
-
-    ## Diagram
-    \`\`\`mermaid
-    flowchart TD
-      ...
-    \`\`\`
-- Keep BOTH sections in sync.
-
-SFMC NODE VOCABULARY — pick the right shape + class for each concept.
-
-CRITICAL SYNTAX: ALWAYS wrap labels in DOUBLE QUOTES inside the shape
-brackets. Otherwise emoji and special chars break the Mermaid lexer.
-Correct format examples below — copy exactly:
-
-| Concept                          | Correct full syntax                          |
-|----------------------------------|-----------------------------------------------|
-| Data Extension                   | NodeId[("💾 label")]:::de                     |
-| Source DE (read-only / external) | NodeId[("💾 label")]:::deSource               |
-| SQL / Query Activity             | NodeId[["🔍 label"]]:::sql                    |
-| Automation                       | NodeId{{"⚙️ label"}}:::automation             |
-| Journey                          | NodeId(["⚡ label"]):::journey                |
-| Email asset                      | NodeId[/"📧 label"/]:::email                  |
-| CloudPage                        | NodeId[\\"🌐 label"\\]:::cloudpage             |
-| Decision split                   | NodeId{"🔀 label"}:::decision                 |
-| Endpoint / Result                | NodeId(["label"]):::endpoint                  |
-
-OPTIONAL EMOJI ICONS at the start of the technical label make scanning faster:
-- 💾 Data Extension
-- ⚙️ Automation
-- 🔍 SQL / Query
-- ⚡ Journey
-- 📧 Email
-- 🌐 CloudPage
-- 🔀 Decision
-
-Required classDef block at the END of the diagram (always include all of these):
-  classDef de fill:#F2F6FA,stroke:#7FA0BD,stroke-width:1.5px,color:#0F0A0A
-  classDef deSource fill:#EAF1F7,stroke:#7FA0BD,stroke-width:1.5px,color:#0F0A0A
-  classDef sql fill:#FCF8E8,stroke:#C9B864,stroke-width:1.5px,color:#0F0A0A
-  classDef automation fill:#F4F1EC,stroke:#A89887,stroke-width:1.5px,color:#0F0A0A
-  classDef journey fill:#FBEBEB,stroke:#C28080,stroke-width:1.5px,color:#0F0A0A
-  classDef email fill:#FAF1E5,stroke:#C9A878,stroke-width:1.5px,color:#0F0A0A
-  classDef cloudpage fill:#F2EBF5,stroke:#A18BB5,stroke-width:1.5px,color:#0F0A0A
-  classDef decision fill:#FFFFFF,stroke:#8F0000,stroke-width:2px,color:#0F0A0A
-  classDef endpoint fill:#FFFFFF,stroke:#888,stroke-width:1.5px,color:#0F0A0A
-
-Note classDef (already required, keep it):
-  classDef note fill:transparent,stroke:transparent,color:#6B5A5A,font-style:italic,font-size:12px
-
-LAYER SUBGRAPHS — group nodes by their role in the flow when it makes sense.
-Use clear English titles. Apply transparent style to the group container so
-groups read as airy regions, not boxes:
-
-  subgraph source_layer ["Patient Source"]
-    Source
-  end
-  subgraph filter_layer ["Daily Filter"]
-    Auto
-    Query
-  end
-  subgraph engagement_layer ["Email + Quiz"]
-    Journey
-    Email
-    CloudPage
-  end
-  ...
-  style source_layer fill:transparent,stroke:#E8D8D2,stroke-dasharray:4 4
-  style filter_layer fill:transparent,stroke:#E8D8D2,stroke-dasharray:4 4
-  ... (repeat for each layer subgraph)
-
-Note: layer subgraphs are SEPARATE from the per-node pair subgraphs that
-hold the floating labels. Each technical node still lives in its own pair_
-subgraph for the floating annotation; the layer subgraph wraps multiple
-pair subgraphs.
-
-FLOATING-LABEL DIAGRAM PATTERN (use for every node):
-Each technical node is paired with a borderless, italic "annotation"
-node sitting next to it. The pair lives inside an invisible subgraph
-with direction LR so the label sits to the RIGHT of the technical node.
-
-  subgraph pair_<id> [" "]
-    direction LR
-    <id>["<technical label>"]
-    <id>_note["plain-english description"]:::note
-  end
-
-Then connect technical nodes to each other via their original IDs
-(NOT the subgraph IDs). Example:
-
-  subgraph pair_auto [" "]
-    direction LR
-    Auto["Automation\\nBirthday_Daily_Send_Refresh\\n5 AM CT daily"]
-    Auto_note["kicks off every morning"]:::note
-  end
-  subgraph pair_query [" "]
-    direction LR
-    Query["SQL: Birthday_Daily_Filter"]
-    Query_note["narrows to today's birthdays"]:::note
-  end
-  Auto --> Query
-
-At the END of the diagram add these style declarations (one
-\`style pair_<id>\` line per subgraph):
-  classDef note fill:transparent,stroke:transparent,color:#6B5A5A,font-style:italic,font-size:12px
-  style pair_auto fill:transparent,stroke:transparent
-  style pair_query fill:transparent,stroke:transparent
-  ... (one per pair)
-
-Notes:
-- Description text: 2-5 words MAX. Keep short to avoid clipping. No jargon.
-  Bad: "patient list from cloud" (5 words but with a wide tail)
-  Good: "patient source", "filters birthdays", "saves choice"
-- Pair every node — including decision diamonds.
-- If you remove a node, remove its subgraph wrapper, its _note pair,
-  the corresponding style line, and any edges to/from it.
-
-Return the COMPLETE markdown document (both prose and fenced Mermaid) as newContent.
-
-Return JSON array of updates. For each updated tab, return the COMPLETE new content:
-[
-  { "tab": "memory:environment.md", "newContent": "...full updated markdown..." },
-  { "tab": "diagram:architecture", "newContent": "flowchart TD\\n  ..." }
-]
-
-Return ONLY valid JSON. No prose, no code fences.`,
-        user: `${userInput}
-
-Available tabs:
-
-${tabsBlock}
-
-Return the JSON array of updates.`
+        system: ROUTER_SYSTEM_PROMPT,
+        user: userMessage
       })
     })
 
@@ -2353,61 +1988,45 @@ Return the JSON array of updates.`
     console.log('[delma router] raw response:', raw?.substring(0, 300))
     if (!raw) return { updatedTabs: [] }
 
-    raw = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '')
+    const ops = extractJsonArray(raw)
+    console.log('[delma router] parsed', ops.length, 'op(s):', ops.map(o => `${o.tab}/${o.op}`).join(', '))
 
-    let updates
-    try {
-      updates = JSON.parse(raw)
-    } catch (err) {
-      console.error('[delma router] JSON parse failed:', err.message)
+    if (!Array.isArray(ops) || !ops.length) {
+      console.log('[delma router] no ops (empty array)')
       return { updatedTabs: [] }
     }
 
-    if (!Array.isArray(updates) || !updates.length) {
-      console.log('[delma router] no updates needed (empty array)')
-      return { updatedTabs: [] }
+    // Group ops by tab so we can POST once per tab.
+    const opsByTab = {}
+    for (const o of ops) {
+      if (!o.tab || !o.op) continue
+      if (!opsByTab[o.tab]) opsByTab[o.tab] = []
+      opsByTab[o.tab].push({ op: o.op, args: o.args || {} })
     }
 
-    // Apply updates to Supabase
-    const tabByKey = Object.fromEntries(tabs.map(t => [t.key, t]))
     const updatedTabs = []
-
-    for (const u of updates) {
-      const tab = tabByKey[u.tab]
-      if (!tab || !u.newContent) {
-        console.log('[delma router] skipping invalid update:', u.tab)
+    for (const [tabKey, tabOps] of Object.entries(opsByTab)) {
+      console.log('[delma router] POST /api/op', tabKey, tabOps.length, 'op(s)')
+      const res = await fetch('/api/op', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tabKey, ops: tabOps,
+          workspaceId: state.workspaceId,
+          orgId: state.org?.id,
+          userId: state.user?.id
+        })
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        console.error('[delma router] op failed for', tabKey, err)
         continue
       }
-
-      // Validate Mermaid blocks before saving
-      if (tab.type === 'markdown-with-mermaid' || tab.type === 'mermaid') {
-        try {
-          // Extract Mermaid from inline ```mermaid fence if present, else treat
-          // whole content as Mermaid (legacy format)
-          const fenceMatch = u.newContent.match(/```mermaid\n([\s\S]*?)\n```/)
-          const mermaidOnly = fenceMatch
-            ? fenceMatch[1]
-            : u.newContent.replace(/^---\n[\s\S]*?\n---\n?/, '')
-          const testId = `validate-router-${Date.now()}`
-          await mermaid.render(testId, mermaidOnly)
-        } catch (parseErr) {
-          console.error('[delma router] invalid Mermaid for', u.tab, ':', parseErr.message)
-          continue
-        }
-      }
-
-      if (tab.table === 'diagram_views') {
-        await supabase.from('diagram_views').update({ mermaid: u.newContent }).eq('id', tab.id)
-      } else if (tab.table === 'memory_notes') {
-        await supabase.from('memory_notes').update({ content: u.newContent }).eq('workspace_id', state.workspaceId).eq('filename', tab.filename)
-      } else if (tab.table === 'org_memory_notes') {
-        await supabase.from('org_memory_notes').update({ content: u.newContent }).eq('id', tab.id)
-      }
-
-      console.log('[delma router] updated:', u.tab, 'newLen:', u.newContent.length)
-      updatedTabs.push({ key: u.tab, title: tab.title })
-      // Reset any dismissed question and start the grace window
-      noteTabChanged(u.tab)
+      const result = await res.json()
+      if (result.errors?.length) console.warn('[delma router] partial errors for', tabKey, result.errors)
+      const title = tabs.find(t => t.key === tabKey)?.title || tabKey
+      updatedTabs.push({ key: tabKey, title })
+      noteTabChanged(tabKey)
     }
 
     console.log('[delma router] done in', Math.round(performance.now() - t0), 'ms, updated', updatedTabs.length, 'tab(s)')

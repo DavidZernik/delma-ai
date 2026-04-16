@@ -41,6 +41,8 @@ import {
   composeClaudeMd
 } from './delma-state.js'
 import { generateClaudeMd } from './lib/summarizer.js'
+import { applyOpsToTab, parseTabKey } from './lib/apply-op.js'
+import { supabase as sbRoot } from './lib/supabase.js'
 
 // ── Auto-summarizer ──────────────────────────────────────────────────────────
 // After every write, re-summarize the workspace and write CLAUDE.md locally.
@@ -313,6 +315,122 @@ server.registerTool(
     return text(history)
   })
 )
+
+// ── Typed-op tools (structured tabs) ───────────────────────────────────────
+// Each tool applies ONE op to a known tab. Deterministic mutation + render.
+// Claude Desktop picks the right tool from the conversation — no full rewrites.
+
+async function getActiveOrgId() {
+  const { workspaceId } = requireContext()
+  const { data: ws } = await sbRoot.from('workspaces').select('org_id').eq('id', workspaceId).single()
+  if (!ws?.org_id) throw new Error('workspace has no org_id')
+  return ws.org_id
+}
+
+async function runOp(tabKey, op, args) {
+  const { workspaceId, userId } = requireContext()
+  const orgId = tabKey.startsWith('org:') ? await getActiveOrgId() : null
+  const scope = parseTabKey(tabKey, { workspaceId, orgId, userId })
+  if (!scope) throw new Error(`not a structured tab: ${tabKey}`)
+  const result = await applyOpsToTab(sbRoot, scope, [{ op, args }])
+  void refreshClaudeMd()
+  return text({ ok: true, applied: result.applied, errors: result.errors })
+}
+
+// People ────────────────────────────────────────────────────────────────────
+
+server.registerTool('delma_add_person', {
+  title: 'Add Person',
+  description: 'Add a team member, manager, stakeholder, team, or vendor to the People org chart.',
+  inputSchema: {
+    name: z.string().describe('Full name, e.g. "Keyona Abbott"'),
+    role: z.string().optional().describe('Role or title, e.g. "Manager / PM"'),
+    kind: z.enum(['person', 'manager', 'stakeholder', 'team', 'vendor']).optional().describe('Node kind. Defaults to "person".'),
+    reports_to: z.string().optional().describe('Name of the person this one reports to. Must already exist.')
+  }
+}, withLogging('delma_add_person', (args) => runOp('org:people.md', 'add_person', args)))
+
+server.registerTool('delma_set_role', {
+  title: 'Set Person Role',
+  description: 'Change a person\'s role/title on the People tab.',
+  inputSchema: {
+    person: z.string().describe('Name of the person'),
+    role: z.string().describe('New role / title')
+  }
+}, withLogging('delma_set_role', (args) => runOp('org:people.md', 'set_role', args)))
+
+server.registerTool('delma_remove_person', {
+  title: 'Remove Person',
+  description: 'Remove a person (and their reporting lines) from the People tab.',
+  inputSchema: { name: z.string() }
+}, withLogging('delma_remove_person', (args) => runOp('org:people.md', 'remove_person', args)))
+
+server.registerTool('delma_add_reporting_line', {
+  title: 'Add Reporting Line',
+  description: 'Wire "from" reports to "to" (to is the manager).',
+  inputSchema: {
+    from: z.string().describe('Person who reports'),
+    to: z.string().describe('Manager they report to')
+  }
+}, withLogging('delma_add_reporting_line', (args) => runOp('org:people.md', 'add_reporting_line', args)))
+
+// Playbook ───────────────────────────────────────────────────────────────────
+
+server.registerTool('delma_add_playbook_rule', {
+  title: 'Add Playbook Rule',
+  description: 'Add a business process rule, unwritten norm, or timing gotcha to the Playbook.',
+  inputSchema: {
+    text: z.string().describe('The rule, one sentence, e.g. "No launches on Fridays"'),
+    section: z.string().optional().describe('Optional section heading to group under')
+  }
+}, withLogging('delma_add_playbook_rule', (args) => runOp('org:playbook.md', 'add_playbook_rule', args)))
+
+// Environment ───────────────────────────────────────────────────────────────
+
+server.registerTool('delma_set_environment_key', {
+  title: 'Set Environment Key',
+  description: 'Record an SFMC ID, DE name, journey/automation key, or other technical config value.',
+  inputSchema: {
+    key: z.string().describe('Identifier name, e.g. "Sender Profile ID"'),
+    value: z.string().describe('The value'),
+    note: z.string().optional().describe('Optional context')
+  }
+}, withLogging('delma_set_environment_key', (args) => runOp('memory:environment.md', 'set_environment_key', args)))
+
+// Decisions + Actions ───────────────────────────────────────────────────────
+
+server.registerTool('delma_add_decision', {
+  title: 'Add Decision',
+  description: 'Record a decision made on this project.',
+  inputSchema: {
+    text: z.string().describe('The decision, one sentence'),
+    owner: z.string().optional().describe('Who made / owns the decision')
+  }
+}, withLogging('delma_add_decision', (args) => runOp('memory:decisions.md', 'add_decision', args)))
+
+server.registerTool('delma_add_action', {
+  title: 'Add Action Item',
+  description: 'Record an action item / todo.',
+  inputSchema: {
+    text: z.string(),
+    owner: z.string().optional(),
+    due: z.string().optional().describe('Due date / timing (free text)')
+  }
+}, withLogging('delma_add_action', (args) => runOp('memory:decisions.md', 'add_action', args)))
+
+server.registerTool('delma_complete_action', {
+  title: 'Mark Action Done',
+  description: 'Mark an action item complete.',
+  inputSchema: { id: z.string().describe('Action id (from delma_add_action or get_workspace_state)') }
+}, withLogging('delma_complete_action', (args) => runOp('memory:decisions.md', 'complete_action', args)))
+
+// My Notes ──────────────────────────────────────────────────────────────────
+
+server.registerTool('delma_append_my_note', {
+  title: 'Append My Note',
+  description: 'Add a private note to the current user\'s scratchpad. Private — only you see it.',
+  inputSchema: { text: z.string() }
+}, withLogging('delma_append_my_note', (args) => runOp('memory:my-notes.md', 'append_my_note', args)))
 
 // ── Conversation Sync ───────────────────────────────────────────────────────
 

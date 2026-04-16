@@ -9,6 +9,7 @@ import { dirname, join, resolve } from 'path'
 import { writeFile } from 'fs/promises'
 import { createClient } from '@supabase/supabase-js'
 import { generateClaudeMd } from './lib/summarizer.js'
+import { applyOpsToTab, parseTabKey } from './lib/apply-op.js'
 
 // override: true ensures .env values beat any empty shell env vars
 // (e.g. ANTHROPIC_API_KEY="" set globally by Claude Desktop)
@@ -196,6 +197,32 @@ app.post('/api/refresh-claude-md', async (req, res) => {
     res.json({ ok: true, length: claudeMd.length, ms: Date.now() - t0 })
   } catch (err) {
     console.error('[server] refresh failed:', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ── Typed-op endpoint ─────────────────────────────────────────────────────────
+// Body: { tabKey: "org:people.md" | "memory:decisions.md" | ...,
+//         ops: [{ op: "add_person", args: {...} }, ...],
+//         workspaceId, orgId, userId }
+
+app.post('/api/op', async (req, res) => {
+  const { tabKey, ops, workspaceId, orgId, userId } = req.body || {}
+  const sb = getSb()
+  if (!sb) return res.status(500).json({ error: 'Supabase not configured' })
+  if (!tabKey || !Array.isArray(ops) || !ops.length) {
+    return res.status(400).json({ error: 'tabKey and non-empty ops[] required' })
+  }
+  const scope = parseTabKey(tabKey, { workspaceId, orgId, userId })
+  if (!scope) return res.status(400).json({ error: `not a structured tab: ${tabKey}` })
+
+  console.log('[server] op:', tabKey, 'ops:', ops.map(o => o.op).join(','))
+  try {
+    const result = await applyOpsToTab(sb, scope, ops)
+    console.log('[server] op applied — applied:', result.applied.length, 'errors:', result.errors.length)
+    res.json({ ok: true, ...result })
+  } catch (err) {
+    console.error('[server] op failed:', err.message)
     res.status(500).json({ error: err.message })
   }
 })
