@@ -495,6 +495,15 @@ const OPS = {
   },
   add_action(data, { text, owner, due }) {
     if (!text) throw new Error('text required')
+    // Dedup on open (not-done) actions only. If the user previously logged
+    // "Casey tests validation rule in dev" and marked it done, a new action
+    // with the same text may legitimately represent a new cycle. But two
+    // open duplicates are always noise.
+    const open = (data.actions || []).filter(a => !a.done)
+    const dup = findNearDupText(open, text, 'text')
+    if (dup) {
+      throw new Error(`Near-duplicate open action already exists: "${dup.text}" (${dup.id}). If this is completing it, call complete_action_by_text; otherwise skip.`)
+    }
     const actions = [...(data.actions || []), { id: `a_${Math.random().toString(36).slice(2, 7)}`, text, owner: owner || null, due: due || null, done: false }]
     return { ...data, actions }
   },
@@ -628,7 +637,24 @@ const OPS = {
     if (!nodes.find(n => n.id === to)) {
       throw new Error(`edge to "${to}" — no such node. Call add_node for "${to}" first, then retry this edge.`)
     }
-    const edges = [...(data.edges || []), { from, to, label: label || null }]
+    const existing = (data.edges || [])
+    const normLabel = label || null
+    // Dedup: reject exact-duplicate (from, to, label) — architecture-heavy
+    // narrative flagged three identical inbound edges on the same node.
+    const dup = existing.find(e => e.from === from && e.to === to && (e.label || null) === normLabel)
+    if (dup) {
+      throw new Error(`Edge ${from} → ${to}${normLabel ? ` [${normLabel}]` : ''} already exists. Don't re-add the same relationship.`)
+    }
+    // Same-label reverse-direction warning: A → B "sync" and then B → A "sync"
+    // usually means the LLM triple-fired on one relationship. Distinct-label
+    // reverse edges ("queries" + "read by") are legitimate.
+    if (normLabel) {
+      const reverse = existing.find(e => e.from === to && e.to === from && (e.label || null) === normLabel)
+      if (reverse) {
+        throw new Error(`Edge ${from} → ${to} [${normLabel}] contradicts existing reverse edge ${to} → ${from} [${normLabel}]. Data flows one direction — remove the wrong one or use distinct labels.`)
+      }
+    }
+    const edges = [...existing, { from, to, label: normLabel }]
     return { ...data, edges }
   },
   remove_edge(data, { from, to }) {
