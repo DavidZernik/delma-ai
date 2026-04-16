@@ -16,7 +16,7 @@ import { config as loadEnv } from 'dotenv'
 loadEnv({ override: true })
 import { createClient } from '@supabase/supabase-js'
 import { render, emptyData, isStructuredTab } from '../src/tab-ops.js'
-import { extractJsonArray } from '../src/extract-json-array.js'
+import { parseStructuredContent } from '../server/lib/parse-tab.js'
 
 const argv = process.argv.slice(2)
 const DRY = argv.includes('--dry')
@@ -35,118 +35,7 @@ const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_R
   auth: { autoRefreshToken: false, persistSession: false }
 })
 
-// ── Deterministic parsers ────────────────────────────────────────────────
-
-function parseMyNotes(md) {
-  // Strip leading "# My Notes" header if present, keep the rest as free text.
-  const stripped = md.replace(/^#\s*My Notes\s*\n+/i, '').trim()
-  return { text: stripped }
-}
-
-function parseDecisions(md) {
-  // Two sections: ## Decisions and ## Actions, each a bullet list.
-  const pickSection = (name) => {
-    const m = md.match(new RegExp(`##\\s*${name}[^\\n]*\\n([\\s\\S]*?)(?=\\n##\\s|$)`, 'i'))
-    if (!m) return []
-    return m[1].split('\n')
-      .map(l => l.match(/^\s*-\s*(?:\[([x ])\]\s*)?(.*)$/i))
-      .filter(Boolean)
-      .map(m => ({ done: (m[1] || '').toLowerCase() === 'x', raw: m[2].trim() }))
-      .filter(x => x.raw && !/^_?\(?none|^_\(?empty/i.test(x.raw))
-  }
-  const mkDecision = (raw) => {
-    const ownerM = raw.match(/\s*[_(]([^)_]+)[)_]\s*$/)
-    return { id: `d_${Math.random().toString(36).slice(2, 7)}`, text: ownerM ? raw.replace(ownerM[0], '').trim() : raw, owner: ownerM ? ownerM[1].trim() : null }
-  }
-  const mkAction = (raw, done) => {
-    const dueM = raw.match(/—\s*due\s+(.+?)\s*(?:[_(]([^)_]+)[)_])?\s*$/i)
-    const ownerM = raw.match(/\s*[_(]([^)_]+)[)_]/)
-    let text = raw, owner = null, due = null
-    if (dueM) { due = dueM[1].trim(); text = raw.replace(dueM[0], '').trim() }
-    if (ownerM) { owner = ownerM[1].trim(); text = text.replace(ownerM[0], '').trim() }
-    return { id: `a_${Math.random().toString(36).slice(2, 7)}`, text, owner, due, done: !!done }
-  }
-  return {
-    decisions: pickSection('Decisions').map(x => mkDecision(x.raw)),
-    actions: pickSection('Actions').map(x => mkAction(x.raw, x.done))
-  }
-}
-
-function parseEnvironment(md) {
-  // Bullets like: - **key**: value — note
-  const entries = []
-  for (const line of md.split('\n')) {
-    const m = line.match(/^\s*-\s*\*\*(.+?)\*\*:\s*(.+?)(?:\s*—\s*(.+))?\s*$/)
-    if (m) entries.push({ key: m[1].trim(), value: m[2].trim(), note: (m[3] || '').trim() || null })
-  }
-  return { entries }
-}
-
-function parsePlaybook(md) {
-  // Sections (## Heading) each containing bullet rules.
-  const rules = []
-  let currentSection = null
-  for (const line of md.split('\n')) {
-    const h = line.match(/^##\s+(.+?)\s*$/)
-    if (h) { currentSection = h[1].trim(); continue }
-    const b = line.match(/^\s*-\s+(.+?)\s*$/)
-    if (b && !/^_\(?none|empty/i.test(b[1])) {
-      rules.push({ id: `r_${Math.random().toString(36).slice(2, 7)}`, text: b[1].trim(), section: currentSection })
-    }
-  }
-  return { rules }
-}
-
-// ── LLM parser for People ────────────────────────────────────────────────
-
-async function parsePeopleWithLLM(md) {
-  const sys = `Extract the People org chart from the given markdown (which may include a Mermaid flowchart) into JSON matching this schema:
-
-{
-  "people": [
-    { "id": "<short_slug>", "name": "<full name>", "role": "<role/title or null>", "kind": "person" | "manager" | "stakeholder" | "team" | "vendor", "reports_to": ["<id of manager>", ...] }
-  ]
-}
-
-Rules:
-- id: snake_case short slug of first name, e.g. "keyona" or "david"
-- kind: infer from Mermaid shape/class (::manager, ::person, ::stakeholder, ::team, ::vendor). Default "person".
-- reports_to: ids of nodes that arrow INTO this node in the Mermaid (A --> B means B reports to A, so B.reports_to includes A.id).
-- If there are no people, return {"people": []}.
-
-Return ONLY valid JSON. No prose. No code fences.`
-
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': process.env.ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01'
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5', max_tokens: 2000, system: sys,
-      messages: [{ role: 'user', content: md }]
-    })
-  })
-  if (!res.ok) throw new Error(`Anthropic ${res.status}: ${await res.text()}`)
-  const data = await res.json()
-  const raw = data.content?.[0]?.text?.trim() || '{}'
-  const cleaned = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '')
-  try { return JSON.parse(cleaned) }
-  catch { return { people: [] } }
-}
-
-// ── Dispatcher ───────────────────────────────────────────────────────────
-
-const PARSERS = {
-  'my-notes.md': async (md) => parseMyNotes(md),
-  'decisions.md': async (md) => parseDecisions(md),
-  'environment.md': async (md) => parseEnvironment(md),
-  'playbook.md': async (md) => parsePlaybook(md),
-  'people.md': async (md) => parsePeopleWithLLM(md)
-}
-
-function looksEmpty(md, filename) {
+function looksEmpty(md) {
   const m = (md || '').trim()
   if (!m) return true
   // If it matches the canonical empty template (just the header + seed prose), treat as empty.
@@ -167,12 +56,12 @@ async function backfillRows(table) {
     console.log(`→ ${table}/${row.filename} (id=${row.id.slice(0, 8)}) ...`)
 
     let structured
-    if (looksEmpty(row.content, row.filename)) {
+    if (looksEmpty(row.content)) {
       structured = emptyData(row.filename)
       console.log(`  empty — using default shape`)
     } else {
       try {
-        structured = await PARSERS[row.filename](row.content)
+        structured = await parseStructuredContent(row.filename, row.content, { anthropicKey: process.env.ANTHROPIC_API_KEY })
         const counts = summarize(row.filename, structured)
         console.log(`  parsed — ${counts}`)
       } catch (err) {

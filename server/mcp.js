@@ -253,7 +253,7 @@ server.registerTool(
   'append_memory_note',
   {
     title: 'Append Memory Note',
-    description: 'Append text to a project-level memory file (environment.md, decisions.md, or my-notes.md). For People / Playbook (org-level), use sync_conversation_summary.',
+    description: 'LEGACY free-form append. Prefer typed ops: delma_add_decision / delma_add_action for decisions.md, delma_set_environment_key for environment.md, delma_append_my_note for my-notes.md. Use this only when the typed ops do not fit (e.g. unstructured prose).',
     inputSchema: {
       file: z.enum(['environment.md', 'decisions.md', 'my-notes.md']),
       note: z.string(),
@@ -437,11 +437,18 @@ server.registerTool('delma_append_my_note', {
 server.registerTool(
   'sync_conversation_summary',
   {
-    title: 'Sync Conversation Summary',
-    description: `Sync facts from the current conversation into the Delma workspace.
-Call this every few exchanges when project-relevant information comes up:
-people, decisions, architecture details, environment IDs, key logic, or status changes.
-Pass a plain-English summary — the tool handles routing to the right tabs and patching.`,
+    title: 'Sync Conversation Summary (LEGACY)',
+    description: `LEGACY bulk-sync tool. STRONGLY PREFER the typed-op tools instead:
+- delma_add_person / delma_set_role / delma_add_reporting_line for People
+- delma_add_playbook_rule for Playbook
+- delma_set_environment_key for Environment IDs
+- delma_add_decision / delma_add_action for Decisions & Actions
+- delma_append_my_note for personal notes
+- save_diagram_view for Architecture diagram updates
+
+The typed-op tools are deterministic, surgical, and can't corrupt content.
+Only fall back to this tool when the typed ops genuinely don't fit (bulk
+import, free-form prose that spans multiple tabs).`,
     inputSchema: {
       summary: z.string().describe('Plain-English summary of facts, decisions, people, or details discussed in the conversation. Be specific — include names, IDs, roles, system details.')
     }

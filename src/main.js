@@ -26,6 +26,36 @@ import { marked } from 'marked'
 import { supabase } from './lib/supabase.js'
 import { ROUTER_SYSTEM_PROMPT, buildTabsBlock, buildRouterUserMessage } from './router-prompt.js'
 import { extractJsonArray } from './extract-json-array.js'
+import { isStructuredTab } from './tab-ops.js'
+
+// Helper: get the current user's Supabase JWT for authenticated server calls.
+// Server endpoints verify this token and never trust a client-supplied userId.
+async function authHeaders() {
+  const { data: { session } } = await supabase.auth.getSession()
+  const token = session?.access_token
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
+// Save the markdown editor's content for a structured tab. The server
+// re-parses markdown → JSON so the structured column stays canonical.
+async function postStructuredSave(tabKey, content) {
+  console.log('[delma save] structured tab', tabKey, 'len:', content.length)
+  const headers = { 'Content-Type': 'application/json', ...(await authHeaders()) }
+  const res = await fetch('/api/save-structured-tab', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      tabKey, content,
+      workspaceId: state.workspaceId,
+      orgId: state.org?.id
+    })
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.error || `save failed (${res.status})`)
+  }
+  return res.json()
+}
 
 mermaid.registerLayoutLoaders(elkLayouts)
 mermaid.initialize({
@@ -1580,19 +1610,22 @@ async function saveCurrentTab() {
     const content = els.diagramEditor.value
     state.orgMemory[filename] = content
 
-    const { data: existing } = await supabase
-      .from('org_memory_notes')
-      .select('id')
-      .eq('org_id', state.org.id)
-      .eq('filename', filename)
-      .single()
-
-    if (existing) {
-      await supabase.from('org_memory_notes').update({ content }).eq('id', existing.id)
+    if (isStructuredTab(filename)) {
+      // Structured tabs: route through /api/save-structured-tab so the server
+      // re-parses the markdown into JSON. Without this, manual edits would be
+      // overwritten the next time the typed-op router touches the tab.
+      await postStructuredSave(`org:${filename}`, content)
     } else {
-      await supabase.from('org_memory_notes').insert({
-        org_id: state.org.id, filename, content, permission: 'edit-all', owner_id: state.user.id
-      })
+      const { data: existing } = await supabase
+        .from('org_memory_notes').select('id')
+        .eq('org_id', state.org.id).eq('filename', filename).single()
+      if (existing) {
+        await supabase.from('org_memory_notes').update({ content }).eq('id', existing.id)
+      } else {
+        await supabase.from('org_memory_notes').insert({
+          org_id: state.org.id, filename, content, permission: 'edit-all', owner_id: state.user.id
+        })
+      }
     }
 
     await refreshWorkspace()
@@ -1602,26 +1635,24 @@ async function saveCurrentTab() {
 
   // Save project-level memory tab
   if (state.activeTopTab === 'memory') {
-    // Save memory file
     const filename = state.activeMemoryFile
     const content = els.diagramEditor.value
     state.memory[filename] = content
 
-    const { data: existing } = await supabase
-      .from('memory_notes')
-      .select('id')
-      .eq('workspace_id', state.workspaceId)
-      .eq('filename', filename)
-      .or(`visibility.eq.shared,owner_id.eq.${state.user.id}`)
-      .single()
-
-    if (existing) {
-      await supabase.from('memory_notes').update({ content }).eq('id', existing.id)
+    if (isStructuredTab(filename)) {
+      await postStructuredSave(`memory:${filename}`, content)
     } else {
-      const visibility = filename === 'session-log.md' ? 'private' : 'shared'
-      await supabase.from('memory_notes').insert({
-        workspace_id: state.workspaceId, filename, content, visibility, owner_id: state.user.id
-      })
+      const { data: existing } = await supabase
+        .from('memory_notes').select('id')
+        .eq('workspace_id', state.workspaceId).eq('filename', filename)
+        .or(`visibility.eq.shared,owner_id.eq.${state.user.id}`).single()
+      if (existing) {
+        await supabase.from('memory_notes').update({ content }).eq('id', existing.id)
+      } else {
+        await supabase.from('memory_notes').insert({
+          workspace_id: state.workspaceId, filename, content, visibility: 'shared', owner_id: state.user.id
+        })
+      }
     }
 
     await refreshWorkspace()
@@ -2007,14 +2038,14 @@ async function routeAndPatchFact(input, questionContext = null) {
     const updatedTabs = []
     for (const [tabKey, tabOps] of Object.entries(opsByTab)) {
       console.log('[delma router] POST /api/op', tabKey, tabOps.length, 'op(s)')
+      const headers = { 'Content-Type': 'application/json', ...(await authHeaders()) }
       const res = await fetch('/api/op', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           tabKey, ops: tabOps,
           workspaceId: state.workspaceId,
-          orgId: state.org?.id,
-          userId: state.user?.id
+          orgId: state.org?.id
         })
       })
       if (!res.ok) {

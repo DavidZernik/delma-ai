@@ -10,6 +10,9 @@ import { writeFile } from 'fs/promises'
 import { createClient } from '@supabase/supabase-js'
 import { generateClaudeMd } from './lib/summarizer.js'
 import { applyOpsToTab, parseTabKey } from './lib/apply-op.js'
+import { requireUser, requireOrgMembership, requireWorkspaceMembership } from './lib/auth.js'
+import { parseStructuredContent } from './lib/parse-tab.js'
+import { render, isStructuredTab } from '../src/tab-ops.js'
 
 // override: true ensures .env values beat any empty shell env vars
 // (e.g. ANTHROPIC_API_KEY="" set globally by Claude Desktop)
@@ -203,20 +206,31 @@ app.post('/api/refresh-claude-md', async (req, res) => {
 
 // ── Typed-op endpoint ─────────────────────────────────────────────────────────
 // Body: { tabKey: "org:people.md" | "memory:decisions.md" | ...,
-//         ops: [{ op: "add_person", args: {...} }, ...],
-//         workspaceId, orgId, userId }
+//         ops: [{ op, args }, ...], workspaceId, orgId }
+// Auth: Authorization: Bearer <supabase_access_token>
+// userId is taken from the verified token, NEVER from the request body.
 
 app.post('/api/op', async (req, res) => {
-  const { tabKey, ops, workspaceId, orgId, userId } = req.body || {}
   const sb = getSb()
   if (!sb) return res.status(500).json({ error: 'Supabase not configured' })
+  let user
+  try { user = await requireUser(req) }
+  catch (err) { return res.status(err.status || 401).json({ error: err.message }) }
+
+  const { tabKey, ops, workspaceId, orgId } = req.body || {}
   if (!tabKey || !Array.isArray(ops) || !ops.length) {
     return res.status(400).json({ error: 'tabKey and non-empty ops[] required' })
   }
-  const scope = parseTabKey(tabKey, { workspaceId, orgId, userId })
+  const scope = parseTabKey(tabKey, { workspaceId, orgId, userId: user.id })
   if (!scope) return res.status(400).json({ error: `not a structured tab: ${tabKey}` })
 
-  console.log('[server] op:', tabKey, 'ops:', ops.map(o => o.op).join(','))
+  // Authorize: the verified user must be a member of the relevant container.
+  try {
+    if (scope.kind === 'org') await requireOrgMembership(sb, user.id, orgId)
+    else if (scope.kind === 'project') await requireWorkspaceMembership(sb, user.id, workspaceId)
+  } catch (err) { return res.status(err.status || 403).json({ error: err.message }) }
+
+  console.log('[server] op:', tabKey, 'ops:', ops.map(o => o.op).join(','), 'by', user.id.slice(0, 8))
   try {
     const result = await applyOpsToTab(sb, scope, ops)
     console.log('[server] op applied — applied:', result.applied.length, 'errors:', result.errors.length)
@@ -225,6 +239,71 @@ app.post('/api/op', async (req, res) => {
     console.error('[server] op failed:', err.message)
     res.status(500).json({ error: err.message })
   }
+})
+
+// ── Structured-tab markdown save ──────────────────────────────────────────────
+// When the user edits the markdown view of a structured tab and clicks Save,
+// we parse the markdown back into structured JSON so the source of truth stays
+// in sync. Without this, manual edits would be silently overwritten the next
+// time the typed-op router or MCP tools touch the tab.
+//
+// Body: { tabKey, content, workspaceId, orgId }
+// Auth: Authorization: Bearer <supabase_access_token>
+
+app.post('/api/save-structured-tab', async (req, res) => {
+  const sb = getSb()
+  if (!sb) return res.status(500).json({ error: 'Supabase not configured' })
+  let user
+  try { user = await requireUser(req) }
+  catch (err) { return res.status(err.status || 401).json({ error: err.message }) }
+
+  const { tabKey, content, workspaceId, orgId } = req.body || {}
+  if (!tabKey || typeof content !== 'string') {
+    return res.status(400).json({ error: 'tabKey and content required' })
+  }
+  const [prefix, filename] = tabKey.split(':')
+  if (!isStructuredTab(filename)) {
+    return res.status(400).json({ error: `not a structured tab: ${tabKey}` })
+  }
+
+  try {
+    if (prefix === 'org') await requireOrgMembership(sb, user.id, orgId)
+    else if (prefix === 'memory') await requireWorkspaceMembership(sb, user.id, workspaceId)
+    else return res.status(400).json({ error: `unknown tab prefix: ${prefix}` })
+  } catch (err) { return res.status(err.status || 403).json({ error: err.message }) }
+
+  console.log('[server] save-structured-tab:', tabKey, 'len:', content.length, 'by', user.id.slice(0, 8))
+
+  let structured
+  try {
+    structured = await parseStructuredContent(filename, content, { anthropicKey: process.env.ANTHROPIC_API_KEY })
+    if (!structured) return res.status(500).json({ error: `no parser for ${filename}` })
+  } catch (err) {
+    console.error('[server] parse failed:', err.message)
+    return res.status(500).json({ error: `parse failed: ${err.message}` })
+  }
+
+  // Re-render from parsed JSON so the saved content matches the canonical view.
+  const rendered = render(filename, structured)
+
+  const table = prefix === 'org' ? 'org_memory_notes' : 'memory_notes'
+  const filter = prefix === 'org'
+    ? { org_id: orgId, filename }
+    : { workspace_id: workspaceId, filename }
+
+  // Upsert
+  const { data: existing } = await sb.from(table).select('id').match(filter).maybeSingle()
+  if (existing) {
+    const { error } = await sb.from(table).update({ structured, content: rendered }).eq('id', existing.id)
+    if (error) return res.status(500).json({ error: error.message })
+  } else {
+    const insertRow = prefix === 'org'
+      ? { org_id: orgId, filename, structured, content: rendered, permission: 'edit-all', owner_id: user.id }
+      : { workspace_id: workspaceId, filename, structured, content: rendered, visibility: 'shared', owner_id: user.id }
+    const { error } = await sb.from(table).insert(insertRow)
+    if (error) return res.status(500).json({ error: error.message })
+  }
+  res.json({ ok: true, structured, content: rendered })
 })
 
 // ── Static Files (production) ────────────────────────────────────────────────

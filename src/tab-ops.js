@@ -195,8 +195,10 @@ const OPS = {
     return { ...data, people }
   },
   set_role(data, { person, role }) {
+    const target = findByName(data.people || [], person)
+    if (!target) throw new Error(`unknown person: ${person}`)
     const people = (data.people || []).map(p =>
-      findByName([p], person) ? { ...p, role } : p
+      p.id === target.id ? { ...p, role } : p
     )
     return { ...data, people }
   },
