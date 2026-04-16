@@ -1,0 +1,40 @@
+name: Keep Delma awake for overnight quality run
+
+# Render's free tier spins the app down after ~15 min idle. The in-app
+# scheduler (server/index.js setInterval) only ticks while the Node
+# process is alive, so if the app is asleep at 00:00 PT, the overnight
+# quality run never fires.
+#
+# This workflow pings the app every 3 min through the fire window to
+# guarantee it's awake when setInterval reaches 00:00 PT. No duplication
+# risk: we never POST the trigger endpoint — only wake with GET /, and
+# let the in-app scheduler do the actual firing.
+
+on:
+  schedule:
+    # 15 min before 00:00 PT. Two entries cover both DST offsets.
+    # Only one of these lands in the pre-fire window each day; the other
+    # is a harmless wasted run during the other DST period.
+    # PDT (Mar–Nov, UTC-7):  23:45 PT = 06:45 UTC
+    - cron: '45 6 * * *'
+    # PST (Nov–Mar, UTC-8):  23:45 PT = 07:45 UTC
+    - cron: '45 7 * * *'
+  workflow_dispatch: {}  # manual trigger for testing
+
+jobs:
+  keep-warm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Ping every 3 min for 22 min to keep app awake through fire window
+        run: |
+          URL="https://delma-ai.onrender.com/"
+          END=$(( $(date +%s) + 22 * 60 ))
+          i=0
+          while [ $(date +%s) -lt $END ]; do
+            i=$((i+1))
+            status=$(curl -sS -m 30 -o /dev/null -w '%{http_code}' "$URL" || echo "ERR")
+            echo "[$(date -u +%H:%M:%SZ)] ping #$i -> $status"
+            sleep 180
+          done
+          echo "keep-warm loop complete at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
