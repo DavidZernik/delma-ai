@@ -144,17 +144,16 @@ async function scoreTab(expected, captured) {
     else missed.push(expText)
 
     // Entity-level checks — each named entity counts as its own item.
+    // These are identifiers (Welcome_Email_Day3, Populi_Sync_Auto, etc.).
+    // NO embedding fallback — embeddings consider Day0 and Day3 ~0.9 similar,
+    // which would falsely mark Day3 as present when only Day0 was captured.
+    // Identifiers must match exactly (case + separators normalized).
     for (const entity of entities) {
       totalItems += 1
-      // Cheap check first: is the entity (or a normalized form of it) present
-      // as a substring anywhere in the captured bucket's text?
       const lower = entity.toLowerCase()
       const lowerLoose = lower.replace(/[_\-]/g, '')
       const inCaptured = capturedText.includes(lower) || capturedText.replace(/[_\-]/g, '').includes(lowerLoose)
-      if (inCaptured) { matched++; continue }
-      // Fall back to embedding match for the entity alone
-      const entityHit = await findSemanticDupItem(entity, captured, { field: 'text', threshold: 0.6 })
-      if (entityHit) matched++
+      if (inCaptured) matched++
       else missingEntities.push(entity)
     }
   }
