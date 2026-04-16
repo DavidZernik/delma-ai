@@ -29,7 +29,15 @@ const SIM_THRESHOLD = {
 
 const cache = new Map()
 
-function hasEmbeddings() { return !!process.env.OPENAI_API_KEY }
+// Circuit breaker: if the embedding API returns auth/quota errors (401, 403,
+// 429), disable for the rest of the process so we don't spam hundreds of
+// failed requests per run. Resets on process restart.
+let embeddingsDisabled = false
+let embeddingsDisabledReason = null
+
+function hasEmbeddings() {
+  return !embeddingsDisabled && !!process.env.OPENAI_API_KEY
+}
 
 async function embedBatch(texts) {
   if (!hasEmbeddings() || !texts.length) return null
@@ -43,7 +51,16 @@ async function embedBatch(texts) {
     body: JSON.stringify({ model: EMBED_MODEL, input })
   })
   if (!res.ok) {
-    console.warn('[similarity] embed failed', res.status, (await res.text()).slice(0, 200))
+    const text = (await res.text()).slice(0, 200)
+    // On auth / quota errors, trip the breaker so we don't keep spamming.
+    if (res.status === 401 || res.status === 403 || res.status === 429) {
+      embeddingsDisabled = true
+      embeddingsDisabledReason = `${res.status}: ${text}`
+      console.warn('[similarity] embeddings disabled for this process —', embeddingsDisabledReason)
+      console.warn('[similarity] the heuristic dedup in src/tab-ops.js still runs; this just turns off the semantic layer.')
+      return null
+    }
+    console.warn('[similarity] embed failed', res.status, text)
     return null
   }
   const data = await res.json()
