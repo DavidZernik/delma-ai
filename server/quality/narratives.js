@@ -447,6 +447,84 @@ For architecture nodes, REUSE existing ids when you reference an object that's a
 
 If nothing concrete was said (chitchat, questions, vague hedges), don't call any tool. Just reply naturally.`
 
+// Post-turn reflection: after the main tool-use loop finishes, ask a cheap
+// model "did you miss anything the user named in this turn?" and let it
+// emit follow-up ops. Most 2/5 narratives in today's results came from the
+// LLM dropping explicitly-named objects (Welcome_Email_Day3, Populi_Send_Auto).
+// This pass catches those. Tagged `reflective: true` in the op log so we
+// can see which captures came from the reflection step vs the primary pass.
+//
+// Disabled with DELMA_SIM_NO_REFLECT=1 for A/B comparison runs.
+async function reflectTurn(userText, ops, ctx) {
+  if (process.env.DELMA_SIM_NO_REFLECT === '1') return []
+  if (!userText || userText.length < 30) return []  // skip chitchat-length turns
+
+  const opsSummary = ops.length
+    ? ops.map(o => `- ${o.tab}/${o.op} ${JSON.stringify(o.args || {}).slice(0, 120)}`).join('\n')
+    : '(no tools called)'
+
+  const prompt = `Review the last turn. For each thing the user named, did you call the right tool?
+
+USER TURN: """${userText}"""
+
+TOOL CALLS YOU MADE:
+${opsSummary}
+
+CHECKLIST:
+- Every named person → add_person (+ set_manager/add_reporting_line if reporting stated)
+- Every named SFMC object (Journey, Automation, DE, Email asset, CloudPage, SQL query activity, decision split) → architecture add_node (+ edges to wire it in)
+- Every explicit decision or reversal → add_decision or supersede_decision
+- Every tech ID (sender profile, BU, API, org alias, sandbox name) → set_environment_key
+- Every to-do → add_action with owner and due if stated
+- Every policy rule → add_playbook_rule
+
+If you captured everything: reply "complete" with no tool calls.
+If you MISSED something: call the missing tool(s) now. DO NOT re-capture what you already did (handlers reject near-duplicates anyway).`
+
+  try {
+    const tools = buildAnthropicTools()
+    const res = await fetch(ANTHROPIC_URL, {
+      method: 'POST',
+      headers: anthropicHeaders('narrative-sim-reflect'),
+      body: JSON.stringify({
+        model: HAIKU,
+        max_tokens: 1200,
+        system: CLAUDE_SYS,
+        tools,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    })
+    if (!res.ok) { console.warn('[quality:nar] reflection failed:', res.status); return [] }
+    const data = await res.json()
+    const toolUses = (data.content || []).filter(c => c.type === 'tool_use')
+    if (!toolUses.length) return []
+
+    const followUps = []
+    for (const tu of toolUses) {
+      const [fileSafe, op] = tu.name.split('__')
+      const filename = fileSafe.replace(/_md$/, '.md').replace(/^architecture$/, 'architecture')
+      const tabPrefix = filename === 'architecture' ? 'diagram:' : (['people.md', 'playbook.md'].includes(filename) ? 'org:' : 'memory:')
+      const tabKey = `${tabPrefix}${filename}`
+      const scope = parseTabKey(tabKey, ctx)
+      if (!scope) continue
+      const t0 = Date.now()
+      try {
+        const r = await applyOpsToTab(sb, scope, [{ op, args: tu.input || {} }])
+        followUps.push({ tab: tabKey, op, args: tu.input, ok: true, ms: Date.now() - t0, errors: r.errors, reflective: true })
+      } catch (err) {
+        // Rejections here are often "handler caught a near-dup we already
+        // had" — that's fine, the original pass captured it. Still logged
+        // so we can see what reflection tried.
+        followUps.push({ tab: tabKey, op, args: tu.input, ok: false, ms: Date.now() - t0, error: err.message, reflective: true })
+      }
+    }
+    return followUps
+  } catch (err) {
+    console.warn('[quality:nar] reflection error (non-fatal):', err.message)
+    return []
+  }
+}
+
 // Native tool-use turn. Returns the assistant's tool calls + final reply.
 async function runOneTurn(messages, ctx) {
   const tools = buildAnthropicTools()
@@ -608,16 +686,19 @@ export async function runNarrative(narrative, opts = {}) {
     apiMessages.push({ role: 'user', content: userMsg })
     const turnStart = Date.now()
     const { reply, ops } = await runOneTurn(apiMessages, ctx)
-    const firstOpAt = ops[0] ? turnStart + ops[0].ms : null  // approximation: ms is op duration; full elapsed since turn start
+    // Post-turn reflection — catches named objects the primary pass dropped.
+    const reflectiveOps = await reflectTurn(userMsg, ops, ctx)
+    const allTurnOps = reflectiveOps.length ? [...ops, ...reflectiveOps] : ops
     turnTimings.push({
       user_msg: userMsg.slice(0, 60),
       ops_count: ops.length,
+      reflective_ops_count: reflectiveOps.length,
       ms_to_reply: Date.now() - turnStart,
-      ops_called: ops.map(o => `${o.tab}/${o.op}`)
+      ops_called: allTurnOps.map(o => `${o.tab}/${o.op}${o.reflective ? ' (reflect)' : ''}`)
     })
     apiMessages.push({ role: 'assistant', content: reply })  // simplified — drops tool blocks but keeps the natural reply for next turn
-    allOpResults.push(...ops)
-    transcript.push({ role: 'claude', text: reply, ops })
+    allOpResults.push(...allTurnOps)
+    transcript.push({ role: 'claude', text: reply, ops: allTurnOps })
   }
 
   const [{ data: mem }, { data: org }, { data: dia }] = await Promise.all([
