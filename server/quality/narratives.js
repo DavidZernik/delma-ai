@@ -175,6 +175,71 @@ export const NARRATIVES = [
       architecture: ['Add TestSendAuto (automation) that fires before each batch'],
       playbook: ['No Friday launches — already in playbook, no action needed (don\'t duplicate)']
     }
+  },
+  {
+    id: 'sfmc-cross-bu-trap',
+    title: 'SFMC: cross-BU campaign with parent + working BU distinction',
+    turns: [
+      "OK new campaign: Populi outreach. The Populi audience DE lives in our parent BU (Emory Healthcare), but all the sends + journey activity happen in our working BU (Marketing).",
+      "So the source DE is `Populi_Audience_Master` in the parent BU.",
+      "We replicate it nightly to a sendable DE called `Populi_Sendable_Daily` in the Marketing BU.",
+      "The automation `Populi_Sync_Auto` does the cross-BU copy at 3am.",
+      "Then `Populi_Send_Auto` runs at 5am, queries the sendable DE, and feeds the `PopuliWelcome` journey.",
+      "The journey sends a single email asset called `Populi_Welcome_Email_v2`.",
+      "Sender profile: SP_Populi_Marketing. From address: marketing@example.com. Reply mailbox: marketing-replies@example.com.",
+      "Group the cross-BU sync (source DE + sync auto + sendable DE) under a 'Cross-BU Source' layer. The 5am send + journey + email under 'Daily Send' layer.",
+      "Anything missed?"
+    ],
+    expected: {
+      environment: [
+        'Parent BU = "Emory Healthcare", working BU = "Marketing" (SEPARATE keys)',
+        'Source DE = Populi_Audience_Master (parent BU)',
+        'Sendable DE = Populi_Sendable_Daily (Marketing BU)',
+        'SP_Populi_Marketing (sender profile)',
+        'marketing@example.com (from address — DIFFERENT key than reply mailbox)',
+        'marketing-replies@example.com (reply mailbox)'
+      ],
+      architecture: [
+        'Nodes: Populi_Audience_Master (deSource), Populi_Sync_Auto (automation), Populi_Sendable_Daily (de), Populi_Send_Auto (automation), PopuliWelcome (journey), Populi_Welcome_Email_v2 (email)',
+        'CRITICAL: deSource for the parent-BU DE, de for the working-BU DE — these are different kinds',
+        'Two layers: "Cross-BU Source" wraps the first three nodes; "Daily Send" wraps the last three',
+        'Edges flow: Audience → Sync_Auto → Sendable → Send_Auto → Journey → Email'
+      ],
+      shouldNOTcapture: [
+        'Sender profile in People tab (it goes in Environment)',
+        'From address conflated with reply mailbox or sender profile (these are 3 distinct SFMC concepts)'
+      ]
+    }
+  },
+  {
+    id: 'sfmc-classification-traps',
+    title: 'SFMC: classification ambiguity (CloudPage, AMPscript, decision splits)',
+    turns: [
+      "The new flow has a quiz the user takes from the email link. The quiz is a CloudPage with AMPscript handling submissions.",
+      "After they submit, we use a decision split inside the journey: if quiz_complete = true, send the next email; otherwise wait 48h and re-prompt.",
+      "The CloudPage is called `Birthday_Quiz_2025`. The journey is `BirthdayJourney_v3`.",
+      "Two emails: `Birthday_Initial` (sent on day 0) and `Birthday_FollowUp` (sent on day 3 if quiz incomplete).",
+      "Source DE: `Birthday_Patients_Daily`. Sender profile: SP_Birthday_Promo.",
+      "Anything I missed?"
+    ],
+    expected: {
+      architecture: [
+        'Birthday_Quiz_2025 must be kind:cloudpage (NOT email — common LLM mistake)',
+        'BirthdayJourney_v3 = kind:journey',
+        'Birthday_Initial + Birthday_FollowUp = kind:email each',
+        'Decision split inside journey = kind:decision (NOT a separate journey)',
+        'Birthday_Patients_Daily = kind:de (or deSource if read-only)',
+        'AMPscript should appear as a NOTE on the CloudPage node, NOT as its own node — AMPscript is a language used inside SFMC objects, not an SFMC object itself'
+      ],
+      environment: [
+        'SP_Birthday_Promo (sender profile)'
+      ],
+      shouldNOTcapture: [
+        'AMPscript as its own architecture node',
+        'CloudPage classified as email or as endpoint',
+        'Decision split as a separate journey'
+      ]
+    }
   }
 ]
 
@@ -329,27 +394,52 @@ async function runOneTurn(messages, ctx) {
   return { reply: finalText || '(model exceeded tool-use loop)', ops: opsRecorded, raw: null }
 }
 
-const CRITIC_SYS = `You critique a Delma narrative-test run.
+const CRITIC_SYS = `You critique a Delma narrative-test run. Delma is a context-management workspace specifically for Salesforce + Salesforce Marketing Cloud (SFMC) projects. Apply SFMC-savvy judgement when grading — the system's reason to exist is that it should make SFMC builds usable by non-technical PMs.
 
-Inputs:
-- The narrative title + the script of user messages (ground truth)
-- An "expected outcome" written by a human author (what should be in Delma after this conversation)
-- The actual final structured state captured per tab
-- Per-op timings + errors
+SFMC-specific things to GRADE STRICTLY:
 
-Score 1-5 on:
-- accuracy   (does final state match expected? penalize misses + wrong placements)
-- coverage   (% of expected items present)
-- correctness (right ops chosen? wrong tabs polluted? noise captured as fact?)
+A. Architecture-tab classifications (the kind field really matters):
+   - "Sendable Data Extension" / "Source DE" / DE in general → kind: de or deSource
+   - "Automation" (Automation Studio) → kind: automation. NOT to be confused with a Journey.
+   - "SQL Query Activity" → kind: sql. NOT an automation, NOT a DE.
+   - "Journey" (Journey Builder) → kind: journey
+   - "Email asset" / Email Studio asset → kind: email
+   - "CloudPage" / preference center / quiz page → kind: cloudpage. NOT an email.
+   - "Decision split" inside a journey → kind: decision
+   - AMPscript belongs in node notes / labels, not as a separate node kind
+
+B. Environment-tab keys — the SFMC fields the model often confuses:
+   - Sender Profile (e.g. SP_Birthday) ≠ From Address ≠ Reply Mailbox. Three different keys.
+   - Source DE name ≠ Sendable DE name (often different DEs)
+   - Journey ID ≠ Journey Name
+   - Parent BU vs working BU (e.g. parent="Emory Healthcare", working="Marketing") — should be distinct keys
+
+C. People-tab nuances:
+   - "Marketing Ops" or "ESP admin" is usually internal staff (kind: person/manager)
+   - External agency / contractor → kind: vendor
+   - Compliance / Legal reviewer → kind: stakeholder
+
+D. Decisions/Actions:
+   - "We're moving from Send Classification A to B" is a decision.
+   - "Update the journey by Friday" is an action with a due date.
+   - SFMC-specific cadence rules (e.g. "no sends Fridays") belong in PLAYBOOK, not Decisions.
+
+E. Cross-BU handling — common SFMC trap:
+   - When user says "the Populi campaign runs in the Marketing BU but pulls from the Emory parent BU DE," BOTH the source BU AND the working BU should be captured as environment keys.
+
+Score 1-5 on each axis (be honest — 5 means the run is genuinely production-grade for an SFMC PM):
+- accuracy   (does final state match the expected outcome? penalize SFMC misclassifications heavily — calling a CloudPage an email is wrong)
+- coverage   (did obvious facts get captured? what was missed?)
+- correctness (right ops + right tabs + right SFMC classifications)
 - timeliness (any pathological lag — outliers > 3s on a typed op?)
 
 Return JSON ONLY:
 {
   "scores": { "accuracy": <1-5>, "coverage": <1-5>, "correctness": <1-5>, "timeliness": <1-5> },
   "overall": <1-5>,
-  "summary": "<2-3 sentences for a tired human at 7am>",
-  "missed": [ "<expected items NOT in final state>" ],
-  "wrong": [ "<things in final state that don't match the script>" ],
+  "summary": "<2-3 sentences for a tired human at 7am — call out SFMC-specific issues by name>",
+  "missed": [ "<expected items NOT in final state — be specific about WHICH SFMC concept was missed>" ],
+  "wrong": [ "<things wrongly classified — e.g. 'CloudPage was added as kind:email'>" ],
   "praise": [ "<things that worked well>" ]
 }`
 

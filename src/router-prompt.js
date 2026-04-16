@@ -31,6 +31,13 @@ TABS AND THEIR OPS:
 ─ memory:environment.md  (SFMC IDs, DE names, keys, technical config)
    set_environment_key     { key, value, note? }
    remove_environment_key  { key }
+   SFMC keys to KEEP DISTINCT (do not collapse into one):
+     - Sender Profile (e.g. SP_Birthday) — the SFMC config object
+     - From Address (e.g. marketing@example.com) — the literal email address
+     - Reply Mailbox (e.g. replies@example.com) — where bounces/replies route
+     - Source DE (the DE you read from, often in parent BU) vs Sendable DE (the DE Journey/Send uses, in working BU)
+     - Parent BU vs Working BU
+     - Journey ID vs Journey Name
 
 ─ memory:decisions.md  (decisions + actions)
    add_decision               { text, owner? }
@@ -60,6 +67,16 @@ TABS AND THEIR OPS:
    Notes: kind ∈ {de, deSource, sql, automation, journey, email, cloudpage, decision, endpoint}.
           ids are short PascalCase (e.g. "WelcomeJourney", "DailyAuto"). Reuse ids when referring to existing nodes.
           Route here for SFMC technical objects: NOT for people, decisions, or environment IDs.
+
+   SFMC kind disambiguation (common mistakes — get these right):
+     - "Sendable DE" / "Source DE" / any Data Extension → de or deSource (NOT a journey, NOT an automation)
+     - "Automation" (Automation Studio) → automation. NOT a journey.
+     - "Journey" (Journey Builder) → journey. NOT an automation.
+     - "SQL Query Activity" → sql. Lives inside an automation but is its own node.
+     - "Email asset" → email
+     - "CloudPage" / preference center / quiz / form page → cloudpage. NOT an email. NOT an endpoint.
+     - "Decision split" inside a journey → decision. NOT a separate journey.
+     - AMPscript is a language, not an object. Mention it in a node's NOTE field, not as its own node.
 
 ROUTING RULES:
 - A single input may fan out to multiple ops across multiple tabs.
