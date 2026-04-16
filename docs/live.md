@@ -553,3 +553,97 @@ one-shot run of `scripts/backfill-structured.js`:
 | Router prompt grew with every feature | Prompt shrunk; new feature = handler + eval case |
 | No record of "what changed" | Every op auditable, named, testable |
 | Photo loss, mangled diagrams, lost rules | Deterministic — can't lose what code didn't touch |
+
+---
+
+## 14. Quality Lab — overnight self-evaluation
+
+While David sleeps (10pm–7am PT), the server runs one comprehensive
+end-to-end test plus cheap regression + hygiene checks. Findings persist
+to `quality_*` tables and are visible publicly at **`/logs`**.
+
+### Headline overnight job — replay-first, narrative-fallback
+
+The runner picks one of two modes based on real activity:
+
+**REPLAY mode** (when there are ≥5 real `api_op_logs` from the last 24h):
+1. Pulls yesterday's actual router inputs + ops that ran in production
+2. For each op, reconstructs the structured state before it ran
+3. Re-applies the op against a fresh in-memory copy
+4. Sends the user input + before/after state to a **Sonnet critic** that
+   grades 1–5: did this op match what the user actually said?
+5. Writes per-op observations to `quality_observations` (severity:
+   clean / minor / suspicious / wrong)
+
+**NARRATIVE mode** (when production traffic is sparse — early days):
+- Runs a small library of curated multi-turn conversation scripts (in
+  `server/quality/narratives.js`). Each script is a deliberate full-arc
+  workday — a PM onboarding, a scope pivot mid-conversation, chitchat
+  mixed with real facts — written by hand with an "expected outcome"
+  ground truth.
+- For each script: a Haiku "Claude" decides which typed ops to call
+  per turn, ops apply via the same `/api/op` code path, then a Sonnet
+  critic compares the final structured state against the expected
+  outcome. Stored in `quality_simulations`.
+
+The two modes share the same critic schema, so the morning view treats
+them identically.
+
+### Two distinct timeliness modes (per David's framing)
+
+`server/quality/timeliness.js` separates:
+
+| Mode | What it measures | Source |
+|------|------------------|--------|
+| **A — "Claude was slow to call the tool"** | Claude saw relevant info but processed N more messages before calling MCP | For narrative/replay: precise (we have both timestamps). For real Claude Code: approximated via 5–60min gaps between consecutive MCP calls. (True measurement requires conversation-side timestamps from Claude Desktop — possible by extending `hooks/inject-claude-md.sh` to log a per-message tick.) |
+| **B — "Delma applied the op slowly"** | Server-side latency from receiving op to applying it | `api_op_logs.duration_ms`, `mcp_call_logs.duration_ms`. Pure Delma. |
+
+Both bucket into `quality_signals` rows and surface on `/logs` with
+percentile distributions.
+
+### The supporting layers (always run nightly)
+
+| Layer | What it does | Output table |
+|-------|--------------|--------------|
+| Regression evals | Runs the canonical eval suite (`server/quality/eval-cases.js`) — shared with `scripts/eval-router.js` | `quality_eval_runs` |
+| State hygiene | Pure SQL: orphan arch nodes, overdue actions, unowned old decisions, roleless people | `quality_state_checks` |
+| Router signal mining | Clusters last 24h router calls: empty-ops, fan-outs → Sonnet asks "what's missing?" | `quality_signals` |
+| A/B leaderboard *(opt-in)* | Re-runs eval suite against alternate model+prompt combos | `quality_experiments` |
+
+### Manual triggers
+
+```
+POST /quality/run             # cheap layers only
+POST /quality/run-overnight   # full overnight pipeline (replay or narrative + cheap layers)
+```
+
+Both return immediately; jobs run in the background.
+
+### What you see at /logs
+
+Top of the page is **Things to act on** — a sorted, deduplicated table
+that pulls the highest-severity findings from every layer (failed evals,
+suspicious/wrong critique observations, state warnings, sim missed/wrong
+items) into one row-per-issue actionable view. Below that:
+
+- Summary stats + per-layer status (when each last ran, any errors)
+- Overnight simulation (latest 7) with score + summary + drill-down
+- Regression evals (latest run, full per-case table)
+- State hygiene findings
+- Signal patterns (timeliness mode-A and mode-B + router clusters)
+- A/B experiments
+- Recent `/api/op` writes (raw)
+- Recent router calls (raw)
+
+### Files
+
+| File | Role |
+|---|---|
+| `server/quality/runner.js` | Master entry: dispatches replay vs narrative + runs cheap layers |
+| `server/quality/replay.js` | Replays real production ops with critic |
+| `server/quality/narratives.js` | Curated full-arc conversation scripts + runner |
+| `server/quality/timeliness.js` | Two-mode latency analysis (no LLM) |
+| `server/quality/eval-cases.js` | Canonical eval cases (shared with `scripts/eval-router.js`) |
+| `server/quality/logs-page.js` | `/logs` HTML renderer (server-side, no JS) |
+| `supabase/migrations/009_quality_lab.sql` | quality_* tables + api_op_logs |
+| `supabase/migrations/010_quality_simulations.sql` | quality_simulations table |

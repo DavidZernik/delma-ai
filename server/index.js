@@ -13,6 +13,8 @@ import { applyOpsToTab, parseTabKey } from './lib/apply-op.js'
 import { requireUser, requireOrgMembership, requireWorkspaceMembership } from './lib/auth.js'
 import { parseStructuredContent } from './lib/parse-tab.js'
 import { render, isStructuredTab } from '../src/tab-ops.js'
+import { runAllLayers, runOvernight } from './quality/runner.js'
+import { renderLogsPage } from './quality/logs-page.js'
 
 // override: true ensures .env values beat any empty shell env vars
 // (e.g. ANTHROPIC_API_KEY="" set globally by Claude Desktop)
@@ -60,8 +62,16 @@ async function callOpenAICompatible(apiUrl, apiKey, provider, model, system, use
 }
 
 app.post('/api/chat', async (req, res) => {
-  const { system, user, max_tokens } = req.body
+  const { system, user, max_tokens, meta } = req.body
   const model = req.body.model || 'claude-sonnet-4-20250514'
+  const isRouter = req.headers['x-delma-caller'] === 'router'
+  const t0 = Date.now()
+
+  // Best-effort: capture authenticated user for router-call logging.
+  let authedUserId = null
+  if (isRouter) {
+    try { authedUserId = (await requireUser(req)).id } catch { /* unauthenticated chat is allowed */ }
+  }
 
   if (model.startsWith('deepseek-')) {
     if (!process.env.DEEPSEEK_API_KEY) return res.status(500).json({ error: 'DEEPSEEK_API_KEY not set' })
@@ -91,8 +101,44 @@ app.post('/api/chat', async (req, res) => {
     const text = await response.text()
     return res.status(response.status).json({ error: text })
   }
-  res.json(await response.json())
+  const body = await response.json()
+  res.json(body)
+
+  // Persist router calls for the Quality Lab. Fire-and-forget so the
+  // response isn't blocked. Best-effort — failure here doesn't matter.
+  if (isRouter && meta?.input) {
+    const sb = getSb()
+    if (sb) {
+      const raw = body.content?.[0]?.text || ''
+      let ops = []
+      try { ops = extractJsonArrayServer(raw) } catch {}
+      void sb.from('quality_router_calls').insert({
+        user_id: authedUserId, workspace_id: meta.workspace_id || null,
+        input: meta.input, ops, raw_response: raw, model,
+        duration_ms: Date.now() - t0
+      })
+    }
+  }
 })
+
+// Tiny mirror of src/extract-json-array.js for server use without requiring
+// the browser bundle. Walks brackets, ignores trailing prose.
+function extractJsonArrayServer(raw) {
+  if (!raw) return []
+  const start = raw.indexOf('[')
+  if (start < 0) return []
+  let depth = 0, inStr = false, esc = false
+  for (let i = start; i < raw.length; i++) {
+    const ch = raw[i]
+    if (esc) { esc = false; continue }
+    if (ch === '\\') { esc = true; continue }
+    if (ch === '"') { inStr = !inStr; continue }
+    if (inStr) continue
+    if (ch === '[') depth++
+    else if (ch === ']') { depth--; if (depth === 0) { try { return JSON.parse(raw.slice(start, i + 1)) } catch { return [] } } }
+  }
+  return []
+}
 
 // ── Supabase service-role client — lazy-initialized so missing env vars
 //    on a deploy don't crash the whole server at boot. Endpoints that need
@@ -231,12 +277,22 @@ app.post('/api/op', async (req, res) => {
   } catch (err) { return res.status(err.status || 403).json({ error: err.message }) }
 
   console.log('[server] op:', tabKey, 'ops:', ops.map(o => o.op).join(','), 'by', user.id.slice(0, 8))
+  const t0 = Date.now()
   try {
     const result = await applyOpsToTab(sb, scope, ops)
     console.log('[server] op applied — applied:', result.applied.length, 'errors:', result.errors.length)
+    void sb.from('api_op_logs').insert({
+      user_id: user.id, workspace_id: workspaceId, org_id: orgId,
+      tab_key: tabKey, ops, applied_count: result.applied.length, error_count: result.errors.length,
+      duration_ms: Date.now() - t0, success: true
+    })
     res.json({ ok: true, ...result })
   } catch (err) {
     console.error('[server] op failed:', err.message)
+    void sb.from('api_op_logs').insert({
+      user_id: user.id, workspace_id: workspaceId, org_id: orgId,
+      tab_key: tabKey, ops, duration_ms: Date.now() - t0, success: false, error: err.message
+    })
     res.status(500).json({ error: err.message })
   }
 })
@@ -305,6 +361,57 @@ app.post('/api/save-structured-tab', async (req, res) => {
   }
   res.json({ ok: true, structured, content: rendered })
 })
+
+// ── Quality Lab ──────────────────────────────────────────────────────────────
+// Public observability page + manual triggers + overnight scheduler.
+
+app.get('/logs', async (req, res) => {
+  try {
+    const html = await renderLogsPage()
+    res.set('Content-Type', 'text/html; charset=utf-8').send(html)
+  } catch (err) {
+    res.status(500).send(`<pre>logs render failed: ${err.message}</pre>`)
+  }
+})
+
+// Manual triggers (no auth — internal use; remove if exposed externally)
+app.post('/quality/run', async (req, res) => {
+  res.json({ ok: true, started: true })
+  void runAllLayers().catch(err => console.error('[quality] run failed:', err))
+})
+app.post('/quality/run-overnight', async (req, res) => {
+  res.json({ ok: true, started: true })
+  void runOvernight().catch(err => console.error('[quality] overnight run failed:', err))
+})
+
+// Scheduler: every 30 minutes, check the clock. Fire the overnight simulation
+// once per night during 10pm-7am Pacific (when David is sleeping).
+let lastSimDate = null
+const PT_OFFSET_MINUTES = -480  // -8 hours; PT is roughly UTC-8 (PST). Daylight saving drift = ~1h, acceptable for a sleep window check.
+function isOvernightPT() {
+  const utc = new Date()
+  const ptHour = (utc.getUTCHours() * 60 + utc.getUTCMinutes() + PT_OFFSET_MINUTES + 24 * 60) % (24 * 60) / 60
+  return ptHour >= 22 || ptHour < 7
+}
+function todayPTKey() {
+  const utc = new Date(Date.now() + PT_OFFSET_MINUTES * 60 * 1000)
+  return utc.toISOString().slice(0, 10)
+}
+async function maybeRunOvernight() {
+  if (!process.env.ANTHROPIC_API_KEY) return
+  if (!isOvernightPT()) return
+  const key = todayPTKey()
+  if (lastSimDate === key) return  // already ran tonight
+  lastSimDate = key
+  console.log('[quality:sched] overnight window — firing overnight runner')
+  try {
+    await runOvernight()
+  } catch (err) {
+    console.error('[quality:sched] overnight run failed:', err)
+  }
+}
+setInterval(maybeRunOvernight, 30 * 60 * 1000)
+setTimeout(maybeRunOvernight, 60 * 1000)  // also try once 1 minute after boot
 
 // ── Static Files (production) ────────────────────────────────────────────────
 

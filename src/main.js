@@ -2019,12 +2019,14 @@ async function routeAndPatchFact(input, questionContext = null) {
   try {
     const res = await fetch('/api/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Delma-Caller': 'router', ...(await authHeaders()) },
       body: JSON.stringify({
         model: 'claude-haiku-4-5',
         max_tokens: 2000,
         system: ROUTER_SYSTEM_PROMPT,
-        user: userMessage
+        user: userMessage,
+        // Logged server-side as the input that produced these ops:
+        meta: { input, workspace_id: state.workspaceId }
       })
     })
 
