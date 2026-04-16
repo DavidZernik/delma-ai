@@ -10,7 +10,8 @@
     "start": "NODE_ENV=production node server/index.js",
     "start:mcp": "node server/mcp.js",
     "eval:router": "node scripts/eval-router.js",
-    "smoke": "node scripts/smoke.js"
+    "smoke": "node scripts/smoke.js",
+    "overnight": "node scripts/overnight.js"
   },
   "dependencies": {
     "@mermaid-js/layout-elk": "^0.2.1",

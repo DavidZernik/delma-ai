@@ -1,13 +1,17 @@
 // Fast smoke-test runner for waking-hour iteration.
 //
-//   npm run smoke                  → runs 6 regression evals + 1 default narrative (~90s)
-//   npm run smoke -- architecture-heavy  → runs one specific narrative + evals
-//   npm run smoke -- --full        → runs ALL 12 narratives + evals (~12 min — same as overnight)
-//   npm run smoke -- --evals       → regression evals only (~10s)
-//   npm run smoke -- --narratives-only foo,bar → skip evals, run just those narratives
+//   npm run smoke                  → evals + 1 default narrative (~40s)
+//   npm run smoke -- --medium      → evals + 3 high-signal narratives (~3 min)
+//   npm run smoke -- architecture-heavy  → evals + one specific narrative
+//   npm run smoke -- --full        → evals + ALL 12 narratives locally (~12 min)
+//   npm run smoke -- --evals       → regression evals only (~7s)
+//   npm run smoke -- --no-evals a b → multiple specific narratives, skip evals
 //
-// Writes to the live Supabase (per-narrative sim orgs, auto-cleaned).
-// Does NOT require a local server — hits Anthropic API + Supabase directly.
+// For the full overnight pipeline (narratives + all supporting layers), use
+// `npm run overnight` — that fires the prod server and returns immediately.
+//
+// All runs write to prod Supabase, so results show up on /logs. Per-narrative
+// sim orgs are auto-cleaned after 3 days.
 
 // Explicitly override shell env so stale empty values (common when running
 // from a terminal that had the key unset earlier) don't shadow the .env file.
@@ -19,12 +23,19 @@ import { CASES, runCases } from '../server/quality/eval-cases.js'
 
 const DEFAULT_NARRATIVES = ['sf-admin-config-only']  // fast + high-signal after today's fixes
 
+// Three narratives chosen to cover the highest-signal failure modes: SFMC
+// classification traps, compound-state dedup, and cross-BU trap. If these
+// pass, the fix probably holds; if any regresses, it's worth investigating
+// before firing the full overnight.
+const MEDIUM_NARRATIVES = ['sf-admin-config-only', 'architecture-heavy', 'sfmc-cross-bu-trap']
+
 function pickArgs(argv) {
   const args = argv.slice(2)
   const flags = new Set(args.filter(a => a.startsWith('--')))
   const positional = args.filter(a => !a.startsWith('--'))
   return {
     full: flags.has('--full'),
+    medium: flags.has('--medium'),
     evalsOnly: flags.has('--evals'),
     narrativesOnlyArg: args.find(a => a.startsWith('--narratives-only=')),
     noEvals: flags.has('--no-evals'),
@@ -36,14 +47,13 @@ function selectNarratives(args) {
   if (args.full) return NARRATIVES
   const fromFlag = args.narrativesOnlyArg ? args.narrativesOnlyArg.split('=')[1].split(',') : []
   const requested = [...args.requested, ...fromFlag].filter(Boolean)
-  if (!requested.length) return NARRATIVES.filter(n => DEFAULT_NARRATIVES.includes(n.id))
+  const preset = args.medium ? MEDIUM_NARRATIVES : (requested.length ? requested : DEFAULT_NARRATIVES)
   const byId = new Map(NARRATIVES.map(n => [n.id, n]))
-  const picked = requested.map(id => {
+  return preset.map(id => {
     const n = byId.get(id)
     if (!n) throw new Error(`unknown narrative: "${id}". Known: ${NARRATIVES.map(n => n.id).join(', ')}`)
     return n
   })
-  return picked
 }
 
 async function main() {
@@ -104,6 +114,9 @@ async function main() {
   }
   console.log('─'.repeat(70))
   console.log(`TOTAL: ${(totalMs / 1000).toFixed(1)}s`)
+  if (results.length) {
+    console.log('View in browser: https://delma-ai.onrender.com/logs  (or http://localhost:5173 if dev server is running)')
+  }
   process.exit(results.some(r => r.error) ? 1 : 0)
 }
 
