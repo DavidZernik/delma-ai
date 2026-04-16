@@ -542,14 +542,16 @@ const OPS = {
     if (!ARCH_KINDS.includes(kind)) throw new Error(`invalid kind: ${kind}. Use one of ${ARCH_KINDS.join(', ')}`)
     const nodes = [...(data.nodes || [])]
     if (nodes.find(n => n.id === id)) throw new Error(`node ${id} already exists`)
-    // LABEL-level dedup. The id-collision check above only catches exact id
-    // reuse. Today's critic consistently flagged "NewSubscribers_Daily" added
-    // as newsubs_de / new_subscribers_de / newsubscribers_daily with the same
-    // intent. Two tiers of check:
-    //   1. Normalized equality on id or label (catches "loan_trigger" vs "loan-trigger")
-    //   2. Character-subsequence match (catches "newsubs_daily" vs "NewSubscribers_Daily")
+    // LABEL-level dedup, KIND-AWARE. Two nodes of different kinds (e.g. a
+    // deSource DE and an Automation) can't be duplicates of each other —
+    // they're different SFMC objects even if labels overlap ("Populi_Master"
+    // DE + "Populi_Sync_Auto" automation). Previously the dedup was kind-
+    // blind and rejected legitimate different-kind adds, producing orphan
+    // edges whose node rows never landed (see sfmc-cross-bu-trap crit from
+    // this morning's overnight).
     const effLabel = label || id
     const dup = nodes.find(n => {
+      if (n.kind !== kind) return false
       const nLabel = n.label || n.id
       return normalizeText(nLabel) === normalizeText(effLabel)
           || normalizeText(n.id) === normalizeText(id)
@@ -614,6 +616,18 @@ const OPS = {
   },
   add_edge(data, { from, to, label }) {
     if (!from || !to) throw new Error('from and to required')
+    // Referential integrity: edges can only reference nodes that exist in the
+    // current nodes array. Previously a rejected add_node (e.g. via dedup)
+    // could leave edges hanging in the diagram pointing at ids that never
+    // landed in the nodes array, producing an un-renderable graph. Reject
+    // here and force the caller to add the node first.
+    const nodes = data.nodes || []
+    if (!nodes.find(n => n.id === from)) {
+      throw new Error(`edge from "${from}" — no such node. Call add_node for "${from}" first, then retry this edge.`)
+    }
+    if (!nodes.find(n => n.id === to)) {
+      throw new Error(`edge to "${to}" — no such node. Call add_node for "${to}" first, then retry this edge.`)
+    }
     const edges = [...(data.edges || []), { from, to, label: label || null }]
     return { ...data, edges }
   },
