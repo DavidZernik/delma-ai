@@ -212,6 +212,102 @@ export const NARRATIVES = [
     }
   },
   {
+    id: 'sf-dev-apex-flow',
+    title: 'Salesforce dev: Apex trigger + Flow + custom object work (technical user)',
+    turns: [
+      "Working on a custom object Loan__c. Need an Apex trigger on insert that calls a Flow.",
+      "The Flow is called Loan_Risk_Check_v2. It pulls the Loan__c.Amount__c field and checks against a Risk_Tier__c picklist.",
+      "If amount > 100k, set Status__c to 'Pending Review' and create a Task assigned to the Risk Manager queue.",
+      "I'm Alex Chen, the dev. PM is Maria Rodriguez (she's not technical). Risk team lead is Devon Park.",
+      "Decision: we're using before-insert trigger pattern, not after-insert. Avoids the recursive trigger problem we hit last quarter.",
+      "Tech keys: org alias is uat-loans-2025, sandbox is named UAT_Loans_Q1. API version 60.0.",
+      "Action: I need to write a test class achieving 90% coverage by Thursday.",
+      "Architecture: the trigger fires the Flow, which checks the picklist, conditionally creates a Task. Group those under a 'Loan Intake' layer.",
+      "Anything I missed?"
+    ],
+    expected: {
+      people: ['Alex Chen (dev)', 'Maria Rodriguez (PM, non-technical)', 'Devon Park (Risk team lead)'],
+      decisions: ['Use before-insert trigger (avoids recursive trigger issue from last quarter)'],
+      actions: ['Alex: write test class to 90% coverage by Thursday'],
+      environment: ['Org alias: uat-loans-2025', 'Sandbox: UAT_Loans_Q1', 'API version: 60.0', 'Custom object: Loan__c with Amount__c, Risk_Tier__c, Status__c fields'],
+      architecture: [
+        'Trigger on Loan__c (insert) → Flow (Loan_Risk_Check_v2) → Task creation',
+        'All inside a "Loan Intake" layer',
+        'Note: this is plain Salesforce (Sales/Service Cloud), NOT SFMC — so kinds may not perfectly match the SFMC vocabulary. Architecture nodes can use endpoint kind for non-SFMC objects.'
+      ]
+    }
+  },
+  {
+    id: 'sf-admin-config-only',
+    title: 'Salesforce admin doing config (no code, opinionated about clicks-not-code)',
+    turns: [
+      "Hi! Casey here, Salesforce admin. Just me — small org, no devs.",
+      "We need to add a new validation rule on the Opportunity object: Amount must be > 0 if StageName = 'Closed Won'.",
+      "Going to do it in Setup → Object Manager. Won't touch any code.",
+      "Decision: we're not going to use Flow Builder for this — too heavy. Validation rule is simpler and serves the same need.",
+      "Action: I need to test it in our developer sandbox before pushing to prod. Will do that tomorrow.",
+      "Org: company name is Riverside Construction. We're on Sales Cloud Enterprise edition.",
+      "I'm the only admin. No team. Just me."
+    ],
+    expected: {
+      people: ['Casey (admin, solo) — no team'],
+      decisions: ['Use validation rule, not Flow Builder (simpler)'],
+      actions: ['Casey: test in dev sandbox before prod push (tomorrow)'],
+      environment: ['Org: Riverside Construction', 'Edition: Sales Cloud Enterprise'],
+      shouldNOTcapture: ['Anything about teams or reporting structure (it is a solo operator — do not invent collaborators)']
+    }
+  },
+  {
+    id: 'sf-solo-consultant',
+    title: 'Solo Salesforce consultant juggling multiple clients',
+    turns: [
+      "Quick brain dump for myself.",
+      "Client: Atlas Logistics. They want a Service Cloud rollout.",
+      "Their primary contact is Janelle Foster (Director of Operations). She's not technical.",
+      "We agreed on a 6-week timeline. Decision: we're starting with Cases + Email-to-Case in week 1, not full Omnichannel routing. Scope creep risk.",
+      "Their current org: AtlasOps_Prod. Production org. They want me building straight in production with backups, not in a sandbox. I told them no — we'll use a developer sandbox first. That's a non-negotiable from me.",
+      "Action: Janelle to send me their current case email templates by Friday so I can replicate.",
+      "Note to self: remind myself to check their data storage limits before importing historical case data. They're on Professional edition, limits are tighter."
+    ],
+    expected: {
+      people: ['Janelle Foster (Director of Operations, Atlas Logistics — client, non-technical, kind:stakeholder)'],
+      decisions: ['Phase 1 = Cases + Email-to-Case, NOT full Omnichannel (scope risk)', 'Use developer sandbox, NOT prod (non-negotiable)'],
+      actions: ['Janelle: send current case email templates by Friday'],
+      environment: ['Client org: AtlasOps_Prod (Service Cloud, Professional edition)'],
+      myNotes: ['Remind self: check data storage limits before importing historical cases (Pro edition has tighter limits)'],
+      shouldNOTcapture: ['"Brain dump for myself" routed to playbook or decisions — it is just narrator framing']
+    }
+  },
+  {
+    id: 'sf-cross-cloud-org',
+    title: 'Mid-size org: PM working across Sales Cloud + SFMC + Service Cloud',
+    turns: [
+      "We're integrating data flow between three clouds: leads come into Sales Cloud, qualified ones get nurtured in SFMC, post-purchase support routes through Service Cloud.",
+      "Lead arrives in Sales Cloud as Lead object → if Status = 'Qualified', a process triggers a sync to SFMC.",
+      "In SFMC: a sendable DE called Qualified_Leads_Sync gets the new contact, kicks off the WelcomeNurture journey.",
+      "Once they buy (Opportunity Closed Won in Sales Cloud), we sync them as a Contact + Account into Service Cloud, and an Email-to-Case channel opens.",
+      "Three teams: Sales (lead by Pat Wong), Marketing (lead by Keyona Abbott), Support (lead by David Zernik). All three report to me, the VP, Sarah Lee.",
+      "Decision: we're using Marketing Cloud Connect for the Sales→SFMC sync, not custom integration. Standard tooling.",
+      "Action: Pat to map field mappings between Lead and SFMC contact attributes by next Wed.",
+      "Architecture-wise, group Sales Cloud bits in 'Lead Intake', SFMC bits in 'Nurture', Service Cloud bits in 'Post-Sale Support'."
+    ],
+    expected: {
+      people: [
+        'Sarah Lee (VP) — manager of all three',
+        'Pat Wong (Sales lead, reports to Sarah)',
+        'Keyona Abbott (Marketing lead, reports to Sarah)',
+        'David Zernik (Support lead, reports to Sarah)'
+      ],
+      decisions: ['Use Marketing Cloud Connect for Sales→SFMC sync (standard tooling, not custom)'],
+      actions: ['Pat: map Lead-to-SFMC contact field mappings by Wednesday'],
+      architecture: [
+        'Three layers: "Lead Intake", "Nurture", "Post-Sale Support"',
+        'Sales Cloud Lead → process → SFMC Qualified_Leads_Sync (sendable DE) → WelcomeNurture (journey) → conversion → Service Cloud Contact + Account + Email-to-Case',
+        'SFMC parts use SFMC kinds (de, journey, etc.); Sales/Service Cloud objects can be endpoint kind or labeled in their notes'
+      ]
+    }
+  },
+  {
     id: 'sfmc-classification-traps',
     title: 'SFMC: classification ambiguity (CloudPage, AMPscript, decision splits)',
     turns: [
@@ -394,23 +490,34 @@ async function runOneTurn(messages, ctx) {
   return { reply: finalText || '(model exceeded tool-use loop)', ops: opsRecorded, raw: null }
 }
 
-const CRITIC_SYS = `You critique a Delma narrative-test run. Delma is a workspace for somewhat-technical PMs who BUILD Salesforce / SFMC campaigns. The user is not a developer and not a marketing ops engineer — they're a PM who can read a Mermaid diagram, knows what a journey and a DE are, but uses imprecise language sometimes ("the daily thing", "the welcome flow") and just wants to ship.
+const CRITIC_SYS = `You critique a Delma narrative-test run. Delma is a workspace for people building things in the Salesforce ecosystem — Salesforce (Sales/Service Cloud, Apex, Flows, custom objects) AND Salesforce Marketing Cloud (Journeys, DEs, automations, CloudPages). Users span:
 
-YOUR LENS: Could this PM, looking at the workspace tomorrow morning (or in 3 weeks), make their next decision and unblock the build? Does the workspace capture what they actually need — or only what a tech lead would want to see?
+- Solo admins / consultants working alone (no team to capture)
+- PMs in mid-size orgs (somewhat-technical, opinionated about scope, juggle several clouds)
+- Devs writing Apex / triggers / flows (technical, need build context)
+- Pure SFMC marketing ops folks (Journey Builder + Email Studio focused)
+- Cross-cloud teams integrating Sales Cloud → SFMC → Service Cloud
 
-WHAT MATTERS MOST (grade strictly):
+YOUR LENS: read the narrative's user persona FROM THE TURNS THEMSELVES — solo admin sounds different from cross-cloud VP. Then ask: could THIS user, with THIS workspace state, make their next decision and unblock their work tomorrow? Does the workspace capture what they need — or only what a different persona would want?
 
-1. Workflow clarity — who owns what, when sends fire, what depends on what.
-   The PM needs to look at the Architecture tab and SEE the daily flow. Missing
-   nodes/edges break this badly. Wrong arrows are confusing.
-2. Decisions + actions captured — these unblock work. A missed decision means
-   they have to re-litigate it next standup. A missed action item means it
-   doesn't get done.
-3. WHO is on the project + their role + reporting structure. PMs need this for
-   escalation and onboarding new people.
-4. Tech keys captured at all (Sender Profile, sendable DE name, From Address,
-   etc.) — even if minor classification is off. A PM can fix a label, but they
-   can't conjure a missing SP_Foo from nothing.
+Calibrate to the persona:
+- Solo admin: don't ding for missing People rows — there's no team
+- Dev: tech keys + decisions matter most; people might be light
+- PM: workflow clarity + decisions + actions; tech keys the dev cares about can be lighter
+- Marketing ops: SFMC accuracy matters more (Journey vs Automation, etc.)
+- Cross-cloud: getting the cloud boundaries right is the headline
+
+WHAT MATTERS MOST (across all personas):
+
+1. Workflow / build clarity — what does this thing DO, top to bottom? For SFMC:
+   the journey + dependencies. For Sales Cloud: the trigger / flow / object
+   relationships. For solo admin work: just the rule + where it lives.
+2. Decisions captured — these unblock work whether you're a team or solo.
+3. Action items captured WITH owners (or self-as-owner if solo).
+4. Tech keys captured at all (org name, sandbox name, custom object/field names,
+   SFMC IDs) — even if minor classification is off. The user can fix a label,
+   they can't conjure a missing org alias from nothing.
+5. People structure ONLY when there is a team (don't fabricate it for solo users).
 
 WHAT MATTERS LESS (don't be a pedant):
 
@@ -421,16 +528,17 @@ WHAT MATTERS LESS (don't be a pedant):
   is fine.
 - Whether the LLM lowercased or PascalCased an id.
 
-WHAT MATTERS A LOT (real ship-blockers):
+WHAT MATTERS A LOT (real ship-blockers — adapt to persona):
 
-- Parent BU vs working BU getting collapsed into one key (this WILL bite at
-  send time — wrong BU, send fails)
-- Sender Profile and From Address conflated (different SFMC objects, both
-  needed at send config)
-- Source DE vs Sendable DE conflated (you'll send to the wrong list)
-- A decision recorded twice with contradicting text (next standup confusion)
-- An action item without an owner (will sit forever)
-- People reporting structure wrong (escalation chain breaks)
+- (SFMC) Parent BU vs working BU getting collapsed into one key
+- (SFMC) Sender Profile + From Address + Reply Mailbox conflated
+- (SFMC) Source DE vs Sendable DE conflated
+- (Sales/Service Cloud dev) Sandbox vs production confusion in env keys
+- (Sales/Service Cloud dev) Apex class / Flow / trigger conflated as one node
+- (Cross-cloud) Cloud boundaries wrong (Sales Cloud lead misclassified as SFMC contact)
+- A decision recorded twice with contradicting text (any persona — confusion)
+- An action item without an owner when one was clearly named (any persona)
+- People reporting structure invented for a SOLO user (don't add fake teams)
 
 TONE: be the PM's pragmatic teammate. Honest but not nitpicky. If 4 of 5
 expected things landed and the missing one wasn't a ship-blocker, that's a 4.

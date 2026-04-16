@@ -401,14 +401,20 @@ app.post('/quality/run-overnight', async (req, res) => {
   void runOvernight().catch(err => console.error('[quality] overnight run failed:', err))
 })
 
-// Scheduler: every 30 minutes, check the clock. Fire the overnight simulation
-// once per night during 10pm-7am Pacific (when David is sleeping).
+// Scheduler: fire the overnight job once per night at 11:30pm Pacific.
+// We tick every minute and trigger when PT clock is 23:30 and we haven't
+// fired today yet. Using PT_OFFSET_MINUTES = -480 (PST). DST drift is
+// ~60 min once a year — acceptable for a "fire around 11:30pm" target.
 let lastSimDate = null
-const PT_OFFSET_MINUTES = -480  // -8 hours; PT is roughly UTC-8 (PST). Daylight saving drift = ~1h, acceptable for a sleep window check.
-function isOvernightPT() {
+const PT_OFFSET_MINUTES = -480
+const FIRE_AT_PT_HOUR = 23
+const FIRE_AT_PT_MIN = 30
+
+function ptNow() {
   const utc = new Date()
-  const ptHour = (utc.getUTCHours() * 60 + utc.getUTCMinutes() + PT_OFFSET_MINUTES + 24 * 60) % (24 * 60) / 60
-  return ptHour >= 22 || ptHour < 7
+  const ptMinutes = utc.getUTCHours() * 60 + utc.getUTCMinutes() + PT_OFFSET_MINUTES
+  const wrapped = ((ptMinutes % (24 * 60)) + 24 * 60) % (24 * 60)
+  return { hour: Math.floor(wrapped / 60), min: wrapped % 60 }
 }
 function todayPTKey() {
   const utc = new Date(Date.now() + PT_OFFSET_MINUTES * 60 * 1000)
@@ -416,19 +422,20 @@ function todayPTKey() {
 }
 async function maybeRunOvernight() {
   if (!process.env.ANTHROPIC_API_KEY) return
-  if (!isOvernightPT()) return
+  const { hour, min } = ptNow()
+  // Fire window: 11:30pm-11:34pm PT (gives a 5-min margin if the minute tick is delayed)
+  if (hour !== FIRE_AT_PT_HOUR || min < FIRE_AT_PT_MIN || min > FIRE_AT_PT_MIN + 4) return
   const key = todayPTKey()
   if (lastSimDate === key) return  // already ran tonight
   lastSimDate = key
-  console.log('[quality:sched] overnight window — firing overnight runner')
+  console.log(`[quality:sched] firing overnight runner at ${hour}:${String(min).padStart(2, '0')} PT`)
   try {
     await runOvernight()
   } catch (err) {
     console.error('[quality:sched] overnight run failed:', err)
   }
 }
-setInterval(maybeRunOvernight, 30 * 60 * 1000)
-setTimeout(maybeRunOvernight, 60 * 1000)  // also try once 1 minute after boot
+setInterval(maybeRunOvernight, 60 * 1000)  // tick every minute, no-op outside window
 
 // ── Static Files (production) ────────────────────────────────────────────────
 
