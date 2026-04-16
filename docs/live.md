@@ -138,6 +138,8 @@ and UI controls (lock icons, hidden Edit buttons).
 | `user_notes` | Per-user GLOBAL notes (My Notes) — keyed by user_id, follows across orgs/projects |
 | `history_snapshots` | Timestamped JSON snapshots on every save |
 | `mcp_call_logs` | Every MCP tool call logged for analytics |
+| `conversation_ticks` | One row per user message in Claude Code (fired by `hooks/inject-claude-md.sh` via `/api/conversation-tick`). Joined to `mcp_call_logs` for real Mode-A timeliness. |
+| `quality_candidate_evals` | Missed/wrong findings from the overnight critic, auto-filed as eval-case candidates for human review. |
 | `__delma_migrations` | Migration tracking — one row per applied SQL file |
 
 ### Auth
@@ -595,7 +597,7 @@ them identically.
 
 | Mode | What it measures | Source |
 |------|------------------|--------|
-| **A — "Claude was slow to call the tool"** | Claude saw relevant info but processed N more messages before calling MCP | For narrative/replay: precise (we have both timestamps). For real Claude Code: approximated via 5–60min gaps between consecutive MCP calls. (True measurement requires conversation-side timestamps from Claude Desktop — possible by extending `hooks/inject-claude-md.sh` to log a per-message tick.) |
+| **A — "Claude was slow to call the tool"** | Claude saw relevant info but processed N more messages before calling MCP | Precise in all modes. `hooks/inject-claude-md.sh` POSTs `/api/conversation-tick` on every `UserPromptSubmit`, inserting into `conversation_ticks`. Joining ticks to `mcp_call_logs` by (workspace, user, timestamp) gives a real "how many messages did Claude wait?" count per tool call. |
 | **B — "Delma applied the op slowly"** | Server-side latency from receiving op to applying it | `api_op_logs.duration_ms`, `mcp_call_logs.duration_ms`. Pure Delma. |
 
 Both bucket into `quality_signals` rows and surface on `/logs` with
@@ -609,6 +611,16 @@ percentile distributions.
 | State hygiene | Pure SQL: orphan arch nodes, overdue actions, unowned old decisions, roleless people | `quality_state_checks` |
 | Router signal mining | Clusters last 24h router calls: empty-ops, fan-outs → Sonnet asks "what's missing?" | `quality_signals` |
 | A/B leaderboard *(opt-in)* | Re-runs eval suite against alternate model+prompt combos | `quality_experiments` |
+
+### Auto-growing eval suite
+
+Every "missed" or "wrong" finding from the overnight critic (replay or
+narrative) is auto-filed as a row in `quality_candidate_evals` with the
+suggested input, best-guess expected op, and source observation. The
+`/logs` page exposes a review queue — you promote strong ones to real
+cases in `server/quality/eval-cases.js`, reject duplicates, and the
+regression suite grows from real failures instead of hand-written edge
+cases. Keeps the eval bar rising with no manual curation overhead.
 
 ### Manual triggers
 
@@ -647,3 +659,5 @@ items) into one row-per-issue actionable view. Below that:
 | `server/quality/logs-page.js` | `/logs` HTML renderer (server-side, no JS) |
 | `supabase/migrations/009_quality_lab.sql` | quality_* tables + api_op_logs |
 | `supabase/migrations/010_quality_simulations.sql` | quality_simulations table |
+| `supabase/migrations/011_conversation_ticks.sql` | conversation_ticks table (feeds Mode-A timeliness for real Claude Code sessions) |
+| `supabase/migrations/012_candidate_evals.sql` | quality_candidate_evals — auto-grown eval-case queue from overnight critic findings |

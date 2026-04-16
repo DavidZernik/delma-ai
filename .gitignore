@@ -1,4 +1,8 @@
 .env
+.env.local
 node_modules/
 dist/
 .vercel
+.DS_Store
+.claude/.delma-last-injected-mtime
+.claude/worktrees/

@@ -7,11 +7,22 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # Supabase — required for server boot (server/lib/supabase.js)
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      # Supabase — baked into frontend bundle at build time
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false
+      # AI providers — at least ANTHROPIC_API_KEY required for /api/chat
       - key: ANTHROPIC_API_KEY
         sync: false
-      - key: BRAVE_API_KEY
-        sync: false
-      - key: OPENAI_API_KEY
-        sync: false
       - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
         sync: false
