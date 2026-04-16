@@ -15,14 +15,15 @@
 import { OPS_BY_TAB } from '../../src/tab-ops.js'
 import { applyOpsToTab, parseTabKey } from '../lib/apply-op.js'
 import { supabase as sb } from '../lib/supabase.js'
+import { ANTHROPIC_URL, anthropicHeaders } from '../lib/llm.js'
 
 const HAIKU = 'claude-haiku-4-5'
 const SONNET = 'claude-sonnet-4-5'
 
 async function callAnthropic(model, system, messages, max_tokens = 1500) {
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
+  const res = await fetch(ANTHROPIC_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+    headers: anthropicHeaders('narrative-critic'),
     body: JSON.stringify({ model, max_tokens, system, messages: Array.isArray(messages) ? messages : [{ role: 'user', content: messages }] })
   })
   if (!res.ok) throw new Error(`Anthropic ${res.status}: ${await res.text()}`)
@@ -455,9 +456,9 @@ async function runOneTurn(messages, ctx) {
   let turnMessages = messages.slice()
   let finalText = ''
   for (let iter = 0; iter < 8; iter++) {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch(ANTHROPIC_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      headers: anthropicHeaders('narrative-sim'),
       body: JSON.stringify({ model: HAIKU, max_tokens: 1500, system: CLAUDE_SYS, tools, messages: turnMessages })
     })
     if (!res.ok) throw new Error(`Anthropic ${res.status}: ${await res.text()}`)

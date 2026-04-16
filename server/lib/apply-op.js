@@ -3,6 +3,7 @@
 // (source of truth) and `content` (rendered view).
 
 import { applyOps, render, emptyData, isStructuredTab, OPS_BY_TAB } from '../../src/tab-ops.js'
+import { embeddingDupPreCheck } from './similarity.js'
 
 // Scope can be:
 //   { kind: 'org', orgId, filename }
@@ -27,7 +28,25 @@ export async function applyOpsToTab(sb, scope, ops) {
   if (selErr) throw new Error(`select failed: ${selErr.message}`)
 
   const currentData = row?.structured || emptyData(scope.filename)
-  const { data: newData, applied, errors } = applyOps(scope.filename, currentData, ops)
+
+  // Semantic dedup pre-check: if OPENAI_API_KEY is set, embed-match each op's
+  // candidate text against the current state. Throws the same error shape
+  // handlers do, so the LLM sees a consistent "this already exists" signal.
+  // No-op when OPENAI_API_KEY is absent (heuristic dedup in applyOps runs anyway).
+  const dupErrors = []
+  for (const o of ops) {
+    try { await embeddingDupPreCheck(scope.filename, currentData, o) }
+    catch (err) { dupErrors.push({ op: o.op, msg: err.message }) }
+  }
+
+  const { data: newData, applied, errors } = applyOps(
+    scope.filename,
+    currentData,
+    // Skip ops the semantic check already rejected — they'd re-error with
+    // confusing messages from the sync handler.
+    dupErrors.length ? ops.filter(o => !dupErrors.find(e => e.op === o.op)) : ops
+  )
+  const allErrors = [...dupErrors, ...errors]
   const content = render(scope.filename, newData)
   const updatePayload = { structured: newData, [contentColumn]: content }
 
@@ -39,7 +58,7 @@ export async function applyOpsToTab(sb, scope, ops) {
     if (insErr) throw new Error(`insert failed: ${insErr.message}`)
   }
 
-  return { applied, errors, newData, content }
+  return { applied, errors: allErrors, newData, content }
 }
 
 function rowRefs(scope) {

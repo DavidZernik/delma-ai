@@ -8,6 +8,7 @@
 import { ROUTER_SYSTEM_PROMPT, buildTabsBlock, buildRouterUserMessage } from '../../src/router-prompt.js'
 import { extractJsonArray } from '../../src/extract-json-array.js'
 import { applyOp, emptyData } from '../../src/tab-ops.js'
+import { ANTHROPIC_URL, anthropicHeaders } from '../lib/llm.js'
 
 const tabKey = {
   people: 'org:people.md', playbook: 'org:playbook.md',
@@ -113,9 +114,9 @@ async function callRouter(input, tabs, { model = 'claude-haiku-4-5', system = RO
   const tabsBlock = buildTabsBlock(tabs)
   const user = buildRouterUserMessage(input, tabsBlock)
   const t0 = Date.now()
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
+  const res = await fetch(ANTHROPIC_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+    headers: anthropicHeaders('router-eval'),
     body: JSON.stringify({ model, max_tokens: 2000, system, messages: [{ role: 'user', content: user }] })
   })
   if (!res.ok) throw new Error(`Anthropic ${res.status}: ${await res.text()}`)

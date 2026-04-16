@@ -12,18 +12,15 @@ import { applyOp, emptyData } from '../../src/tab-ops.js'
 import { runReplay } from './replay.js'
 import { runAllNarratives } from './narratives.js'
 import { runTimeliness } from './timeliness.js'
+import { ANTHROPIC_URL, anthropicHeaders } from '../lib/llm.js'
 
 const HAIKU = 'claude-haiku-4-5'
 const SONNET = 'claude-sonnet-4-5'
 
 async function callAnthropic(model, system, user, max_tokens = 2000) {
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
+  const res = await fetch(ANTHROPIC_URL, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': process.env.ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01'
-    },
+    headers: anthropicHeaders('quality-layer'),
     body: JSON.stringify({ model, max_tokens, system, messages: [{ role: 'user', content: user }] })
   })
   if (!res.ok) throw new Error(`Anthropic ${res.status}: ${await res.text()}`)

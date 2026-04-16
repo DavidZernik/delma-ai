@@ -13,13 +13,14 @@
 
 import { supabase as sb } from '../lib/supabase.js'
 import { applyOp, render, emptyData } from '../../src/tab-ops.js'
+import { ANTHROPIC_URL, anthropicHeaders } from '../lib/llm.js'
 
 const SONNET = 'claude-sonnet-4-5'
 
 async function callAnthropic(model, system, user, max_tokens = 800) {
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
+  const res = await fetch(ANTHROPIC_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+    headers: anthropicHeaders('replay-critic'),
     body: JSON.stringify({ model, max_tokens, system, messages: [{ role: 'user', content: user }] })
   })
   if (!res.ok) throw new Error(`Anthropic ${res.status}: ${await res.text()}`)

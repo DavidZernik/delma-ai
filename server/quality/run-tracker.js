@@ -9,6 +9,7 @@
 //   await completeRun(run.id)   // computes aggregates + generates summary
 
 import { createClient } from '@supabase/supabase-js'
+import { ANTHROPIC_URL, anthropicHeaders } from '../lib/llm.js'
 
 const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
 const SONNET = 'claude-sonnet-4-5'
@@ -104,6 +105,19 @@ async function generateRunSummary(sims, evalResults, aggregates) {
     return 'Empty run — no narratives or regression evals completed.'
   }
 
+  // Evals-only run — no narratives to grade. Report the eval state
+  // directly without invoking Sonnet (cheap + deterministic).
+  if (!sims.length && evalResults.length) {
+    const passed = evalResults.filter(r => r.pass).length
+    const failed = evalResults.filter(r => !r.pass)
+    if (!failed.length) {
+      return `All ${passed}/${evalResults.length} regression evals passed. Nothing to act on.`
+    }
+    return `${passed}/${evalResults.length} regression evals passed.\n\n**${failed.length} failing:**\n${
+      failed.map(f => `- \`${f.name}\`${f.error ? ` — ${f.error}` : ''}`).join('\n')
+    }`
+  }
+
   const narrativeSummaries = sims.map(s => {
     const narrId = s.transcript?.narrative_id || 'unknown'
     const wrong = (s.critique?.wrong || []).slice(0, 3)
@@ -140,13 +154,9 @@ Be human and concise. No jargon. No bullet inflation. If nothing is urgent, say 
 
 Return plain markdown (no code fences, no preamble like "Summary:"). Start with the headline, then the bullets.`
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
+  const res = await fetch(ANTHROPIC_URL, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': process.env.ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01'
-    },
+    headers: anthropicHeaders('run-summary'),
     body: JSON.stringify({
       model: SONNET,
       max_tokens: 600,

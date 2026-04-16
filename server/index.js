@@ -15,6 +15,7 @@ import { parseStructuredContent } from './lib/parse-tab.js'
 import { render, isStructuredTab } from '../src/tab-ops.js'
 import { runAllLayers, runOvernight } from './quality/runner.js'
 import { renderLogsPage } from './quality/logs-page.js'
+import { ANTHROPIC_URL, anthropicHeaders } from './lib/llm.js'
 
 // override: true ensures .env values beat any empty shell env vars
 // (e.g. ANTHROPIC_API_KEY="" set globally by Claude Desktop)
@@ -85,13 +86,9 @@ app.post('/api/chat', async (req, res) => {
   if (!process.env.ANTHROPIC_API_KEY) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not set' })
   let response
   try {
-    response = await fetch('https://api.anthropic.com/v1/messages', {
+    response = await fetch(ANTHROPIC_URL, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01'
-      },
+      headers: anthropicHeaders('web-router'),
       body: JSON.stringify({ model, max_tokens: max_tokens ?? 2000, system, messages: [{ role: 'user', content: user }] })
     })
   } catch (e) {
