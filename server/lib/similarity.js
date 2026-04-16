@@ -1,4 +1,4 @@
-// Semantic dedup for op handlers via OpenAI embeddings.
+// Semantic dedup for op handlers via Gemini embeddings.
 //
 // The sync heuristic in src/tab-ops.js (stemmer + Jaccard + char-subseq) is
 // fast and works well for obvious cases, but it misses semantic duplicates
@@ -8,15 +8,20 @@
 //
 // This module runs SERVER-SIDE ONLY (inside applyOpsToTab). The handlers in
 // tab-ops.js stay sync + browser-safe — the embedding check is an extra layer
-// that kicks in just before applyOps runs. If OPENAI_API_KEY isn't set,
+// that kicks in just before applyOps runs. If GEMINI_API_KEY isn't set,
 // every function here is a no-op and the existing heuristic dedup still runs.
 //
-// Cache: keyed by the normalized text. An org with 100 rules, 50 decisions,
+// Why Gemini: free tier (1500 req/min, no credit card), latency comparable
+// to OpenAI (~100ms/call), quality fine for short-string near-dup detection.
+// Switched from OpenAI when that quota ran out mid-test. Swap is a ~5-line
+// change if we ever want to upgrade to Voyage for better retrieval quality.
+//
+// Cache: keyed by normalized text. An org with 100 rules, 50 decisions,
 // 200 nodes embeds each text once; subsequent op runs only embed the new
 // candidate. Cache lives in-process (fine for single-region Render deploy).
 
-const EMBED_MODEL = 'text-embedding-3-small'
-const EMBED_URL = 'https://api.openai.com/v1/embeddings'
+const EMBED_MODEL = 'gemini-embedding-001'
+const EMBED_URL = `https://generativelanguage.googleapis.com/v1beta/models/${EMBED_MODEL}:embedContent`
 
 // Thresholds chosen to be slightly tighter than the cheap heuristic — we
 // want embeddings to catch ONLY the dupes the heuristic missed, not replay
@@ -36,35 +41,46 @@ let embeddingsDisabled = false
 let embeddingsDisabledReason = null
 
 function hasEmbeddings() {
-  return !embeddingsDisabled && !!process.env.OPENAI_API_KEY
+  return !embeddingsDisabled && !!process.env.GEMINI_API_KEY
+}
+
+async function embedOne(text) {
+  const res = await fetch(`${EMBED_URL}?key=${process.env.GEMINI_API_KEY}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: `models/${EMBED_MODEL}`,
+      content: { parts: [{ text: normalizeForEmbed(text) }] },
+      taskType: 'SEMANTIC_SIMILARITY'
+    })
+  })
+  if (!res.ok) {
+    const body = (await res.text()).slice(0, 200)
+    // On auth / quota errors, trip the circuit breaker so we don't spam.
+    if (res.status === 401 || res.status === 403 || res.status === 429) {
+      embeddingsDisabled = true
+      embeddingsDisabledReason = `${res.status}: ${body}`
+      console.warn('[similarity] embeddings disabled for this process —', embeddingsDisabledReason)
+      console.warn('[similarity] heuristic dedup in src/tab-ops.js still runs; this only turns off the semantic layer.')
+      return null
+    }
+    console.warn('[similarity] embed failed', res.status, body)
+    return null
+  }
+  const data = await res.json()
+  return data.embedding?.values || null
 }
 
 async function embedBatch(texts) {
   if (!hasEmbeddings() || !texts.length) return null
-  const input = texts.map(t => normalizeForEmbed(t))
-  const res = await fetch(EMBED_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
-    },
-    body: JSON.stringify({ model: EMBED_MODEL, input })
-  })
-  if (!res.ok) {
-    const text = (await res.text()).slice(0, 200)
-    // On auth / quota errors, trip the breaker so we don't keep spamming.
-    if (res.status === 401 || res.status === 403 || res.status === 429) {
-      embeddingsDisabled = true
-      embeddingsDisabledReason = `${res.status}: ${text}`
-      console.warn('[similarity] embeddings disabled for this process —', embeddingsDisabledReason)
-      console.warn('[similarity] the heuristic dedup in src/tab-ops.js still runs; this just turns off the semantic layer.')
-      return null
-    }
-    console.warn('[similarity] embed failed', res.status, text)
-    return null
-  }
-  const data = await res.json()
-  return data.data.map(d => d.embedding)
+  // Gemini's embedContent endpoint is single-item. We parallelize so latency
+  // scales with the longest call rather than the sum. Free-tier quota (1500
+  // req/min) is plenty for handler-level dedup workloads.
+  const results = await Promise.all(texts.map(t => embedOne(t)))
+  // If ANY returned null due to breaker/errors, consider the batch failed —
+  // caller will fall back to the heuristic.
+  if (results.some(r => r === null)) return null
+  return results
 }
 
 function normalizeForEmbed(text) {
