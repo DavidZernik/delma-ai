@@ -10,6 +10,19 @@ CWD="${CLAUDE_PROJECT_DIR:-$PWD}"
 CLAUDE_MD="$CWD/CLAUDE.md"
 STATE_FILE="$CWD/.claude/.delma-last-injected-mtime"
 
+# Conversation tick — fire-and-forget ping to /api/conversation-tick on every
+# user message. Lets the Quality Lab compute REAL Mode-A timeliness ("did
+# Claude call MCP in the same turn or N turns later?"). Background curl with
+# --max-time so a slow server never blocks the prompt.
+DELMA_SERVER="${DELMA_SERVER_URL:-http://localhost:3001}"
+DELMA_WS="${DELMA_WORKSPACE_ID:-}"
+DELMA_USER="${DELMA_USER_ID:-}"
+(curl -s -X POST "$DELMA_SERVER/api/conversation-tick" \
+   -H 'Content-Type: application/json' \
+   --max-time 2 \
+   --data "{\"workspace_id\":\"$DELMA_WS\",\"user_id\":\"$DELMA_USER\",\"source\":\"inject-hook\"}" \
+   >/dev/null 2>&1 &) >/dev/null 2>&1
+
 # No CLAUDE.md → nothing to inject
 [ ! -f "$CLAUDE_MD" ] && exit 0
 

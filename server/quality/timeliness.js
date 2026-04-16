@@ -90,26 +90,52 @@ export async function runTimeliness({ hoursBack = 24 } = {}) {
   }
 
   // ── MODE A (real Claude Code MCP): "Claude was slow to call the tool" ──
-  // We can't see the chat conversation server-side, so we use a proxy:
-  // gap between consecutive MCP calls in the same workspace. Long gaps with
-  // no tool call MAY mean Claude saw relevant info but deferred — or just
-  // that the user wasn't talking. Best-effort signal, not a verdict.
-  const byWs = {}
-  for (const m of mcp) (byWs[m.workspace_id] ||= []).push(new Date(m.created_at).getTime())
-  let bigGaps = 0
-  for (const arr of Object.values(byWs)) {
-    arr.sort((a, b) => a - b)
-    for (let i = 1; i < arr.length; i++) {
-      const gap = arr[i] - arr[i - 1]
-      if (gap > 5 * 60 * 1000 && gap < 60 * 60 * 1000) bigGaps++  // 5min-1h gap = suspicious
+  // We have conversation_ticks from inject-claude-md.sh — one row per user
+  // message. For each MCP call, find the most recent tick in the same
+  // workspace BEFORE the call. Lag = call_time - tick_time. If the lag is
+  // > one expected turn (~30s), Claude likely processed several messages
+  // before deciding to call the tool. That's Mode A.
+  const { data: tickRows } = await sb.from('conversation_ticks')
+    .select('ts, workspace_id').gte('ts', since).limit(2000)
+  const ticks = tickRows || []
+
+  if (ticks.length && mcp.length) {
+    const ticksByWs = {}
+    for (const t of ticks) (ticksByWs[t.workspace_id] ||= []).push(new Date(t.ts).getTime())
+    for (const arr of Object.values(ticksByWs)) arr.sort((a, b) => a - b)
+
+    const lags = []
+    for (const m of mcp) {
+      if (!m.workspace_id) continue
+      const arr = ticksByWs[m.workspace_id] || []
+      const callT = new Date(m.created_at).getTime()
+      // Most recent tick BEFORE the call
+      let last = null
+      for (const t of arr) { if (t <= callT) last = t; else break }
+      if (last != null) lags.push(callT - last)
     }
-  }
-  if (bigGaps) {
+    lags.sort((a, b) => a - b)
+    const deferred = lags.filter(l => l > 30000).length  // > 30s = likely deferred
+    if (lags.length) {
+      findings.push({
+        pattern: 'mode_a__claude_call_promptness',
+        count: lags.length,
+        examples: [
+          `tick→MCP-call lag p50 ${p(lags, 0.5)}ms, p90 ${p(lags, 0.9)}ms, slowest ${lags[lags.length - 1]}ms`,
+          `${deferred} call(s) appeared >30s after the most recent user message — likely deferred capture`
+        ],
+        suggestion: deferred
+          ? `${deferred} MCP call(s) fired more than 30s after the user message that prompted them. Claude may be deferring captures. Consider tightening CLAUDE.md instructions about when to call MCP.`
+          : 'All captures arrived within ~30s of the message — Claude is being prompt.'
+      })
+    }
+  } else {
+    // No ticks yet (hook not deployed or no Claude Code activity)
     findings.push({
-      pattern: 'mode_a__possible_claude_deferral',
-      count: bigGaps,
-      examples: [`${bigGaps} gap(s) of 5-60min between consecutive MCP calls in same workspace`],
-      suggestion: 'Approximation. Real measurement requires conversation-side timestamps from Claude Desktop. To upgrade: extend hooks/inject-claude-md.sh to log a "tick" per user message into a new table.'
+      pattern: 'mode_a__no_data',
+      count: 0,
+      examples: [`${ticks.length} ticks, ${mcp.length} MCP calls in window`],
+      suggestion: 'Deploy hooks/inject-claude-md.sh and exercise Claude Code; ticks will start arriving on every user message.'
     })
   }
 

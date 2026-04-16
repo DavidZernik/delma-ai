@@ -77,7 +77,7 @@ const ago = (iso) => {
 export async function renderLogsPage() {
   // Pull everything in parallel
   const [
-    statusRes, simRes, evalRes, obsRes, stateRes, signalsRes, expRes, opsRes, routerRes
+    statusRes, simRes, evalRes, obsRes, stateRes, signalsRes, expRes, opsRes, routerRes, candRes
   ] = await Promise.all([
     sb.from('quality_runner_status').select('*'),
     sb.from('quality_simulations').select('*').order('ran_at', { ascending: false }).limit(7),
@@ -87,9 +87,11 @@ export async function renderLogsPage() {
     sb.from('quality_signals').select('*').order('found_at', { ascending: false }).limit(20),
     sb.from('quality_experiments').select('*').order('ran_at', { ascending: false }).limit(20),
     sb.from('api_op_logs').select('*').order('created_at', { ascending: false }).limit(30),
-    sb.from('quality_router_calls').select('*').order('created_at', { ascending: false }).limit(30)
+    sb.from('quality_router_calls').select('*').order('created_at', { ascending: false }).limit(30),
+    sb.from('quality_candidate_evals').select('*').eq('status', 'pending').order('found_at', { ascending: false }).limit(30)
   ])
   const sims = simRes.data || []
+  const candidates = candRes.data || []
   const status = statusRes.data || []
   const evals = evalRes.data || []
   const obs = obsRes.data || []
@@ -197,6 +199,12 @@ ${actionItems.slice(0, 30).map(a => `<tr><td class="sev-${a.severity}">${esc(a.s
 <div class="layer-status">
   ${status.map(s => `<span><strong>${esc(s.layer)}</strong> · ${ago(s.last_run_at)} · ${s.last_duration_ms ?? '?'}ms${s.last_error ? ' · <span class="fail">' + esc(s.last_error) + '</span>' : ''}</span>`).join('') || '<span class="empty">no runs yet</span>'}
 </div>
+
+<h2>Candidate eval cases (auto-promoted from critic findings)</h2>
+${candidates.length ? `<p style="font-size:13px;color:#6B5A5A;margin:0 0 8px;">Each row is something the overnight critic flagged. Triage in the morning: accept → add to permanent eval suite, or reject if it's a critic mis-grade.</p>
+<table><tr><th>When</th><th>Category</th><th>Finding</th><th>From sim</th></tr>
+${candidates.map(c => `<tr><td class="ts">${ago(c.found_at)}</td><td class="sev-${c.category === 'wrong' ? 'wrong' : 'suspicious'}">${esc(c.category)}</td><td>${esc(c.finding_text)}</td><td class="ts">${c.source_simulation_id ? `sim#${c.source_simulation_id}` : '—'}</td></tr>`).join('')}
+</table>` : '<div class="empty">No pending candidates. (Critic either hasn\'t found anything actionable, or all findings have been triaged.)</div>'}
 
 <h2>Overnight runs — latest first</h2>
 ${sims.length ? sims.map((s, i) => {

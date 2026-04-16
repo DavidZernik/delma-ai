@@ -374,6 +374,23 @@ app.get('/logs', async (req, res) => {
   }
 })
 
+// Conversation tick — fired by inject-claude-md.sh on every Claude Code
+// UserPromptSubmit. Joining ticks to mcp_call_logs gives real Mode-A
+// timeliness ("did Claude call the tool the same turn or N turns later").
+// No auth — internal observability ping. Worst case someone spams ticks
+// and we flag it as noise.
+app.post('/api/conversation-tick', async (req, res) => {
+  const sb = getSb()
+  if (!sb) return res.status(500).json({ error: 'Supabase not configured' })
+  const { workspace_id, user_id, source } = req.body || {}
+  void sb.from('conversation_ticks').insert({
+    workspace_id: workspace_id || null,
+    user_id: user_id || null,
+    source: source || 'inject-hook'
+  })
+  res.json({ ok: true })
+})
+
 // Manual triggers (no auth — internal use; remove if exposed externally)
 app.post('/quality/run', async (req, res) => {
   res.json({ ok: true, started: true })

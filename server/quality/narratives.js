@@ -205,56 +205,128 @@ async function ensureSimWorkspace(label) {
   return { orgId: org.id, workspaceId: ws.id, userId: SIM_USER, workspaceName: wsName }
 }
 
-const CLAUDE_SYS = (toolList) => `You are Claude. After each user message, decide which TYPED OPS (if any) to call to capture facts, then reply with a short natural acknowledgement (1-2 sentences). Do NOT enumerate ops to the user.
+// ── Native Anthropic tool-use: define each typed op as a tool ──────────
 
-Available ops:
-${toolList}
+import { ROUTER_SYSTEM_PROMPT } from '../../src/router-prompt.js'
 
-Tabs: ${Object.keys(OPS_BY_TAB).map(f => f === 'architecture' ? 'diagram:architecture' : (['people.md','playbook.md'].includes(f) ? 'org:' : 'memory:') + f).join(', ')}
-
-Output strict JSON ONLY:
-{ "ops": [{ "tab": "<tab key>", "op": "<op>", "args": {...} }, ...], "reply": "<short reply>" }
-
-No code fences. No prose outside the JSON.`
-
-function buildToolList() {
-  return Object.entries(OPS_BY_TAB).map(([f, ops]) => {
-    const tabPrefix = f === 'architecture' ? 'diagram:' : (['people.md', 'playbook.md'].includes(f) ? 'org:' : 'memory:')
-    return `  ${tabPrefix}${f}: ${ops.join(', ')}`
-  }).join('\n')
-}
-
-async function runOneTurn(history) {
-  const messages = []
-  for (const t of history) {
-    if (t.role === 'user') messages.push({ role: 'user', content: t.text })
-    else messages.push({ role: 'assistant', content: t.replyOnly || t.text })
-  }
-  const raw = await callAnthropic(HAIKU, CLAUDE_SYS(buildToolList()), messages, 1200)
-  let ops = [], reply = raw
-  try {
-    const j = JSON.parse(raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, ''))
-    ops = Array.isArray(j.ops) ? j.ops : []
-    reply = typeof j.reply === 'string' ? j.reply : raw
-  } catch { ops = []; reply = raw.slice(0, 300) }
-  return { ops, reply, raw }
-}
-
-async function applyOps(ops, ctx) {
-  const out = []
-  for (const o of ops) {
-    if (!o.tab || !o.op) continue
-    const scope = parseTabKey(o.tab, ctx)
-    if (!scope) { out.push({ op: o.op, ok: false, error: 'unknown tab' }); continue }
-    const t0 = Date.now()
-    try {
-      const r = await applyOpsToTab(sb, scope, [{ op: o.op, args: o.args || {} }])
-      out.push({ op: o.op, tab: o.tab, ok: true, ms: Date.now() - t0, errors: r.errors })
-    } catch (err) {
-      out.push({ op: o.op, tab: o.tab, ok: false, ms: Date.now() - t0, error: err.message })
+// Build Anthropic tool definitions from OPS_BY_TAB. Each typed op becomes
+// a single tool with a synthetic name (delma_<filename>__<op>). The args
+// schemas are the SAME contracts the typed-op handlers expect, so the
+// model can't pass invalid args without it being immediately obvious.
+function buildAnthropicTools() {
+  const tools = []
+  for (const [filename, ops] of Object.entries(OPS_BY_TAB)) {
+    const tabPrefix = filename === 'architecture' ? 'diagram:' : (['people.md', 'playbook.md'].includes(filename) ? 'org:' : 'memory:')
+    const tabKey = `${tabPrefix}${filename}`
+    for (const op of ops) {
+      tools.push({
+        name: `${filename.replace(/\W/g, '_')}__${op}`,
+        description: `Apply typed op "${op}" on ${tabKey}.`,
+        input_schema: SCHEMA_BY_OP[op] || { type: 'object', properties: {}, additionalProperties: true }
+      })
     }
   }
-  return out
+  return tools
+}
+
+// Lightweight arg-shape hints for each op. We don't try to be exhaustive —
+// the typed-op handlers validate strictly and any errors get surfaced to the
+// model via tool_result messages so it can self-correct.
+const SCHEMA_BY_OP = {
+  add_person: { type: 'object', properties: { name: { type: 'string' }, role: { type: 'string' }, kind: { type: 'string', enum: ['person', 'manager', 'stakeholder', 'team', 'vendor'] }, reports_to: { type: 'string' } }, required: ['name'] },
+  set_role: { type: 'object', properties: { person: { type: 'string' }, role: { type: 'string' } }, required: ['person', 'role'] },
+  remove_person: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
+  add_reporting_line: { type: 'object', properties: { from: { type: 'string' }, to: { type: 'string' } }, required: ['from', 'to'] },
+  remove_reporting_line: { type: 'object', properties: { from: { type: 'string' }, to: { type: 'string' } }, required: ['from', 'to'] },
+  set_manager: { type: 'object', properties: { person: { type: 'string' }, manager: { type: 'string' } }, required: ['person', 'manager'] },
+  add_playbook_rule: { type: 'object', properties: { text: { type: 'string' }, section: { type: 'string' } }, required: ['text'] },
+  remove_playbook_rule: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+  set_environment_key: { type: 'object', properties: { key: { type: 'string' }, value: { type: 'string' }, note: { type: 'string' } }, required: ['key', 'value'] },
+  remove_environment_key: { type: 'object', properties: { key: { type: 'string' } }, required: ['key'] },
+  add_decision: { type: 'object', properties: { text: { type: 'string' }, owner: { type: 'string' } }, required: ['text'] },
+  add_action: { type: 'object', properties: { text: { type: 'string' }, owner: { type: 'string' }, due: { type: 'string' } }, required: ['text'] },
+  complete_action: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+  complete_action_by_text: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+  remove_decision: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+  supersede_decision: { type: 'object', properties: { id: { type: 'string' }, new_text: { type: 'string' }, owner: { type: 'string' } }, required: ['id', 'new_text'] },
+  append_my_note: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+  replace_my_notes: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+  set_prose: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+  add_node: { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' }, kind: { type: 'string' }, note: { type: 'string' }, layer: { type: 'string' } }, required: ['id', 'label', 'kind'] },
+  set_node_label: { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' } }, required: ['id', 'label'] },
+  set_node_note: { type: 'object', properties: { id: { type: 'string' }, note: { type: 'string' } }, required: ['id', 'note'] },
+  set_node_kind: { type: 'object', properties: { id: { type: 'string' }, kind: { type: 'string' } }, required: ['id', 'kind'] },
+  move_node_to_layer: { type: 'object', properties: { id: { type: 'string' }, layer: { type: 'string' } }, required: ['id', 'layer'] },
+  remove_node: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+  add_edge: { type: 'object', properties: { from: { type: 'string' }, to: { type: 'string' }, label: { type: 'string' } }, required: ['from', 'to'] },
+  remove_edge: { type: 'object', properties: { from: { type: 'string' }, to: { type: 'string' } }, required: ['from', 'to'] },
+  add_layer: { type: 'object', properties: { id: { type: 'string' }, title: { type: 'string' } }, required: ['id', 'title'] },
+  remove_layer: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] }
+}
+
+const CLAUDE_SYS = `You are Claude, the assistant a PM is talking to. You have access to Delma's typed-op tools. After each user message:
+1. If the user said anything worth capturing (a person, a decision, a tech ID, a process rule, an architecture detail, a personal note), call the appropriate tool(s).
+2. Reply with a short, natural acknowledgement (1-2 sentences). Do NOT recite which tools you called.
+
+Tools are named <filename>__<op>, e.g. people_md__add_person. Each tool's input_schema describes its args. Call as many tools per turn as needed; the user might mention several facts in one message.
+
+Use the most specific tool available. For "X reports to Y instead of Z", prefer set_manager (replaces) over add_reporting_line (adds). For decisions that contradict prior ones, prefer supersede_decision over remove_decision. For an action whose id you don't know, use complete_action_by_text.
+
+If nothing concrete was said (chitchat, questions, vague hedges), don't call any tool. Just reply naturally.`
+
+// Native tool-use turn. Returns the assistant's tool calls + final reply.
+async function runOneTurn(messages, ctx) {
+  const tools = buildAnthropicTools()
+  const opsRecorded = []   // { tab, op, args, ok, ms, error }
+
+  // Loop because the model may call multiple tools and chain
+  let turnMessages = messages.slice()
+  let finalText = ''
+  for (let iter = 0; iter < 8; iter++) {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({ model: HAIKU, max_tokens: 1500, system: CLAUDE_SYS, tools, messages: turnMessages })
+    })
+    if (!res.ok) throw new Error(`Anthropic ${res.status}: ${await res.text()}`)
+    const data = await res.json()
+    const content = data.content || []
+    const toolUses = content.filter(c => c.type === 'tool_use')
+    const texts = content.filter(c => c.type === 'text').map(c => c.text).join(' ')
+    if (texts) finalText = texts
+
+    if (!toolUses.length || data.stop_reason === 'end_turn') {
+      return { reply: finalText, ops: opsRecorded, raw: data }
+    }
+
+    // Apply each tool_use, append assistant content + tool_result blocks
+    turnMessages.push({ role: 'assistant', content })
+    const toolResults = []
+    for (const tu of toolUses) {
+      const [fileSafe, op] = tu.name.split('__')
+      const filename = fileSafe.replace(/_md$/, '.md').replace(/^architecture$/, 'architecture')
+      const tabPrefix = filename === 'architecture' ? 'diagram:' : (['people.md', 'playbook.md'].includes(filename) ? 'org:' : 'memory:')
+      const tabKey = `${tabPrefix}${filename}`
+      const scope = parseTabKey(tabKey, ctx)
+      const t0 = Date.now()
+      let resultText = '', isErr = false
+      if (!scope) {
+        resultText = `error: unknown tab ${tabKey}`; isErr = true
+      } else {
+        try {
+          const r = await applyOpsToTab(sb, scope, [{ op, args: tu.input || {} }])
+          resultText = JSON.stringify({ applied: r.applied.length, errors: r.errors })
+          opsRecorded.push({ tab: tabKey, op, args: tu.input, ok: true, ms: Date.now() - t0, errors: r.errors })
+        } catch (err) {
+          resultText = `error: ${err.message}`; isErr = true
+          opsRecorded.push({ tab: tabKey, op, args: tu.input, ok: false, ms: Date.now() - t0, error: err.message })
+        }
+      }
+      toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: resultText, is_error: isErr })
+    }
+    turnMessages.push({ role: 'user', content: toolResults })
+  }
+  return { reply: finalText || '(model exceeded tool-use loop)', ops: opsRecorded, raw: null }
 }
 
 const CRITIC_SYS = `You critique a Delma narrative-test run.
@@ -304,18 +376,29 @@ Critique this run.`
 }
 
 export async function runNarrative(narrative) {
-  console.log('[quality:nar]', narrative.id, '— starting')
+  console.log('[quality:nar]', narrative.id, '— starting (native tool-use)')
   const t0 = Date.now()
   const ctx = await ensureSimWorkspace(`nar:${narrative.id}`)
-  const transcript = []
+  const transcript = []          // for /logs display
+  const apiMessages = []         // Anthropic messages array (with tool_use/tool_result blocks)
   const allOpResults = []
+  const turnTimings = []         // for Mode-A measurement: ms from user msg → first op
 
   for (const userMsg of narrative.turns) {
     transcript.push({ role: 'user', text: userMsg })
-    const { ops, reply, raw } = await runOneTurn(transcript)
-    const opResults = await applyOps(ops, ctx)
-    allOpResults.push(...opResults)
-    transcript.push({ role: 'claude', text: reply, replyOnly: reply, ops, raw })
+    apiMessages.push({ role: 'user', content: userMsg })
+    const turnStart = Date.now()
+    const { reply, ops } = await runOneTurn(apiMessages, ctx)
+    const firstOpAt = ops[0] ? turnStart + ops[0].ms : null  // approximation: ms is op duration; full elapsed since turn start
+    turnTimings.push({
+      user_msg: userMsg.slice(0, 60),
+      ops_count: ops.length,
+      ms_to_reply: Date.now() - turnStart,
+      ops_called: ops.map(o => `${o.tab}/${o.op}`)
+    })
+    apiMessages.push({ role: 'assistant', content: reply })  // simplified — drops tool blocks but keeps the natural reply for next turn
+    allOpResults.push(...ops)
+    transcript.push({ role: 'claude', text: reply, ops })
   }
 
   const [{ data: mem }, { data: org }, { data: dia }] = await Promise.all([
@@ -331,15 +414,30 @@ export async function runNarrative(narrative) {
   const crit = await critique(narrative, transcript, finalState, allOpResults)
   const totalMs = Date.now() - t0
 
-  await sb.from('quality_simulations').insert({
+  const { data: simRow } = await sb.from('quality_simulations').insert({
     workspace_id: ctx.workspaceId,
-    transcript: { narrative_id: narrative.id, narrative_title: narrative.title, turns: transcript },
+    transcript: { narrative_id: narrative.id, narrative_title: narrative.title, turns: transcript, turn_timings: turnTimings },
     ops_applied: allOpResults, final_state: finalState,
     critique: crit, total_duration_ms: totalMs,
     overall_score: crit.overall || null
+  }).select('id').single()
+
+  // Auto-promote critic findings into candidate eval cases for review.
+  // Each "missed" or "wrong" item becomes a candidate row — David triages
+  // in the morning; accepted ones become permanent eval cases.
+  const candidates = []
+  for (const m of crit.missed || []) candidates.push({
+    source_simulation_id: simRow?.id || null, category: 'missed',
+    finding_text: m, suggested_input: null, expected_op: null, expected_tab: null
   })
-  console.log(`[quality:nar] ${narrative.id} — ${crit.overall}/5 in ${totalMs}ms`)
-  return { narrative_id: narrative.id, score: crit.overall, totalMs }
+  for (const w of crit.wrong || []) candidates.push({
+    source_simulation_id: simRow?.id || null, category: 'wrong',
+    finding_text: w, suggested_input: null, expected_op: null, expected_tab: null
+  })
+  if (candidates.length) await sb.from('quality_candidate_evals').insert(candidates)
+
+  console.log(`[quality:nar] ${narrative.id} — ${crit.overall}/5 in ${totalMs}ms (filed ${candidates.length} candidate eval(s))`)
+  return { narrative_id: narrative.id, score: crit.overall, totalMs, candidates: candidates.length }
 }
 
 // Delete QA workspaces older than N days so the test org doesn't accumulate
