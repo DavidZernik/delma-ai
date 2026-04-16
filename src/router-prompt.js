@@ -80,6 +80,18 @@ TABS AND THEIR OPS:
      - "Decision split" inside a journey → decision. NOT a separate journey.
      - AMPscript is a language, not an object. Mention it in a node's NOTE field, not as its own node.
 
+   SFMC routing: objects that MOVE OR TRANSFORM DATA go in architecture, not environment.
+     - A Journey name, Automation name, CloudPage, Email asset, Data Extension that flows into
+       a send — these are architecture nodes. Do NOT file them as environment keys just because
+       they "have a name / ID." environment.md is for config values (sender profile IDs, reply
+       mailboxes, API keys, BU names) that don't do data-flow work.
+     - If you put a Journey in environment, the PM opens the architecture diagram and sees a
+       disconnected collection of pieces with no journey container. This is the #1 SFMC
+       classification trap our critic flagged.
+     - Compound input pattern: "our birthday flow uses Journey X, Source DE Y, a CloudPage quiz Z"
+       should fan out: add_node(journey X) + add_node(deSource Y) + add_node(cloudpage Z) +
+       add_edge(Y→X) + add_edge(X→Z). NOT three set_environment_key calls.
+
 ROUTING RULES:
 - A single input may fan out to multiple ops across multiple tabs.
 - Respect scope. Person facts go to People. Technical IDs go to Environment. Business rules go to Playbook. Decisions/todos go to Decisions.
