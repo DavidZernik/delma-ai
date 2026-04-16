@@ -17,6 +17,31 @@
 
 import { findSemanticDupItem } from '../lib/similarity.js'
 
+// Extract specific named entities from a prose expected item. The narratives'
+// `expected` blocks write things like "Nodes: NewSubscribers_Daily (deSource),
+// Welcome_Send_Daily (automation), three emails, decision split" — a single
+// prose string that bundles multiple distinct things. If we match this
+// against the captured state at the prose level, any one capture satisfies
+// the whole string and fidelity overcounts.
+//
+// This pulls out identifier-shaped tokens (PascalCase, snake_case, DOT.case)
+// so we can require each named entity individually.
+function extractNamedEntities(prose) {
+  if (!prose) return []
+  const tokens = new Set()
+  // Pattern: two-or-more-segment identifiers like Welcome_Email_Day3,
+  // SP_Birthday_Main, BirthdayJourney_v3, populi-sendable-daily,
+  // Birthday_Patients_Daily. Require at least one underscore/dash OR a
+  // CamelCase transition to avoid picking up ordinary words like "source".
+  const idLike = prose.match(/\b[A-Za-z][A-Za-z0-9]*(?:[_\-][A-Za-z0-9]+){1,}\b/g) || []
+  for (const t of idLike) tokens.add(t)
+  // PascalCase / camelCase words with at least two capitals — catches
+  // "BirthdayJourney", "WelcomeJourney", "CloudPage"
+  const camel = prose.match(/\b[A-Z][a-z]+(?:[A-Z][a-z]+){1,}\b/g) || []
+  for (const t of camel) tokens.add(t)
+  return [...tokens]
+}
+
 // Pull captured items out of the final workspace state, one flattened string
 // per "thing" in each tab. These are what we compare expected items against.
 function extractCapturedItems(finalState) {
@@ -87,27 +112,59 @@ function extractCapturedItems(finalState) {
 // "are we talking about the same concept."
 const MATCH_THRESHOLD = 0.55
 
-// Per-tab fidelity. For each expected item, find the closest captured item
-// in the same bucket by embedding similarity. Return per-tab counts +
-// specific missing items (the critic will also surface these, but fidelity
-// gives us a mechanical "X/Y captured" number that doesn't swing.)
+// Per-tab fidelity. For each expected prose item, FIRST decompose it into
+// the specific named entities it mentions (identifiers like
+// Welcome_Email_Day3 or BirthdayJourney_v3). Require each named entity to
+// be individually captured. The prose item is only "fully matched" when
+// the concept matches AND every named entity in it is present.
+//
+// This prevents the overcounting that made early fidelity runs hit 100%
+// when obvious specifics were missing. If the expected says "three emails:
+// Day0, Day3, Day7" and only Day0 is captured, the prose-level embedding
+// match still fires, but the entity check catches that 2 of 3 specific
+// names are absent.
 async function scoreTab(expected, captured) {
   if (!expected?.length) return { expected: 0, captured: captured.length, matched: 0, missed: [], score: 1 }
   if (!captured.length) return { expected: expected.length, captured: 0, matched: 0, missed: expected.slice(), score: 0 }
 
+  let totalItems = 0    // counts concept + each named entity as separate items
   let matched = 0
   const missed = []
+  const missingEntities = []
+
+  const capturedText = captured.map(c => c.text).join(' | ').toLowerCase()
+
   for (const expText of expected) {
-    const hit = await findSemanticDupItem(expText, captured, { field: 'text', threshold: MATCH_THRESHOLD })
-    if (hit) matched++
+    const entities = extractNamedEntities(expText)
+
+    // Concept-level match (prose-to-prose embedding)
+    const conceptHit = await findSemanticDupItem(expText, captured, { field: 'text', threshold: MATCH_THRESHOLD })
+    totalItems += 1
+    if (conceptHit) matched++
     else missed.push(expText)
+
+    // Entity-level checks — each named entity counts as its own item.
+    for (const entity of entities) {
+      totalItems += 1
+      // Cheap check first: is the entity (or a normalized form of it) present
+      // as a substring anywhere in the captured bucket's text?
+      const lower = entity.toLowerCase()
+      const lowerLoose = lower.replace(/[_\-]/g, '')
+      const inCaptured = capturedText.includes(lower) || capturedText.replace(/[_\-]/g, '').includes(lowerLoose)
+      if (inCaptured) { matched++; continue }
+      // Fall back to embedding match for the entity alone
+      const entityHit = await findSemanticDupItem(entity, captured, { field: 'text', threshold: 0.6 })
+      if (entityHit) matched++
+      else missingEntities.push(entity)
+    }
   }
+
   return {
-    expected: expected.length,
+    expected: totalItems,
     captured: captured.length,
     matched,
-    missed,
-    score: matched / expected.length
+    missed: missed.concat(missingEntities.length ? missingEntities.map(e => `(entity) ${e}`) : []),
+    score: totalItems ? matched / totalItems : 1
   }
 }
 
