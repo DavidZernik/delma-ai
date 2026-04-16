@@ -36,9 +36,10 @@ export async function startRun({ trigger, label, narratives = [] }) {
 export async function completeRun(runId, opts = {}) {
   const { data: sims } = await sb
     .from('quality_simulations')
-    .select('id, overall_score, transcript, critique')
+    .select('id, overall_score, transcript, critique, fidelity_score, fidelity_detail')
     .eq('run_id', runId)
   const scored = (sims || []).filter(s => typeof s.overall_score === 'number')
+  const withFidelity = (sims || []).filter(s => typeof s.fidelity_score === 'number')
 
   const { data: cands } = await sb
     .from('quality_candidate_evals')
@@ -67,12 +68,17 @@ export async function completeRun(runId, opts = {}) {
 
   const scores = scored.map(s => s.overall_score)
   const overall = scores.length ? (scores.reduce((a, b) => a + b, 0) / scores.length) : null
+  const fidScores = withFidelity.map(s => Number(s.fidelity_score))
+  const fidAvg = fidScores.length ? fidScores.reduce((a, b) => a + b, 0) / fidScores.length : null
 
   const aggregates = {
     num_complete: scored.length,
     overall_score: overall !== null ? Math.round(overall * 100) / 100 : null,
     min_score: scores.length ? Math.min(...scores) : null,
     max_score: scores.length ? Math.max(...scores) : null,
+    avg_fidelity: fidAvg !== null ? Math.round(fidAvg * 10) / 10 : null,
+    min_fidelity: fidScores.length ? Math.min(...fidScores) : null,
+    max_fidelity: fidScores.length ? Math.max(...fidScores) : null,
     num_candidates: cands?.length || 0,
     num_regression_fails: numRegressionFails,
     num_state_warnings: stateWarnRows?.length || 0,
@@ -127,7 +133,8 @@ async function generateRunSummary(sims, evalResults, aggregates) {
     const narrId = s.transcript?.narrative_id || 'unknown'
     const wrong = (s.critique?.wrong || []).slice(0, 3)
     const missed = (s.critique?.missed || []).slice(0, 3)
-    return `### ${narrId} — ${s.overall_score}/5
+    const fid = s.fidelity_score != null ? ` · fidelity ${s.fidelity_score}%` : ''
+    return `### ${narrId} — ${s.overall_score}/5${fid}
 Wrong: ${wrong.length ? wrong.join(' | ') : '(none)'}
 Missed: ${missed.length ? missed.join(' | ') : '(none)'}`
   }).join('\n\n')
@@ -140,8 +147,15 @@ Missed: ${missed.length ? missed.join(' | ') : '(none)'}`
 
   const prompt = `You are summarizing a Delma Quality Lab run for a PM who just fired it and wants to know — in plain English — what to act on.
 
+Two signals per narrative to weigh against each other:
+- QUALITY score (critic's 1-5): judgmental — "was the capture usable?" Swings ±1 due to LLM variance.
+- FIDELITY score (deterministic %): "% of things the user named that we actually captured." Stable across runs.
+
+If quality went down but fidelity held steady, it's probably critic variance. If fidelity went down, the underlying capture actually regressed — act on it.
+
 Run aggregates:
-- ${aggregates.num_complete} narratives scored, average ${aggregates.overall_score}/5 (min ${aggregates.min_score}, max ${aggregates.max_score})
+- ${aggregates.num_complete} narratives scored, avg quality ${aggregates.overall_score}/5 (min ${aggregates.min_score}, max ${aggregates.max_score})
+- Avg fidelity: ${aggregates.avg_fidelity != null ? aggregates.avg_fidelity + '%' : 'n/a'} (min ${aggregates.min_fidelity ?? 'n/a'}, max ${aggregates.max_fidelity ?? 'n/a'})
 - ${aggregates.num_candidates} candidate eval findings filed
 - ${aggregates.num_regression_fails} regression eval(s) failed
 

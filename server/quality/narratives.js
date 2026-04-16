@@ -631,6 +631,15 @@ export async function runNarrative(narrative, opts = {}) {
   for (const r of dia || []) if (r.structured) finalState['diagram:' + r.view_key] = r.structured
 
   const crit = await critique(narrative, transcript, finalState, allOpResults)
+  // Deterministic fidelity diff — embedding-based "did we capture what the
+  // user said?" score. Stable across runs (the critic's score isn't).
+  let fidelity = null
+  try {
+    const { computeFidelity } = await import('./fidelity.js')
+    fidelity = await computeFidelity(narrative, finalState)
+  } catch (err) {
+    console.warn('[quality:nar] fidelity compute failed (non-fatal):', err.message)
+  }
   const totalMs = Date.now() - t0
 
   const { data: simRow } = await sb.from('quality_simulations').insert({
@@ -639,7 +648,9 @@ export async function runNarrative(narrative, opts = {}) {
     ops_applied: allOpResults, final_state: finalState,
     critique: crit, total_duration_ms: totalMs,
     overall_score: crit.overall || null,
-    run_id: runId
+    run_id: runId,
+    fidelity_score: fidelity?.percent ?? null,
+    fidelity_detail: fidelity || null
   }).select('id').single()
 
   // Auto-promote critic findings into candidate eval cases for review.
@@ -658,8 +669,15 @@ export async function runNarrative(narrative, opts = {}) {
   })
   if (candidates.length) await sb.from('quality_candidate_evals').insert(candidates)
 
-  console.log(`[quality:nar] ${narrative.id} — ${crit.overall}/5 in ${totalMs}ms (filed ${candidates.length} candidate eval(s))`)
-  return { narrative_id: narrative.id, score: crit.overall, totalMs, candidates: candidates.length }
+  const fidStr = fidelity?.percent != null ? ` · fidelity ${fidelity.percent}%` : ''
+  console.log(`[quality:nar] ${narrative.id} — ${crit.overall}/5${fidStr} in ${totalMs}ms (filed ${candidates.length} candidate eval(s))`)
+  return {
+    narrative_id: narrative.id,
+    score: crit.overall,
+    fidelity: fidelity?.percent ?? null,
+    totalMs,
+    candidates: candidates.length
+  }
 }
 
 // Delete per-sim QA orgs older than N days (and everything under them).

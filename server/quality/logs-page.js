@@ -219,6 +219,7 @@ function renderRunCard(r) {
   const moreNarr = (r.narratives_run || []).length - narratives.length
   const statusHtml = r.status === 'running' ? `<span class="status-running">⟳ running</span>` : `${ago(r.ended_at || r.started_at)}`
   const summaryHtml = r.summary ? md(r.summary) : (r.status === 'running' ? '<p style="color:#6B5A5A;font-style:italic;">Summary will appear here when the run completes.</p>' : '<p style="color:#6B5A5A;font-style:italic;">No summary available.</p>')
+  const fidTxt = r.avg_fidelity != null ? `${r.avg_fidelity}%` : null
 
   return `
     <a class="run-card" href="/logs?run=${r.id}">
@@ -227,7 +228,10 @@ function renderRunCard(r) {
           <h3 class="title"><span class="trigger-pill ${tCls}">${esc(r.trigger)}</span>${esc(title.replace(r.trigger + ': ', ''))}</h3>
           <div class="meta">${statusHtml} · ${r.num_complete || 0}/${r.num_narratives || 0} narratives${narratives.length ? ' · ' + narratives.map(esc).join(', ') : ''}${moreNarr > 0 ? ` (+${moreNarr})` : ''}</div>
         </div>
-        <div class="score-pill ${scoreCls}">${scoreTxt}</div>
+        <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
+          <div class="score-pill ${scoreCls}">${scoreTxt}</div>
+          ${fidTxt ? `<div class="score-pill" style="font-size:10px;padding:2px 8px;background:#F4ECE6;color:#6B4823;">${fidTxt} fidelity</div>` : ''}
+        </div>
       </div>
       <div class="summary">${summaryHtml}</div>
       <div class="footer">
@@ -282,7 +286,8 @@ async function renderRunDetail(runId) {
     </div>
 
     <div class="summary">
-      <div class="stat"><div class="num">${scoreTxt}</div><div class="lab">Overall Score</div></div>
+      <div class="stat"><div class="num">${scoreTxt}</div><div class="lab">Quality (Sonnet)</div></div>
+      <div class="stat"><div class="num">${run.avg_fidelity != null ? run.avg_fidelity + '%' : '—'}</div><div class="lab">Fidelity (deterministic)</div></div>
       <div class="stat"><div class="num">${run.num_complete || 0}/${run.num_narratives || 0}</div><div class="lab">Narratives</div></div>
       <div class="stat"><div class="num">${run.num_regression_fails ?? 0}</div><div class="lab">Regression Fails</div></div>
       <div class="stat"><div class="num">${run.num_candidates ?? 0}</div><div class="lab">Candidate Evals</div></div>
@@ -379,12 +384,14 @@ function renderSim(s) {
   const title = s.transcript?.narrative_title || nar
   const sc = s.critique?.scores || {}
   const scoreCls = scoreClass(s.overall_score)
+  const fid = s.fidelity_detail || null
 
   return `
     <details class="sim-card">
       <summary>
         <strong>${esc(title)}</strong> ·
         <span class="score-pill ${scoreCls}" style="padding:2px 8px;font-size:11px;">${s.overall_score ?? '?'}/5</span> ·
+        ${s.fidelity_score != null ? `<span class="score-pill" style="padding:2px 8px;font-size:11px;background:#F4ECE6;color:#6B4823;">${s.fidelity_score}% fidelity</span> ·` : ''}
         <span class="ts">${Math.round((s.total_duration_ms || 0) / 1000)}s · ${(s.ops_applied || []).length} ops</span>
       </summary>
       <div class="sim-body">
@@ -395,6 +402,24 @@ function renderSim(s) {
           timeliness: ${sc.timeliness ?? '?'}/5 ·
           correctness: ${sc.correctness ?? '?'}/5
         </div>
+        ${fid ? `
+          <h4>Fidelity (${fid.matched}/${fid.expected} expected items captured, ${fid.percent}%)</h4>
+          <div style="font-size:12px; color:#6B5A5A;">
+            <table class="mini" style="margin-top:4px;">
+              <thead><tr><th>Tab</th><th>Captured</th><th>Missing</th></tr></thead>
+              <tbody>
+                ${Object.entries(fid.per_tab).filter(([,v]) => v.expected > 0).map(([tab, v]) => `
+                  <tr>
+                    <td><code>${esc(tab)}</code></td>
+                    <td class="ts">${v.matched}/${v.expected}</td>
+                    <td>${v.missed.length ? v.missed.map(m => esc(m)).join(' · ') : '<span class="pass">all captured</span>'}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+            ${fid.forbidden_hits > 0 ? `<div style="color:#B33; margin-top:6px;">⚠ ${fid.forbidden_hits} forbidden item(s) captured: ${(fid.forbidden || []).map(f => esc(f.forbidden)).join(', ')}</div>` : ''}
+          </div>
+        ` : ''}
         ${s.critique?.wrong?.length ? `<h4>What Delma got wrong</h4><ul>${s.critique.wrong.map(w => `<li>${esc(w)}</li>`).join('')}</ul>` : ''}
         ${s.critique?.missed?.length ? `<h4>What was missed</h4><ul>${s.critique.missed.map(m => `<li>${esc(m)}</li>`).join('')}</ul>` : ''}
         ${s.critique?.praise?.length ? `<h4>What worked</h4><ul>${s.critique.praise.map(p => `<li>${esc(p)}</li>`).join('')}</ul>` : ''}

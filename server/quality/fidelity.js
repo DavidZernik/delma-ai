@@ -1,0 +1,159 @@
+// Deterministic-ish fidelity score per narrative, decoupled from Sonnet critique.
+//
+// Each narrative has an `expected` object with natural-language items per tab
+// (e.g. `people: ['Sarah (PM)', 'Keyona Abbott (Engineer, reports to Sarah)']`).
+// This module embeds each expected item and each captured item in the final
+// workspace state, then computes pair-wise cosine similarity to determine
+// whether each expected item was "captured" in some form.
+//
+// Why this matters: the Sonnet critic produces a 1-5 quality score that
+// swings ±1 across runs of the same narrative due to LLM variance. Two
+// signals per sim:
+//   - fidelity (this file): stable, reproducible. "% of expected items captured."
+//   - quality (Sonnet critique): judgmental, variance-prone. "How usable was it?"
+//
+// Fidelity answers "did we capture it?" Quality answers "was the capture good?"
+// Together they separate real regressions from critic noise.
+
+import { findSemanticDupItem } from '../lib/similarity.js'
+
+// Pull captured items out of the final workspace state, one flattened string
+// per "thing" in each tab. These are what we compare expected items against.
+function extractCapturedItems(finalState) {
+  const buckets = {
+    people: [],
+    decisions: [],
+    actions: [],
+    environment: [],
+    playbook: [],
+    architecture: []
+  }
+
+  const peopleTab = finalState['org:people.md']
+  for (const p of (peopleTab?.people || [])) {
+    const bits = [p.name, p.role, p.kind].filter(Boolean)
+    buckets.people.push({ text: bits.join(' '), raw: p })
+  }
+
+  const decisionsTab = finalState['memory:decisions.md']
+  for (const d of (decisionsTab?.decisions || [])) {
+    if (d.superseded_by) continue
+    buckets.decisions.push({ text: `${d.text}${d.owner ? ` (${d.owner})` : ''}`, raw: d })
+  }
+  for (const a of (decisionsTab?.actions || [])) {
+    buckets.actions.push({ text: `${a.text}${a.owner ? ` (${a.owner})` : ''}${a.due ? ` due ${a.due}` : ''}`, raw: a })
+  }
+
+  const envTab = finalState['memory:environment.md']
+  for (const e of (envTab?.entries || [])) {
+    buckets.environment.push({ text: `${e.key} = ${e.value}${e.note ? ` (${e.note})` : ''}`, raw: e })
+  }
+
+  const playbookTab = finalState['org:playbook.md']
+  for (const r of (playbookTab?.rules || [])) {
+    if (r.superseded_by) continue
+    buckets.playbook.push({ text: r.text, raw: r })
+  }
+
+  const archTab = finalState['diagram:architecture']
+  for (const n of (archTab?.nodes || [])) {
+    const layerName = n.layer
+      ? (archTab.layers || []).find(l => l.id === n.layer)?.title || n.layer
+      : null
+    buckets.architecture.push({
+      text: `${n.label || n.id} (${n.kind}${layerName ? `, layer: ${layerName}` : ''})${n.note ? ` — ${n.note}` : ''}`,
+      raw: n,
+      type: 'node'
+    })
+  }
+  for (const e of (archTab?.edges || [])) {
+    buckets.architecture.push({
+      text: `edge ${e.from} → ${e.to}${e.label ? ` [${e.label}]` : ''}`,
+      raw: e,
+      type: 'edge'
+    })
+  }
+  for (const l of (archTab?.layers || [])) {
+    buckets.architecture.push({ text: `layer: ${l.title}`, raw: l, type: 'layer' })
+  }
+
+  return buckets
+}
+
+// Cosine-similarity threshold above which an expected item counts as
+// "captured" by the best-matching captured item in the same tab. Tuned
+// conservative (0.55) because prose-expected and structured-captured have
+// different surface forms — we don't need embedding-level polish, just
+// "are we talking about the same concept."
+const MATCH_THRESHOLD = 0.55
+
+// Per-tab fidelity. For each expected item, find the closest captured item
+// in the same bucket by embedding similarity. Return per-tab counts +
+// specific missing items (the critic will also surface these, but fidelity
+// gives us a mechanical "X/Y captured" number that doesn't swing.)
+async function scoreTab(expected, captured) {
+  if (!expected?.length) return { expected: 0, captured: captured.length, matched: 0, missed: [], score: 1 }
+  if (!captured.length) return { expected: expected.length, captured: 0, matched: 0, missed: expected.slice(), score: 0 }
+
+  let matched = 0
+  const missed = []
+  for (const expText of expected) {
+    const hit = await findSemanticDupItem(expText, captured, { field: 'text', threshold: MATCH_THRESHOLD })
+    if (hit) matched++
+    else missed.push(expText)
+  }
+  return {
+    expected: expected.length,
+    captured: captured.length,
+    matched,
+    missed,
+    score: matched / expected.length
+  }
+}
+
+// False-positive detection: were things in `shouldNOTcapture` actually captured?
+// Flattens all captured strings across tabs and checks each forbidden item
+// against the combined set.
+async function scoreForbidden(forbidden, allCaptured) {
+  if (!forbidden?.length || !allCaptured.length) return { count: 0, hits: [] }
+  const hits = []
+  for (const forbidText of forbidden) {
+    const hit = await findSemanticDupItem(forbidText, allCaptured, { field: 'text', threshold: 0.7 })
+    if (hit) hits.push({ forbidden: forbidText, captured: hit.item.text, similarity: hit.similarity })
+  }
+  return { count: hits.length, hits }
+}
+
+export async function computeFidelity(narrative, finalState) {
+  const exp = narrative.expected || {}
+  const captured = extractCapturedItems(finalState)
+
+  // Architecture is a single flat bucket in captured but expected often
+  // comes in as one long prose string that mentions nodes + edges + layers
+  // together. Score it as a single bucket.
+  const perTab = {
+    people:       await scoreTab(exp.people || [],       captured.people),
+    decisions:    await scoreTab(exp.decisions || [],    captured.decisions),
+    actions:      await scoreTab(exp.actions || [],      captured.actions),
+    environment:  await scoreTab(exp.environment || [],  captured.environment),
+    playbook:     await scoreTab(exp.playbook || [],     captured.playbook),
+    architecture: await scoreTab(exp.architecture || [], captured.architecture)
+  }
+
+  const allCaptured = Object.values(captured).flat()
+  const forbidden = await scoreForbidden(exp.shouldNOTcapture || [], allCaptured)
+
+  const expectedCount = Object.values(perTab).reduce((a, b) => a + b.expected, 0)
+  const matchedCount  = Object.values(perTab).reduce((a, b) => a + b.matched, 0)
+  const overallScore = expectedCount ? matchedCount / expectedCount : null
+
+  return {
+    score: overallScore,                 // 0..1, or null if narrative has no expected items
+    percent: overallScore !== null ? Math.round(overallScore * 100) : null,
+    matched: matchedCount,
+    expected: expectedCount,
+    forbidden_hits: forbidden.count,     // > 0 = captured something it was told not to
+    per_tab: perTab,
+    forbidden: forbidden.hits
+  }
+}
