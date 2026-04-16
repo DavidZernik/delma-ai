@@ -1494,6 +1494,48 @@
         height: 34px;
       }
     }
+
+    /* ── Mobile responsive — no horizontal bleed at any width ─────────── */
+    html, body { max-width: 100vw; overflow-x: hidden; }
+    * { box-sizing: border-box; }
+    img, svg, video, table, pre { max-width: 100%; }
+    .mermaid svg, .mermaid-inline svg { max-width: 100%; height: auto; }
+    pre, code { word-wrap: break-word; overflow-wrap: break-word; }
+
+    @media (max-width: 768px) {
+      body { padding: 0; font-size: 14px; }
+      .app-shell, .workspace-shell, .diagram-shell, .diagram-card { max-width: 100% !important; padding-left: 12px; padding-right: 12px; }
+      .top-bar, .header-row, .header-bar { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
+      .top-bar > *, .header-row > * { min-width: 0; }
+      .brand-dropdown, .org-selector, .project-selector, .delma-org-dropdown, .delma-project-dropdown { max-width: 100%; flex: 1 1 140px; }
+      .tab-bar, .top-tab-bar, .view-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; flex-wrap: nowrap; padding-bottom: 4px; }
+      .tab-bar::-webkit-scrollbar, .view-tabs::-webkit-scrollbar { height: 4px; }
+      .view-tab, .top-tab { white-space: nowrap; flex-shrink: 0; }
+      .diagram-card { padding: 16px 12px; }
+      textarea, input, select { max-width: 100%; }
+      .struct-table { font-size: 12px; }
+      .struct-table td, .struct-table th { padding: 4px; }
+      .struct-input { font-size: 12px; padding: 6px 8px; }
+      .struct-list li { font-size: 13px; flex-wrap: wrap; }
+      .struct-row { flex-wrap: wrap; }
+      .struct-input-owner { max-width: 100%; }
+      .markdown-body table { display: block; overflow-x: auto; }
+      .diagram-zoom-controls { transform: scale(0.85); transform-origin: top right; }
+      .action-slot { padding: 12px; }
+      .action-slot-input { font-size: 14px; }
+      .auth-overlay { padding: 24px 16px; }
+      .empty-state { padding: 40px 16px; min-height: 280px; }
+    }
+    @media (max-width: 480px) {
+      h1 { font-size: 20px; }
+      .header-row, .top-bar { padding: 8px 10px; }
+      .struct-table { display: block; }
+      .struct-table thead { display: none; }
+      .struct-table tbody, .struct-table tr, .struct-table td { display: block; width: 100%; }
+      .struct-table tbody tr { padding: 8px; margin-bottom: 8px; border: 1px solid var(--line); border-radius: 6px; }
+      .struct-table td { padding: 4px 0; }
+      .struct-table td:before { content: attr(data-label); font-weight: 600; font-size: 11px; color: var(--muted); display: block; text-transform: uppercase; letter-spacing: 0.04em; }
+    }
   </style>
 </head>
 <body>

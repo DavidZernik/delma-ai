@@ -95,6 +95,86 @@ export const NARRATIVES = [
       decisions: ['Move Daily_Refresh from 5am to 6am (upstream data delays)'],
       shouldNOTcapture: ['"morning how are you"', '"I\'m tired today"', '"what time is it"']
     }
+  },
+  {
+    id: 'architecture-heavy',
+    title: 'Building out a full SFMC architecture turn-by-turn',
+    turns: [
+      "Let's design the Welcome Series flow from scratch.",
+      "Source: a data extension called NewSubscribers_Daily, populated by an upstream sync.",
+      "An automation called Welcome_Send_Daily runs at 7am, querying NewSubscribers_Daily.",
+      "The query filters to subs with no welcome sent yet, and feeds a journey called WelcomeJourney.",
+      "WelcomeJourney has three emails: Welcome_Email_Day0, Welcome_Email_Day3, Welcome_Email_Day7.",
+      "There's also a decision split after Day3 — if they opened, route to Day7; if not, exit.",
+      "Group the data extension and automation under a 'Trigger Layer'. Group the journey + emails under 'Engagement Layer'.",
+      "Done — does that look right?"
+    ],
+    expected: {
+      architecture: [
+        'Nodes: NewSubscribers_Daily (deSource), Welcome_Send_Daily (automation), the SQL query (sql), WelcomeJourney (journey), three emails, decision split',
+        'Edges: source → automation → query → journey → emails; decision split routes Day3 → Day7 OR exit',
+        'Layers: "Trigger Layer" (DE + automation), "Engagement Layer" (journey + emails)'
+      ]
+    }
+  },
+  {
+    id: 'environment-heavy',
+    title: 'Recording lots of technical IDs in one session',
+    turns: [
+      "Let me dump the env config for the Q2 launch.",
+      "Sender Profile: SP_Q2_Launch.",
+      "Source DE: Subscribers_Q2.",
+      "Journey ID: J_Q2_Welcome_2025.",
+      "Automation: Auto_Q2_Refresh.",
+      "Reply mailbox is q2-replies@example.com.",
+      "And a CloudPage URL: cloud.example.com/q2-preferences",
+      "That's the lot."
+    ],
+    expected: {
+      environment: [
+        'SP_Q2_Launch (sender profile)', 'Subscribers_Q2 (source DE)',
+        'J_Q2_Welcome_2025 (journey id)', 'Auto_Q2_Refresh (automation)',
+        'q2-replies@example.com (reply mailbox)', 'cloud.example.com/q2-preferences (CloudPage URL)'
+      ],
+      shouldNOTcapture: ['anything in People, Playbook, Decisions, or Architecture']
+    }
+  },
+  {
+    id: 'corrections-and-supersession',
+    title: 'User keeps changing their mind — exercise corrections',
+    turns: [
+      "We decided to use a single template for all four segments. Owner is Alex.",
+      "Actually scratch that — we're keeping the four templates. Better personalization.",
+      "Let me also add: David Zernik is the new tech lead. Reports to me, the PM Sarah Lee.",
+      "Wait, David already exists in the workspace? OK then just update him to tech lead, he was previously engineer.",
+      "And the launch date — was Mar 1, now Mar 15.",
+      "Oh and the Friday rule — we can ship on Fridays now. Legal cleared a faster review path.",
+      "That's all the changes."
+    ],
+    expected: {
+      decisions: [
+        'Initial: single template (4 segments). Then SUPERSEDED by: keep four templates (better personalization).',
+        'Initial: launch March 1. Then SUPERSEDED by: launch March 15.'
+      ],
+      people: ['David Zernik role updated to "tech lead" (was engineer); reports to Sarah Lee (PM)'],
+      playbook: ['"No Friday launches" rule should be REMOVED or marked superseded — Friday launches now allowed.']
+    }
+  },
+  {
+    id: 'cross-tab-fanout',
+    title: 'Single message that legitimately fans out across 4 tabs',
+    turns: [
+      "Big update: Susan Park is now the exec sponsor (was VP). Owner of decisions in this project. Friday no-launch rule still applies. We just decided to use SP_Susan_Test as her test sender. Action: Susan to confirm her test list by EOW.",
+      "And the architecture: add a TestSendAuto automation that fires Susan's preview before each batch."
+    ],
+    expected: {
+      people: ['Susan Park role updated to exec sponsor (was VP)'],
+      decisions: ['Use SP_Susan_Test as her test sender (Susan)'],
+      actions: ['Susan: confirm test list by EOW'],
+      environment: ['SP_Susan_Test (sender profile)'],
+      architecture: ['Add TestSendAuto (automation) that fires before each batch'],
+      playbook: ['No Friday launches — already in playbook, no action needed (don\'t duplicate)']
+    }
   }
 ]
 
@@ -262,8 +342,37 @@ export async function runNarrative(narrative) {
   return { narrative_id: narrative.id, score: crit.overall, totalMs }
 }
 
+// Delete QA workspaces older than N days so the test org doesn't accumulate
+// hundreds of stale rows over time. Each narrative run creates a fresh ws.
+export async function cleanupOldQaWorkspaces(daysOld = 3) {
+  const ORG_NAME = 'Delma QA Simulation Org'
+  const { data: org } = await sb.from('organizations').select('id').eq('name', ORG_NAME).maybeSingle()
+  if (!org) return { deleted: 0 }
+  const cutoff = new Date(Date.now() - daysOld * 86400 * 1000).toISOString()
+  const { data: stale } = await sb.from('workspaces')
+    .select('id').eq('org_id', org.id).lt('created_at', cutoff)
+  if (!stale?.length) return { deleted: 0 }
+  // Children first (cascade may not be set on every FK)
+  const ids = stale.map(w => w.id)
+  await sb.from('memory_notes').delete().in('workspace_id', ids)
+  await sb.from('diagram_views').delete().in('workspace_id', ids)
+  await sb.from('history_snapshots').delete().in('workspace_id', ids)
+  await sb.from('mcp_call_logs').delete().in('workspace_id', ids)
+  await sb.from('api_op_logs').delete().in('workspace_id', ids)
+  await sb.from('quality_router_calls').delete().in('workspace_id', ids)
+  await sb.from('workspace_members').delete().in('workspace_id', ids)
+  await sb.from('workspaces').delete().in('id', ids)
+  console.log('[quality:nar] cleanup —', ids.length, 'stale QA workspaces deleted')
+  return { deleted: ids.length }
+}
+
 // Run all (or one specific) narrative
 export async function runAllNarratives() {
+  // Cleanup BEFORE so the morning view isn't polluted by yesterday's 3 sims
+  // worth of dead workspaces.
+  try { await cleanupOldQaWorkspaces(3) }
+  catch (err) { console.warn('[quality:nar] cleanup failed (non-fatal):', err.message) }
+
   const out = []
   for (const n of NARRATIVES) {
     try { out.push(await runNarrative(n)) }

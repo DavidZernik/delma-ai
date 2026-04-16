@@ -32,6 +32,35 @@ const css = `
   details summary { cursor: pointer; color: #7A1E1E; font-size: 12px; }
   .layer-status { display: flex; gap: 16px; flex-wrap: wrap; margin: 8px 0 24px; font-size: 12px; color: #6B5A5A; }
   .layer-status span { background: #FFFFFF; border: 1px solid #E8D8D2; padding: 4px 10px; border-radius: 4px; }
+  .exec-summary { background: #FFFFFF; border-left: 4px solid #7A1E1E; padding: 14px 18px; margin: 16px 0 24px; border-radius: 4px; font-size: 14px; line-height: 1.5; }
+  .sim-card { background: #FFFFFF; border: 1px solid #E8D8D2; border-radius: 8px; margin: 12px 0; padding: 14px 18px; }
+  .sim-card summary { cursor: pointer; font-size: 14px; }
+  .sim-card .sim-body { margin-top: 14px; }
+  .sim-card h4 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; margin: 18px 0 6px; }
+  .sim-card ul { margin: 4px 0 8px 18px; padding: 0; }
+  .sim-card li { margin: 2px 0; font-size: 13px; }
+  .sim-scores { font-size: 12px; color: #6B5A5A; margin-bottom: 8px; }
+  .transcript { background: #FBF8F2; border-radius: 6px; padding: 8px 12px; margin: 8px 0; max-height: 460px; overflow-y: auto; }
+  .transcript > div { padding: 6px 0; border-bottom: 1px solid #F0E5E0; font-size: 13px; }
+  .transcript > div:last-child { border-bottom: none; }
+  .t-label { display: inline-block; min-width: 56px; font-weight: 600; font-size: 11px; text-transform: uppercase; color: #6B5A5A; }
+  .t-user .t-label { color: #7A1E1E; }
+  .t-claude .t-label { color: #6B8E5C; }
+  .t-text { display: inline; }
+  .t-ops { margin-top: 4px; margin-left: 56px; }
+  .t-ops code { font-size: 10px; background: #F4F0EA; padding: 1px 5px; border-radius: 3px; margin-right: 4px; }
+  table.mini th, table.mini td { font-size: 12px; }
+  /* Mobile */
+  @media (max-width: 640px) {
+    body { padding: 12px; max-width: 100%; }
+    h1 { font-size: 20px; }
+    h2 { font-size: 14px; }
+    .summary { grid-template-columns: 1fr 1fr; }
+    table { font-size: 11px; display: block; overflow-x: auto; max-width: 100%; }
+    .transcript { font-size: 12px; }
+    pre { max-width: 100%; }
+    .layer-status { font-size: 11px; }
+  }
 `
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
@@ -78,6 +107,19 @@ export async function renderLogsPage() {
 
   const obsCounts = { clean: 0, minor: 0, suspicious: 0, wrong: 0 }
   for (const o of obs) obsCounts[o.severity] = (obsCounts[o.severity] || 0) + 1
+
+  const latestSim = sims[0]
+  // Build a compact "exec summary" string from the latest sim + counts.
+  // No LLM call — render-time only. Keeps /logs free of network deps.
+  const execSummary = (() => {
+    const parts = []
+    if (latestSim) {
+      parts.push(`Latest overnight: <strong>${latestSim.overall_score || '?'}/5</strong> (${latestSim.transcript?.narrative_title || latestSim.transcript?.narrative_id || 'unknown narrative'}).`)
+      if (latestSim.critique?.summary) parts.push(esc(latestSim.critique.summary))
+    }
+    if (latestRunRows.length) parts.push(`Eval suite: <strong>${passed}/${latestRunRows.length}</strong> passing.`)
+    return parts.join(' ')
+  })()
 
   // ── Build "Things to act on" — the most actionable distillation ────
   const actionItems = []
@@ -134,7 +176,9 @@ export async function renderLogsPage() {
   return `<!doctype html>
 <html><head><meta charset="utf-8"><title>Delma — Logs</title><style>${css}</style></head><body>
 <h1>Delma Quality Lab</h1>
-<div class="subtitle">Public observability — overnight test (10pm–7am PT) + every-6h cheap checks. Last 24–72h.</div>
+<div class="subtitle">Public observability — overnight test (10pm–7am PT). Last 24–72h.</div>
+
+${execSummary ? `<div class="exec-summary">${execSummary}</div>` : ''}
 
 <h2>Things to act on (today)</h2>
 ${actionItems.length ? `<table><tr><th>Severity</th><th>What</th><th>Why / suggestion</th><th>Source</th></tr>
@@ -154,10 +198,25 @@ ${actionItems.slice(0, 30).map(a => `<tr><td class="sev-${a.severity}">${esc(a.s
   ${status.map(s => `<span><strong>${esc(s.layer)}</strong> · ${ago(s.last_run_at)} · ${s.last_duration_ms ?? '?'}ms${s.last_error ? ' · <span class="fail">' + esc(s.last_error) + '</span>' : ''}</span>`).join('') || '<span class="empty">no runs yet</span>'}
 </div>
 
-<h2>Overnight Simulation (the headline test)</h2>
-${sims.length ? `<table><tr><th>When</th><th>Score</th><th>Summary</th><th>ms</th><th>Detail</th></tr>
-${sims.map(s => `<tr><td class="ts">${ago(s.ran_at)}</td><td class="${(s.overall_score || 0) >= 4 ? 'pass' : 'fail'}"><strong>${s.overall_score || '—'}/5</strong></td><td>${esc(s.critique?.summary || '')}</td><td>${s.total_duration_ms ?? '—'}</td><td><details><summary>transcript + state</summary><pre>${esc(JSON.stringify({ scores: s.critique?.scores, missed: s.critique?.missed, wrong: s.critique?.wrong, praise: s.critique?.praise, ops: s.ops_applied?.length, turns: s.transcript?.length }, null, 2))}</pre></details></td></tr>`).join('')}
-</table>` : '<div class="empty">No overnight runs yet. Trigger one with <code>POST /quality/run-sim</code> or wait for the 10pm-7am PT window.</div>'}
+<h2>Overnight runs — latest first</h2>
+${sims.length ? sims.map((s, i) => {
+  const turns = Array.isArray(s.transcript?.turns) ? s.transcript.turns : []
+  const c = s.critique || {}
+  const open = i === 0 ? 'open' : ''
+  return `<details ${open} class="sim-card">
+  <summary><strong>${esc(s.transcript?.narrative_title || s.transcript?.narrative_id || 'run')}</strong> · <span class="${(s.overall_score || 0) >= 4 ? 'pass' : 'fail'}">${s.overall_score || '?'}/5</span> · ${ago(s.ran_at)} · ${(s.total_duration_ms / 1000).toFixed(1)}s · ${s.ops_applied?.length || 0} ops</summary>
+  <div class="sim-body">
+    ${c.summary ? `<p><em>${esc(c.summary)}</em></p>` : ''}
+    ${c.scores ? `<div class="sim-scores">${Object.entries(c.scores).map(([k, v]) => `<span><strong>${esc(k)}:</strong> ${v}/5</span>`).join(' · ')}</div>` : ''}
+    ${(c.wrong?.length) ? `<h4 class="sev-wrong">What Delma got wrong</h4><ul>${c.wrong.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+    ${(c.missed?.length) ? `<h4 class="sev-suspicious">What was missed</h4><ul>${c.missed.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+    ${(c.praise?.length) ? `<h4 class="sev-clean">What worked</h4><ul>${c.praise.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+    ${turns.length ? `<h4>Conversation transcript</h4><div class="transcript">${turns.map(t => `<div class="t-${t.role}"><span class="t-label">${esc(t.role)}</span><span class="t-text">${esc((t.text || '').substring(0, 600))}</span>${(t.ops && t.ops.length) ? `<div class="t-ops">${t.ops.map(o => `<code>${esc(o.tab || '')}/${esc(o.op || '')}</code>`).join(' ')}</div>` : ''}</div>`).join('')}</div>` : ''}
+    ${s.ops_applied?.length ? `<h4>Op apply timings</h4><table class="mini"><tr><th>Tab</th><th>Op</th><th>ms</th><th>Result</th></tr>${s.ops_applied.map(o => `<tr><td><code>${esc(o.tab || '')}</code></td><td>${esc(o.op)}</td><td>${o.ms ?? '?'}</td><td class="${o.ok ? 'pass' : 'fail'}">${o.ok ? '✓' : '✗ ' + esc(o.error || '')}</td></tr>`).join('')}</table>` : ''}
+    <details><summary>final structured state JSON</summary><pre>${esc(JSON.stringify(s.final_state, null, 2))}</pre></details>
+  </div>
+</details>`
+}).join('') : '<div class="empty">No overnight runs yet. Trigger one with <code>POST /quality/run-overnight</code> or wait for the 10pm-7am PT window.</div>'}
 
 <h2>Layer 1 — Regression Evals (latest run)</h2>
 ${latestRunRows.length ? `<table><tr><th>Case</th><th>Result</th><th>ms</th><th>Failures</th></tr>

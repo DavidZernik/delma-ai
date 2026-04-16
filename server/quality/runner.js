@@ -139,12 +139,19 @@ async function layer3StateChecks() {
   try {
     const findings = []
 
+    // Skip QA workspaces — their orphans/missing data are intentional test artifacts
+    const { data: qaOrg } = await sb.from('organizations').select('id').eq('name', 'Delma QA Simulation Org').maybeSingle()
+    const qaOrgId = qaOrg?.id
+    const { data: qaWs } = qaOrgId ? await sb.from('workspaces').select('id').eq('org_id', qaOrgId) : { data: [] }
+    const qaWsIds = new Set((qaWs || []).map(w => w.id))
+
     // Decisions without owner, older than 7 days
     const sevenDaysAgo = new Date(Date.now() - 7 * 86400 * 1000).toISOString()
     const { data: decRows } = await sb.from('memory_notes')
       .select('id, workspace_id, structured, updated_at')
       .eq('filename', 'decisions.md').not('structured', 'is', null).lt('updated_at', sevenDaysAgo)
     for (const r of decRows || []) {
+      if (qaWsIds.has(r.workspace_id)) continue
       const unowned = (r.structured?.decisions || []).filter(d => !d.owner)
       if (unowned.length) {
         findings.push({
@@ -159,6 +166,7 @@ async function layer3StateChecks() {
     const { data: actRows } = await sb.from('memory_notes')
       .select('id, workspace_id, structured').eq('filename', 'decisions.md').not('structured', 'is', null)
     for (const r of actRows || []) {
+      if (qaWsIds.has(r.workspace_id)) continue
       const overdue = (r.structured?.actions || []).filter(a => !a.done && a.due)
       if (overdue.length) {
         findings.push({
@@ -173,6 +181,7 @@ async function layer3StateChecks() {
     const { data: archRows } = await sb.from('diagram_views')
       .select('id, workspace_id, structured').eq('view_key', 'architecture').not('structured', 'is', null)
     for (const r of archRows || []) {
+      if (qaWsIds.has(r.workspace_id)) continue
       const nodes = r.structured?.nodes || []
       const edges = r.structured?.edges || []
       const used = new Set([...edges.map(e => e.from), ...edges.map(e => e.to)])
@@ -190,6 +199,7 @@ async function layer3StateChecks() {
     const { data: peopleRows } = await sb.from('org_memory_notes')
       .select('id, org_id, structured').eq('filename', 'people.md').not('structured', 'is', null)
     for (const r of peopleRows || []) {
+      if (qaOrgId && r.org_id === qaOrgId) continue
       const roleless = (r.structured?.people || []).filter(p => !p.role && p.kind === 'person')
       if (roleless.length) {
         findings.push({
