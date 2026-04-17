@@ -28,21 +28,20 @@ call `get_workspace_state`.
 ## Current Workspace Summary
 
 **Project Name:** Emory Healthcare Birthday Campaign  
-**Team:** Marketing Automation (roles unspecified).  
-
-**Current Status:** System designed and documented. Core automation (`Birthday_Daily_Send_Refresh`) is **paused** for testing.  
+**Team:** (Not specified in provided docs)  
+**Current Status:** System designed and built. Daily trigger automation (`Birthday_Daily_Send_Refresh`) is **paused** for testing. Follow-up automation (`Follow-Up Entry Automation`) is a manual, run-once process, not real-time.  
 
 **Key Systems/IDs:**  
-*   **Source:** Salesforce Health Cloud (`All_Patients_Opted_In`).  
-*   **Automation:** `Birthday_Daily_Send_Refresh` (trigger, 5 AM CT).  
-*   **SQL:** `Birthday_Daily_Filter`.  
-*   **Data Extensions:** `TEST_Birthday_Daily_Send` (staging), `birthday_quiz_responses`.  
-*   **Journeys:** `Birthday Daily Email Journey v2`, `Birthday Quiz Follow-Up Journey v2`.  
-*   **Email:** `brand_all_hbd_2026`.  
-*   **CloudPage:** Page 8085 (Birthday Quiz).  
-*   **Follow-up Journeys:** `Heart & Vascular` (hv_lead_nurture), `Women's Services` (ws_journey_rebrand), `General Health` (brand_welcome).  
+*   **Source Data:** Salesforce/Health Cloud (`All_Patients_Opted_In`)  
+*   **Automation:** `Birthday_Daily_Send_Refresh` (trigger, paused)  
+*   **SQL:** `Birthday_Daily_Filter`  
+*   **Data Extensions:** `TEST_Birthday_Daily_Send` (staging), `birthday_quiz_responses`  
+*   **Journeys:** `Birthday Daily Email Journey v2`, `Birthday Quiz Follow-Up Journey v2`  
+*   **Email:** `brand_all_hbd_2026`  
+*   **CloudPage:** Birthday Quiz (Page 8085)  
+*   **Follow-up Journeys:** Heart & Vascular (`hv_lead_nurture`), Women's Services (`ws_journey_rebrand`), General Health (`brand_welcome`)  
 
 **What Needs to Happen Next:**  
-1.  Complete testing.  
-2.  Activate the paused `Birthday_Daily_Send_Refresh` automation to launch the live campaign.  
-3.  Ensure the `Follow-Up Entry Automation` is scheduled to run periodically to process quiz responses.
+1.  Complete testing of the paused daily trigger flow.  
+2.  Activate the `Birthday_Daily_Send_Refresh` automation schedule.  
+3.  Address the non-real-time, manual `Follow-Up Entry Automation`—determine if this is acceptable or requires re-engineering.

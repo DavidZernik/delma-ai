@@ -397,10 +397,16 @@ async function refreshWorkspace() {
   state.views = views || []
   state.memoryRows = memoryRows || []
   state.memory = {}
-  for (const row of state.memoryRows) state.memory[row.filename] = row.content
+  for (const row of state.memoryRows) {
+    state.memory[row.filename] = row.content
+    console.log(`[delma refresh] memory tab: ${row.filename} — ${(row.content || '').length} chars, structured: ${row.structured ? 'yes' : 'no'}`)
+  }
   state.orgMemoryRows = orgMemoryRows
   state.orgMemory = {}
-  for (const row of state.orgMemoryRows) state.orgMemory[row.filename] = row.content
+  for (const row of state.orgMemoryRows) {
+    state.orgMemory[row.filename] = row.content
+    console.log(`[delma refresh] org tab: ${row.filename} — ${(row.content || '').length} chars`)
+  }
   state.history = (history || []).map(h => `${h.created_at} — ${h.reason}`)
   state.workspaceName = ws?.name || ''
 
