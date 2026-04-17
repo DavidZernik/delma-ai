@@ -148,6 +148,26 @@ function findNearDupText(list, candidate, field = 'text') {
   return null
 }
 
+// Group an array of items by their optional `project` field. Returns an
+// ordered Map: null-project (shared) first, then each named project
+// alphabetically. Used by renderEnvironment + renderDecisions to show
+// per-project sections without requiring the user to switch workspaces.
+function groupByProject(items) {
+  const shared = items.filter(i => !i.project)
+  const byProject = new Map()
+  for (const item of items) {
+    if (!item.project) continue
+    if (!byProject.has(item.project)) byProject.set(item.project, [])
+    byProject.get(item.project).push(item)
+  }
+  const result = new Map()
+  if (shared.length) result.set(null, shared)
+  for (const [k, v] of [...byProject.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    result.set(k, v)
+  }
+  return result
+}
+
 // ── Renderers ────────────────────────────────────────────────────────────
 // Each turns structured data into the markdown the user sees. Keep outputs
 // identical (or close) to what the prompt-driven system produces, so the
@@ -221,38 +241,50 @@ function renderEnvironment(data) {
     return `# Files, Locations & Keys\n\nSFMC IDs, DE names, journey/automation keys, technical config.\n`
   }
   const lines = [`# Files, Locations & Keys`, ``]
-  for (const e of entries) {
-    const note = e.note ? ` — ${e.note}` : ''
-    lines.push(`- **${e.key}**: ${e.value}${note}`)
+  // Group by project — shared (null) at top, then per-project sections.
+  const grouped = groupByProject(entries)
+  for (const [project, items] of grouped) {
+    if (project) lines.push(`## ${project}`, '')
+    for (const e of items) {
+      const note = e.note ? ` — ${e.note}` : ''
+      lines.push(`- **${e.key}**: ${e.value}${note}`)
+    }
+    lines.push('')
   }
-  lines.push('')
   return lines.join('\n')
 }
 
 function renderDecisions(data) {
   const { decisions = [], actions = [] } = data
-  const lines = [`# Decisions & Actions`, ``, `## Decisions`, '']
-  if (decisions.length) {
-    for (const d of decisions) {
+  const lines = [`# Decisions & Actions`, ``]
+
+  // Group decisions by project
+  const groupedDec = groupByProject(decisions)
+  for (const [project, items] of groupedDec) {
+    lines.push(project ? `## Decisions — ${project}` : '## Decisions', '')
+    for (const d of items) {
       const owner = d.owner ? ` _(${d.owner})_` : ''
       const superseded = d.superseded_by ? ' ~~(superseded)~~' : ''
       lines.push(`- ${d.text}${owner}${superseded}`)
     }
-  } else {
-    lines.push('_(none yet)_')
+    lines.push('')
   }
-  lines.push('', `## Actions`, '')
-  if (actions.length) {
-    for (const a of actions) {
+  if (!decisions.length) lines.push('## Decisions', '', '_(none yet)_', '')
+
+  // Group actions by project
+  const groupedAct = groupByProject(actions)
+  for (const [project, items] of groupedAct) {
+    lines.push(project ? `## Actions — ${project}` : '## Actions', '')
+    for (const a of items) {
       const owner = a.owner ? ` _(${a.owner})_` : ''
       const due = a.due ? ` — due ${a.due}` : ''
       const mark = a.done ? '[x]' : '[ ]'
       lines.push(`- ${mark} ${a.text}${owner}${due}`)
     }
-  } else {
-    lines.push('_(none yet)_')
+    lines.push('')
   }
-  lines.push('')
+  if (!actions.length) lines.push('## Actions', '', '_(none yet)_', '')
+
   return lines.join('\n')
 }
 
@@ -495,7 +527,7 @@ const OPS = {
           throw new Error(`Environment key "${dupByVal.key}" already stores the same value "${value}". Reuse that key or pick a meaningfully different one.`)
         }
       }
-      entries.push({ key, value, note: note || null })
+      entries.push({ key, value, note: note || null, project: arguments[1].project || null })
     }
     return { ...data, entries }
   },
@@ -511,7 +543,7 @@ const OPS = {
     if (dup) {
       throw new Error(`Near-duplicate decision already exists: "${dup.text}" (${dup.id}). If this replaces it (e.g. user said "scratch that" / "instead"), call supersede_decision; otherwise skip.`)
     }
-    const decisions = [...(data.decisions || []), { id: `d_${Math.random().toString(36).slice(2, 7)}`, text, owner: owner || null }]
+    const decisions = [...(data.decisions || []), { id: `d_${Math.random().toString(36).slice(2, 7)}`, text, owner: owner || null, project: arguments[1].project || null }]
     return { ...data, decisions }
   },
   add_action(data, { text, owner, due }) {
@@ -525,7 +557,7 @@ const OPS = {
     if (dup) {
       throw new Error(`Near-duplicate open action already exists: "${dup.text}" (${dup.id}). If this is completing it, call complete_action_by_text; otherwise skip.`)
     }
-    const actions = [...(data.actions || []), { id: `a_${Math.random().toString(36).slice(2, 7)}`, text, owner: owner || null, due: due || null, done: false }]
+    const actions = [...(data.actions || []), { id: `a_${Math.random().toString(36).slice(2, 7)}`, text, owner: owner || null, due: due || null, done: false, project: arguments[1].project || null }]
     return { ...data, actions }
   },
   complete_action(data, { id }) {

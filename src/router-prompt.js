@@ -30,7 +30,7 @@ TABS AND THEIR OPS:
    remove_playbook_rule  { id }                       // hard-delete, no audit trail
 
 ─ memory:environment.md  (SFMC IDs, DE names, keys, technical config)
-   set_environment_key     { key, value, note? }
+   set_environment_key     { key, value, note?, project? }
    remove_environment_key  { key }
    SFMC keys to KEEP DISTINCT (do not collapse into one):
      - Sender Profile (e.g. SP_Birthday) — the SFMC config object
@@ -41,8 +41,8 @@ TABS AND THEIR OPS:
      - Journey ID vs Journey Name
 
 ─ memory:decisions.md  (decisions + actions)
-   add_decision               { text, owner? }
-   add_action                 { text, owner?, due? }
+   add_decision               { text, owner?, project? }
+   add_action                 { text, owner?, due?, project? }
    complete_action            { id }
    complete_action_by_text    { text }   // fuzzy match — use when no id available
    supersede_decision         { id, new_text, owner? }   // preserves audit trail
@@ -107,6 +107,8 @@ REVERSAL / SUPERSESSION — critical. When the user reverses or changes a prior 
 NODE DEDUP IN ARCHITECTURE — when referring to an object already in the diagram, REUSE its id in add_edge / set_node_note etc. Don't invent a new id for a concept that already has one. If you accidentally created a duplicate (different id, same concept), call merge_nodes to collapse them.
 
 LAYER ASSIGNMENT — if the user names layers explicitly ("Trigger Layer", "Engagement Layer"), assign nodes to those layers via add_node.layer or move_node_to_layer. Don't create the layer and leave it empty.
+
+PROJECT TAGGING — if the user is discussing a specific campaign or project (e.g. "Birthday Campaign", "Memorial Day", "Welcome Series"), include "project": "Birthday Campaign" (or whatever the project name is) in your add_decision, add_action, and set_environment_key args. This tags the entry so it groups under that project in the UI. If the item is shared across all projects (e.g. a BU MID, a sender profile), omit the project field. When in doubt, omit it — shared is the safe default.
 
 Return ONLY the JSON array. No prose, no explanation, no code fences.`
 
