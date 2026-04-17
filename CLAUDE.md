@@ -27,24 +27,22 @@ call `get_workspace_state`.
 
 ## Current Workspace Summary
 
-**Project Name:** Emory Healthcare Birthday Campaign  
-**Team:** David Zernik (Marketing Automation), Keyona Abbott (Strategy)  
-**Current Status:** Built in SFMC, in final testing. Main automation is paused. Follow-up journey uses 5-minute test waits.  
+**PROJECT:** Emory Healthcare - Birthday Campaign  
+**TEAM:** Keyona Abbott (Manager/PM), David Zernik (SFMC Architect)  
+**STATUS:** Development/Testing. Core journeys built & published (v1). Main daily automation is paused. Follow-up journey uses 5-min test waits.  
 
-**Key Systems/IDs:**  
-- **Source:** Salesforce Health Cloud → DE `ENT.All_Patients_Opted_In` (MID 514018310).  
-- **Daily Automation:** `Birthday_Daily_Send_Refresh` (ID 11515afe-c5c3-4b6e-8005-f7e8c8a50a45) – runs 5 AM CT, currently paused.  
-- **SQL Query:** `Birthday_Daily_Filter` (ID cbb76dd1-0bfd-4bbc-a05d-5b91e6984c43) filters to today’s birthdays.  
-- **Staging DE:** `TEST_Birthday_Daily_Send`.  
-- **Main Journey:** `Birthday Daily Email Journey v2` (ID d53b5e04-ec9a-4526-b05e-8b8bd0b6e746) sends email `brand_all_hbd_2026`.  
-- **CloudPage:** ID 8085 captures quiz answer to DE `birthday_quiz_responses`.  
-- **Follow-up Automation:** `Follow-Up Entry Automation` polls response DE and injects into `Birthday Quiz Follow-Up Journey v2` (ID cb195f60-a163-4a5b-b4cc-2ecb6a62c485).  
-- **Routing:** Split by `ResultPath` to Heart & Vascular, Women’s Services, or General Health nurture streams.  
+**KEY SYSTEMS/IDs:**  
+*   **Source:** `ENT.All_Patients_Opted_In` (Salesforce Health Cloud sync).  
+*   **Automation:** `Birthday_Daily_Send_Refresh` (ID: 11515afe...), scheduled 5 AM CT, currently paused.  
+*   **SQL Query:** `Birthday_Daily_Filter` (ID: cbb76dd1...).  
+*   **Journeys:** Main `Birthday Daily Email` (ID: d53b5e04...). Follow-up `Birthday Quiz Follow-Up` (ID: cb195f60...).  
+*   **Assets:** Email `brand_all_hbd_2026`. CloudPage `8085`. Response DE `birthday_quiz_responses`.  
+*   **Parent BU MID:** `514018310` (for API access to synced DEs).  
 
-**Next Actions:**  
-1. Switch SQL query source to production DE `ENT.All_Patients_Opted_In`.  
-2. Change follow-up journey wait steps from 5 minutes to 48 hours.  
-3. Activate the `Birthday_Daily_Send_Refresh` automation on schedule (target 10 AM CT).  
-4. Execute soft launch: begin with patients whose LastName starts with 'A', then expand daily.  
+**NEXT ACTIONS:**  
+1.  Point SQL filter to production source DE (`ENT.All_Patients_Opted_In`).  
+2.  Change follow-up journey wait steps from 5 minutes to 48 hours.  
+3.  Activate the `Birthday_Daily_Send_Refresh` automation on schedule.  
+4.  Execute soft launch (start with LastName A%, expand daily).  
 
-**Note:** Cancer topic removed from quiz per strategy. API access requires Parent BU credentials (MID 514018310).
+**RULES:** No Friday launches. Legal review required. Seed test with Keyona first. Document decisions in Slack.
