@@ -16,6 +16,7 @@ import { render, isStructuredTab } from '../src/tab-ops.js'
 import { runAllLayers, runOvernight } from './quality/runner.js'
 import { renderLogsPage } from './quality/logs-page.js'
 import { ANTHROPIC_URL, anthropicHeaders } from './lib/llm.js'
+import { handleChatStream } from './chat/stream.js'
 
 // override: true ensures .env values beat any empty shell env vars
 // (e.g. ANTHROPIC_API_KEY="" set globally by Claude Desktop)
@@ -392,6 +393,10 @@ app.post('/api/conversation-tick', async (req, res) => {
 })
 
 // Manual triggers (no auth — internal use; remove if exposed externally)
+// In-app chat: Claude Agent SDK running server-side, streaming via SSE.
+// This is the primary chat surface (replaces the need for Claude Desktop).
+app.post('/api/chat/stream', handleChatStream)
+
 app.post('/quality/run', async (req, res) => {
   res.json({ ok: true, started: true })
   void runAllLayers().catch(err => console.error('[quality] run failed:', err))
