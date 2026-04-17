@@ -27,25 +27,16 @@ call `get_workspace_state`.
 
 ## Current Workspace Summary
 
-**Project Name:** Emory Healthcare Birthday Campaign
+**Project Name:** Delma Development v1
 
-**Team Members & Roles:**
-*   **Marketing Automation Team:** Builds/maintains SFMC journeys, automations, and data flows.
-*   **Data/CRM Team:** Manages source patient data in Salesforce Health Cloud.
+**Team:** Not specified.
 
-**Current Status:** System is designed and documented. Core daily send automation (`Birthday_Daily_Send_Refresh`) is **paused for testing**. Follow-up automation (`Follow-Up Entry Automation`) is a manual, run-once process, not real-time.
+**Current Status:** Initial architecture defined. No decisions or actions logged.
 
-**Key Systems/IDs:**
-*   **Source:** Salesforce Health Cloud `All_Patients_Opted_In` DE.
-*   **Filter:** SQL `Birthday_Daily_Filter`.
-*   **Staging DE:** `TEST_Birthday_Daily_Send`.
-*   **Journeys:** `Birthday Daily Email Journey v2` (main), `Birthday Quiz Follow-Up Journey v2` (routing).
-*   **Email:** `brand_all_hbd_2026`.
-*   **CloudPage:** Birthday Quiz (Page 8085).
-*   **Response DE:** `birthday_quiz_responses` (stores `Answer1`, `ResultPath`, `ProcessedFlag`).
-*   **Follow-up Journeys:** `Heart & Vascular` (hv_lead_nurture), `Women's Services` (ws_journey_rebrand), `General Health` (brand_welcome).
+**Key Systems & IDs:**
+*   **Endpoints:** Salesforce CRM, SFMC, Delma Memory, Claude Code.
+*   **Core Integration:** Central "Integration Layer" syncs data between CRM, SFMC, and internal systems.
+*   **SFMC Components:** Data Extensions/Objects store data; Journeys/Automations execute workflows.
+*   **Flow:** CRM & SFMC <-> Integration Layer <-> (Journeys/Automations & Data Extensions). Delma Memory <-> Claude Code <-> Integration Layer.
 
-**What Needs to Happen Next:**
-1.  **Testing:** Execute end-to-end test of the paused daily send flow.
-2.  **Automation Optimization:** Address the manual, non-real-time nature of the `Follow-Up Entry Automation`.
-3.  **Monitoring:** Establish process to monitor the `birthday_quiz_responses` DE and journey performance post-launch.
+**What's Next:** Populate `environment.md` with specific IDs (e.g., Business Unit, Data Extension names) and `decisions.md` with project choices and action items. Begin technical implementation based on the defined architecture.

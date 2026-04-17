@@ -5,7 +5,7 @@
 // is proven, swap this rendering layer for assistant-ui to get markdown,
 // code blocks, tool-call collapsing, etc. The hook interface is stable.
 
-import { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useChatStream } from './useChatStream.js'
 
 export function ChatSidebar({ workspaceId, userId }) {
