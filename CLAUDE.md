@@ -28,23 +28,21 @@ call `get_workspace_state`.
 ## Current Workspace Summary
 
 **Project Name:** Emory Healthcare Birthday Campaign  
-**Team:** Not specified in workspace.  
-**Current Status:** System designed and documented. Core automation (`Birthday_Daily_Send_Refresh`) is on a **PausedSchedule during testing**.  
+**Team:** Marketing Automation (roles unspecified).  
 
-**Key Systems/IDs:**
-*   **Source Data:** Salesforce/Health Cloud (`All_Patients_Opted_In` DE)
-*   **Automation:** `Birthday_Daily_Send_Refresh` (runs 5 AM CT)
-*   **SQL:** `Birthday_Daily_Filter`
-*   **Staging DE:** `TEST_Birthday_Daily_Send`
-*   **Journey (Main):** `Birthday Daily Email Journey v2` (AutomationAudience entry)
-*   **Email:** `brand_all_hbd_2026`
-*   **CloudPage:** Birthday Quiz (Page 8085)
-*   **Response DE:** `birthday_quiz_responses`
-*   **Automation (Follow-up):** `Follow-Up Entry Automation` (runOnce, not real-time)
-*   **Journey (Follow-up):** `Birthday Quiz Follow-Up Journey v2` (DEAudience entry)
-*   **Follow-up Paths:** Split by `ResultPath` to `Heart & Vascular`, `Women's Services`, or `General Health` nurture journeys.
+**Current Status:** System designed and documented. Core automation (`Birthday_Daily_Send_Refresh`) is **paused** for testing.  
 
-**What Needs to Happen Next:**
-1.  Complete testing.
-2.  Remove the **PausedSchedule** from the `Birthday_Daily_Send_Refresh` automation to activate the daily send.
+**Key Systems/IDs:**  
+*   **Source:** Salesforce Health Cloud (`All_Patients_Opted_In`).  
+*   **Automation:** `Birthday_Daily_Send_Refresh` (trigger, 5 AM CT).  
+*   **SQL:** `Birthday_Daily_Filter`.  
+*   **Data Extensions:** `TEST_Birthday_Daily_Send` (staging), `birthday_quiz_responses`.  
+*   **Journeys:** `Birthday Daily Email Journey v2`, `Birthday Quiz Follow-Up Journey v2`.  
+*   **Email:** `brand_all_hbd_2026`.  
+*   **CloudPage:** Page 8085 (Birthday Quiz).  
+*   **Follow-up Journeys:** `Heart & Vascular` (hv_lead_nurture), `Women's Services` (ws_journey_rebrand), `General Health` (brand_welcome).  
+
+**What Needs to Happen Next:**  
+1.  Complete testing.  
+2.  Activate the paused `Birthday_Daily_Send_Refresh` automation to launch the live campaign.  
 3.  Ensure the `Follow-Up Entry Automation` is scheduled to run periodically to process quiz responses.

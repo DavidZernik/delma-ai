@@ -1737,6 +1737,7 @@ document.addEventListener('click', (e) => {
 // Render a branded dropdown into `container`. Items: [{id, label}], plus
 // optional "+ New" handler that opens an inline input.
 function renderBrandDropdown(container, { items, activeId, placeholder, onSelect, newLabel, onCreate }) {
+  if (!container) return  // org/project selectors removed from UI — one workspace per user
   container.innerHTML = ''
   const active = items.find(i => i.id === activeId) || items[0]
   const triggerLabel = active?.label || placeholder || '—'
