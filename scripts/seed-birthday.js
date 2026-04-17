@@ -3,8 +3,8 @@ import { createClient } from '@supabase/supabase-js'
 import { applyOpsToTab } from '../server/lib/apply-op.js'
 
 const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
-const WS = 'ad44350e-3ef2-426d-9d10-0dcc847f5019'
-const ORG = 'ea3d1185-d255-44ae-841d-6359e7fb2141'
+const WS = 'a1b2c3d4-0000-0000-0000-000000000001'
+const ORG = '58e43330-c76c-474c-b89e-7a2d606a4a61'
 const USER = 'dab61e85-4a99-4641-9b2d-957b12843f0a'
 
 async function run(scope, ops) {
