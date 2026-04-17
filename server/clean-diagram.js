@@ -18,7 +18,7 @@ const WORKSPACE_ID = 'a1b2c3d4-0000-0000-0000-000000000001'
 const { data, error } = await supabase
   .from('diagram_views')
   .select('id, title, mermaid')
-  .eq('workspace_id', WORKSPACE_ID)
+  .eq('project_id', WORKSPACE_ID)
   .eq('view_key', 'architecture')
   .single()
 

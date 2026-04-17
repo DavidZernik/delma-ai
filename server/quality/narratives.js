@@ -363,12 +363,12 @@ async function ensureSimWorkspace(label) {
   await sb.from('org_members').insert({ org_id: org.id, user_id: SIM_USER, role: 'admin' })
 
   const wsName = `${label} ${ts}`
-  const { data: ws, error: wsErr } = await sb.from('workspaces')
+  const { data: ws, error: wsErr } = await sb.from('projects')
     .insert({ name: wsName, org_id: org.id, created_by: SIM_USER }).select().single()
   if (wsErr || !ws) throw new Error(`sim workspace create failed: ${wsErr?.message || 'null row'}`)
-  await sb.from('workspace_members').insert({ workspace_id: ws.id, user_id: SIM_USER, role: 'owner' })
+  await sb.from('project_members').insert({ project_id: ws.id, user_id: SIM_USER, role: 'owner' })
 
-  return { orgId: org.id, workspaceId: ws.id, userId: SIM_USER, workspaceName: wsName, orgName }
+  return { orgId: org.id, projectId: ws.id, userId: SIM_USER, projectName: wsName, orgName }
 }
 
 // ── Native Anthropic tool-use: define each typed op as a tool ──────────
@@ -710,9 +710,9 @@ export async function runNarrative(narrative, opts = {}) {
   }
 
   const [{ data: mem }, { data: org }, { data: dia }] = await Promise.all([
-    sb.from('memory_notes').select('filename, structured').eq('workspace_id', ctx.workspaceId),
+    sb.from('memory_notes').select('filename, structured').eq('project_id', ctx.projectId),
     sb.from('org_memory_notes').select('filename, structured').eq('org_id', ctx.orgId),
-    sb.from('diagram_views').select('view_key, structured').eq('workspace_id', ctx.workspaceId)
+    sb.from('diagram_views').select('view_key, structured').eq('project_id', ctx.projectId)
   ])
   const finalState = {}
   for (const r of mem || []) if (r.structured) finalState['memory:' + r.filename] = r.structured
@@ -732,7 +732,7 @@ export async function runNarrative(narrative, opts = {}) {
   const totalMs = Date.now() - t0
 
   const { data: simRow } = await sb.from('quality_simulations').insert({
-    workspace_id: ctx.workspaceId,
+    project_id: ctx.projectId,
     transcript: { narrative_id: narrative.id, narrative_title: narrative.title, turns: transcript, turn_timings: turnTimings },
     ops_applied: allOpResults, final_state: finalState,
     critique: crit, total_duration_ms: totalMs,
@@ -782,32 +782,32 @@ export async function cleanupOldQaWorkspaces(daysOld = 3) {
   if (!orgs?.length) return { deleted_orgs: 0, deleted_workspaces: 0 }
 
   const orgIds = orgs.map(o => o.id)
-  const { data: wss } = await sb.from('workspaces').select('id').in('org_id', orgIds)
+  const { data: wss } = await sb.from('projects').select('id').in('org_id', orgIds)
   const wsIds = (wss || []).map(w => w.id)
 
   if (wsIds.length) {
-    await sb.from('memory_notes').delete().in('workspace_id', wsIds)
-    await sb.from('diagram_views').delete().in('workspace_id', wsIds)
-    await sb.from('history_snapshots').delete().in('workspace_id', wsIds)
-    await sb.from('mcp_call_logs').delete().in('workspace_id', wsIds)
-    await sb.from('api_op_logs').delete().in('workspace_id', wsIds)
-    await sb.from('quality_router_calls').delete().in('workspace_id', wsIds)
-    await sb.from('workspace_members').delete().in('workspace_id', wsIds)
-    await sb.from('workspaces').delete().in('id', wsIds)
+    await sb.from('memory_notes').delete().in('project_id', wsIds)
+    await sb.from('diagram_views').delete().in('project_id', wsIds)
+    await sb.from('history_snapshots').delete().in('project_id', wsIds)
+    await sb.from('mcp_call_logs').delete().in('project_id', wsIds)
+    await sb.from('api_op_logs').delete().in('project_id', wsIds)
+    await sb.from('quality_router_calls').delete().in('project_id', wsIds)
+    await sb.from('project_members').delete().in('project_id', wsIds)
+    await sb.from('projects').delete().in('id', wsIds)
   }
   // Org-level tabs + members, then the org itself
   await sb.from('org_memory_notes').delete().in('org_id', orgIds)
   await sb.from('org_members').delete().in('org_id', orgIds)
   await sb.from('organizations').delete().in('id', orgIds)
 
-  console.log('[quality:nar] cleanup —', orgIds.length, 'stale QA orgs deleted (with', wsIds.length, 'workspaces)')
+  console.log('[quality:nar] cleanup —', orgIds.length, 'stale QA orgs deleted (with', wsIds.length, 'projects)')
   return { deleted_orgs: orgIds.length, deleted_workspaces: wsIds.length }
 }
 
 // Run all (or one specific) narrative
 export async function runAllNarratives(opts = {}) {
   // Cleanup BEFORE so the morning view isn't polluted by yesterday's 3 sims
-  // worth of dead workspaces.
+  // worth of dead projects.
   try { await cleanupOldQaWorkspaces(3) }
   catch (err) { console.warn('[quality:nar] cleanup failed (non-fatal):', err.message) }
 

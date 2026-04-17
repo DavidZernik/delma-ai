@@ -137,23 +137,23 @@ async function layer3StateChecks({ runId = null } = {}) {
   try {
     const findings = []
 
-    // Skip QA workspaces — their orphans/missing data are intentional test artifacts
+    // Skip QA projects — their orphans/missing data are intentional test artifacts
     const { data: qaOrg } = await sb.from('organizations').select('id').eq('name', 'Delma QA Simulation Org').maybeSingle()
     const qaOrgId = qaOrg?.id
-    const { data: qaWs } = qaOrgId ? await sb.from('workspaces').select('id').eq('org_id', qaOrgId) : { data: [] }
+    const { data: qaWs } = qaOrgId ? await sb.from('projects').select('id').eq('org_id', qaOrgId) : { data: [] }
     const qaWsIds = new Set((qaWs || []).map(w => w.id))
 
     // Decisions without owner, older than 7 days
     const sevenDaysAgo = new Date(Date.now() - 7 * 86400 * 1000).toISOString()
     const { data: decRows } = await sb.from('memory_notes')
-      .select('id, workspace_id, structured, updated_at')
+      .select('id, project_id, structured, updated_at')
       .eq('filename', 'decisions.md').not('structured', 'is', null).lt('updated_at', sevenDaysAgo)
     for (const r of decRows || []) {
-      if (qaWsIds.has(r.workspace_id)) continue
+      if (qaWsIds.has(r.project_id)) continue
       const unowned = (r.structured?.decisions || []).filter(d => !d.owner)
       if (unowned.length) {
         findings.push({
-          workspace_id: r.workspace_id, check_name: 'unowned_decision', severity: 'warn',
+          project_id: r.project_id, check_name: 'unowned_decision', severity: 'warn',
           detail: `${unowned.length} decision(s) without owner, untouched for >7 days`,
           ref: { row_id: r.id, decisions: unowned.slice(0, 3).map(d => d.text) }
         })
@@ -162,13 +162,13 @@ async function layer3StateChecks({ runId = null } = {}) {
 
     // Overdue actions
     const { data: actRows } = await sb.from('memory_notes')
-      .select('id, workspace_id, structured').eq('filename', 'decisions.md').not('structured', 'is', null)
+      .select('id, project_id, structured').eq('filename', 'decisions.md').not('structured', 'is', null)
     for (const r of actRows || []) {
-      if (qaWsIds.has(r.workspace_id)) continue
+      if (qaWsIds.has(r.project_id)) continue
       const overdue = (r.structured?.actions || []).filter(a => !a.done && a.due)
       if (overdue.length) {
         findings.push({
-          workspace_id: r.workspace_id, check_name: 'overdue_action', severity: 'info',
+          project_id: r.project_id, check_name: 'overdue_action', severity: 'info',
           detail: `${overdue.length} action(s) past due and not done`,
           ref: { row_id: r.id, examples: overdue.slice(0, 3).map(a => `${a.text} (due ${a.due})`) }
         })
@@ -177,16 +177,16 @@ async function layer3StateChecks({ runId = null } = {}) {
 
     // Architecture orphans
     const { data: archRows } = await sb.from('diagram_views')
-      .select('id, workspace_id, structured').eq('view_key', 'architecture').not('structured', 'is', null)
+      .select('id, project_id, structured').eq('view_key', 'architecture').not('structured', 'is', null)
     for (const r of archRows || []) {
-      if (qaWsIds.has(r.workspace_id)) continue
+      if (qaWsIds.has(r.project_id)) continue
       const nodes = r.structured?.nodes || []
       const edges = r.structured?.edges || []
       const used = new Set([...edges.map(e => e.from), ...edges.map(e => e.to)])
       const orphans = nodes.filter(n => !used.has(n.id))
       if (orphans.length > 1) {       // 1 lone node is OK; >1 suggests forgotten work
         findings.push({
-          workspace_id: r.workspace_id, check_name: 'orphan_arch_node', severity: 'info',
+          project_id: r.project_id, check_name: 'orphan_arch_node', severity: 'info',
           detail: `${orphans.length} architecture node(s) with no edges (likely incomplete)`,
           ref: { row_id: r.id, ids: orphans.slice(0, 5).map(n => n.id) }
         })

@@ -36,7 +36,7 @@ export async function requireUser(req) {
   return data.user
 }
 
-// Verify the user is a member of the org or workspace they're editing.
+// Verify the user is a member of the org or project they're editing.
 // Returns true on success, throws 403 on failure.
 export async function requireOrgMembership(serviceSb, userId, orgId) {
   const { data, error } = await serviceSb
@@ -53,15 +53,15 @@ export async function requireOrgMembership(serviceSb, userId, orgId) {
   return data.role
 }
 
-export async function requireWorkspaceMembership(serviceSb, userId, workspaceId) {
+export async function requireProjectMembership(serviceSb, userId, projectId) {
   const { data, error } = await serviceSb
-    .from('workspace_members')
+    .from('project_members')
     .select('role')
-    .eq('user_id', userId).eq('workspace_id', workspaceId)
+    .eq('user_id', userId).eq('project_id', projectId)
     .maybeSingle()
   if (error) throw new Error(`membership check failed: ${error.message}`)
   if (!data) {
-    const e = new Error('not a member of this workspace')
+    const e = new Error('not a member of this project')
     e.status = 403
     throw e
   }

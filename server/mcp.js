@@ -7,7 +7,7 @@
 // memory notes, and history — all stored in Supabase.
 //
 // Required env vars (set in .mcp.json):
-//   DELMA_WORKSPACE_ID — UUID of the workspace to operate on
+//   DELMA_PROJECT_ID — UUID of the workspace to operate on
 //   DELMA_USER_ID      — UUID of the authenticated user
 //
 // Permission enforcement:
@@ -26,7 +26,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { writeFile } from 'fs/promises'
 import { resolve } from 'path'
 import {
-  createWorkspace,
+  createProject,
   listWorkspaces,
   getWorkspace,
   readDiagramViews,
@@ -81,7 +81,7 @@ async function refreshClaudeMd() {
 
 const server = new McpServer({ name: 'delma', version: '2.0.0' })
 
-let activeWorkspaceId = process.env.DELMA_WORKSPACE_ID || null
+let activeWorkspaceId = process.env.DELMA_PROJECT_ID || null
 let activeUserId = process.env.DELMA_USER_ID || null
 
 // ── Logging wrapper ──────────────────────────────────────────────────────────
@@ -101,7 +101,7 @@ function withLogging(toolName, handler) {
       throw e
     } finally {
       void logMcpCall({
-        workspaceId: activeWorkspaceId,
+        projectId: activeWorkspaceId,
         userId: activeUserId,
         tool: toolName,
         input: args,
@@ -114,9 +114,9 @@ function withLogging(toolName, handler) {
 }
 
 function requireContext() {
-  if (!activeWorkspaceId) throw new Error('No workspace set. Call open_workspace first or set DELMA_WORKSPACE_ID env var.')
+  if (!activeWorkspaceId) throw new Error('No workspace set. Call open_workspace first or set DELMA_PROJECT_ID env var.')
   if (!activeUserId) throw new Error('No user set. Set DELMA_USER_ID env var.')
-  return { workspaceId: activeWorkspaceId, userId: activeUserId }
+  return { projectId: activeWorkspaceId, userId: activeUserId }
 }
 
 // ── Tools ────────────────────────────────────────────────────────────────────
@@ -128,17 +128,17 @@ server.registerTool(
     description: 'Set the active workspace by name or ID. Creates it if it does not exist.',
     inputSchema: {
       name: z.string().optional().describe('Workspace name. Used to find or create.'),
-      workspaceId: z.string().optional().describe('Workspace UUID. Takes precedence over name.'),
+      projectId: z.string().optional().describe('Workspace UUID. Takes precedence over name.'),
       userId: z.string().optional().describe('User UUID. Overrides DELMA_USER_ID env var.')
     }
   },
-  withLogging('open_workspace', async ({ name, workspaceId, userId }) => {
+  withLogging('open_workspace', async ({ name, projectId, userId }) => {
     if (userId) activeUserId = userId
     if (!activeUserId) throw new Error('No user ID. Set DELMA_USER_ID env var or pass userId.')
 
-    if (workspaceId) {
-      activeWorkspaceId = workspaceId
-      const ws = await getWorkspace(workspaceId)
+    if (projectId) {
+      activeWorkspaceId = projectId
+      const ws = await getWorkspace(projectId)
       void refreshClaudeMd()  // summarize workspace on open
       return text({ ok: true, workspace: { id: ws.id, name: ws.name } })
     }
@@ -153,13 +153,13 @@ server.registerTool(
         return text({ ok: true, workspace: { id: found.id, name: found.name } })
       }
       // Create
-      const ws = await createWorkspace(name, activeUserId)
+      const ws = await createProject(name, activeUserId)
       activeWorkspaceId = ws.id
       void refreshClaudeMd()  // summarize new workspace
       return text({ ok: true, created: true, workspace: { id: ws.id, name: ws.name } })
     }
 
-    throw new Error('Provide name or workspaceId.')
+    throw new Error('Provide name or projectId.')
   })
 )
 
@@ -171,13 +171,13 @@ server.registerTool(
     inputSchema: {}
   },
   withLogging('get_workspace_state', async () => {
-    const { workspaceId, userId } = requireContext()
+    const { projectId, userId } = requireContext()
     const [views, memory, history] = await Promise.all([
-      readDiagramViews(workspaceId, userId),
-      readMemoryMap(workspaceId, userId),
-      listHistory(workspaceId)
+      readDiagramViews(projectId, userId),
+      readMemoryMap(projectId, userId),
+      listHistory(projectId)
     ])
-    return text({ workspaceId, views, memory, history })
+    return text({ projectId, views, memory, history })
   })
 )
 
@@ -189,8 +189,8 @@ server.registerTool(
     inputSchema: {}
   },
   withLogging('list_diagram_views', async () => {
-    const { workspaceId, userId } = requireContext()
-    const views = await readDiagramViews(workspaceId, userId)
+    const { projectId, userId } = requireContext()
+    const views = await readDiagramViews(projectId, userId)
     // Include permission level so Claude knows what's editable
     return text(views.map(({ view_key, title, kind, description, summary, visibility, permission }) => ({
       view_key, title, kind, description, summary, visibility, permission
@@ -208,8 +208,8 @@ server.registerTool(
     }
   },
   withLogging('get_diagram_view', async ({ viewKey }) => {
-    const { workspaceId, userId } = requireContext()
-    const view = await getDiagramView(workspaceId, viewKey, userId)
+    const { projectId, userId } = requireContext()
+    const view = await getDiagramView(projectId, viewKey, userId)
     return text(view)
   })
 )
@@ -229,11 +229,11 @@ server.registerTool(
     }
   },
   withLogging('save_diagram_view', async ({ viewKey, title, description, summary, mermaid, reason }) => {
-    const { workspaceId, userId } = requireContext()
+    const { projectId, userId } = requireContext()
 
     // Check permission before writing
-    const existing = await getDiagramView(workspaceId, viewKey, userId)
-    const role = await getUserRole(workspaceId, userId)
+    const existing = await getDiagramView(projectId, viewKey, userId)
+    const role = await getUserRole(projectId, userId)
     if (!canEdit(existing.permission, existing.owner_id, userId, role)) {
       throw new Error(`No edit access to "${existing.title}" (permission: ${existing.permission}). Only ${existing.permission === 'view-all' ? 'admins' : 'the owner'} can edit this tab.`)
     }
@@ -243,7 +243,7 @@ server.registerTool(
     if (description !== undefined) updates.description = description
     if (summary !== undefined) updates.summary = summary
     if (mermaid !== undefined) updates.mermaid = mermaid
-    const view = await saveDiagramView(workspaceId, viewKey, updates, userId, reason)
+    const view = await saveDiagramView(projectId, viewKey, updates, userId, reason)
     void refreshClaudeMd()  // async — don't block the response
     return text({ ok: true, view })
   })
@@ -261,7 +261,7 @@ server.registerTool(
     }
   },
   withLogging('append_memory_note', async ({ file, note, heading }) => {
-    const { workspaceId, userId } = requireContext()
+    const { projectId, userId } = requireContext()
 
     // Check permission before writing
     // Note: appendMemoryNote creates the note if it doesn't exist yet,
@@ -270,19 +270,19 @@ server.registerTool(
     const { data: existing } = await sb
       .from('memory_notes')
       .select('permission, owner_id')
-      .eq('workspace_id', workspaceId)
+      .eq('project_id', projectId)
       .eq('filename', file)
       .limit(1)
       .single()
 
     if (existing) {
-      const role = await getUserRole(workspaceId, userId)
+      const role = await getUserRole(projectId, userId)
       if (!canEdit(existing.permission, existing.owner_id, userId, role)) {
         throw new Error(`No edit access to "${file}" (permission: ${existing.permission}).`)
       }
     }
 
-    await appendMemoryNote(workspaceId, file, note, heading, userId)
+    await appendMemoryNote(projectId, file, note, heading, userId)
     void refreshClaudeMd()  // async — don't block the response
     return text({ ok: true, file })
   })
@@ -296,8 +296,8 @@ server.registerTool(
     inputSchema: {}
   },
   withLogging('compose_claude_md', async () => {
-    const { workspaceId, userId } = requireContext()
-    const md = await composeClaudeMd(workspaceId, userId)
+    const { projectId, userId } = requireContext()
+    const md = await composeClaudeMd(projectId, userId)
     return text({ ok: true, length: md.length, content: md })
   })
 )
@@ -310,8 +310,8 @@ server.registerTool(
     inputSchema: {}
   },
   withLogging('list_history', async () => {
-    const { workspaceId } = requireContext()
-    const history = await listHistory(workspaceId)
+    const { projectId } = requireContext()
+    const history = await listHistory(projectId)
     return text(history)
   })
 )
@@ -321,16 +321,16 @@ server.registerTool(
 // Claude Desktop picks the right tool from the conversation — no full rewrites.
 
 async function getActiveOrgId() {
-  const { workspaceId } = requireContext()
-  const { data: ws } = await sbRoot.from('workspaces').select('org_id').eq('id', workspaceId).single()
+  const { projectId } = requireContext()
+  const { data: ws } = await sbRoot.from('projects').select('org_id').eq('id', projectId).single()
   if (!ws?.org_id) throw new Error('workspace has no org_id')
   return ws.org_id
 }
 
 async function runOp(tabKey, op, args) {
-  const { workspaceId, userId } = requireContext()
+  const { projectId, userId } = requireContext()
   const orgId = tabKey.startsWith('org:') ? await getActiveOrgId() : null
-  const scope = parseTabKey(tabKey, { workspaceId, orgId, userId })
+  const scope = parseTabKey(tabKey, { projectId, orgId, userId })
   if (!scope) throw new Error(`not a structured tab: ${tabKey}`)
   // Membership check — same protection /api/op enforces. Stops a misconfigured
   // DELMA_USER_ID from writing into a workspace/org the user doesn't belong to.
@@ -338,8 +338,8 @@ async function runOp(tabKey, op, args) {
     const { data: m } = await sbRoot.from('org_members').select('role').eq('user_id', userId).eq('org_id', orgId).maybeSingle()
     if (!m) throw new Error(`user ${userId.slice(0, 8)} is not a member of org ${orgId.slice(0, 8)}`)
   } else if (scope.kind === 'project') {
-    const { data: m } = await sbRoot.from('workspace_members').select('role').eq('user_id', userId).eq('workspace_id', workspaceId).maybeSingle()
-    if (!m) throw new Error(`user ${userId.slice(0, 8)} is not a member of workspace ${workspaceId.slice(0, 8)}`)
+    const { data: m } = await sbRoot.from('project_members').select('role').eq('user_id', userId).eq('project_id', projectId).maybeSingle()
+    if (!m) throw new Error(`user ${userId.slice(0, 8)} is not a member of workspace ${projectId.slice(0, 8)}`)
   }
   const result = await applyOpsToTab(sbRoot, scope, [{ op, args }])
   void refreshClaudeMd()
@@ -567,13 +567,13 @@ import, free-form prose that spans multiple tabs).`,
     }
   },
   withLogging('sync_conversation_summary', async ({ summary }) => {
-    const { workspaceId, userId } = requireContext()
+    const { projectId, userId } = requireContext()
     console.log('[mcp sync] summary:', summary.substring(0, 100), '...')
 
     // Read current workspace state
     const [views, memory] = await Promise.all([
-      readDiagramViews(workspaceId, userId),
-      readMemoryMap(workspaceId, userId)
+      readDiagramViews(projectId, userId),
+      readMemoryMap(projectId, userId)
     ])
 
     // Build a snapshot of current content for DeepSeek
@@ -586,7 +586,7 @@ import, free-form prose that spans multiple tabs).`,
     }
 
     // Also read org-level notes if we have an org
-    const ws = await getWorkspace(workspaceId)
+    const ws = await getWorkspace(projectId)
     if (ws.org_id) {
       const { supabase: sb } = await import('./lib/supabase.js')
       const { data: orgNotes } = await sb.from('org_memory_notes').select('*').eq('org_id', ws.org_id)
@@ -677,7 +677,7 @@ Return [] if nothing needs updating. Return ONLY valid JSON, no explanation.`
       if (tab.table === 'diagram_views') {
         await sb.from('diagram_views').update({ mermaid: content }).eq('id', tab.id)
       } else if (tab.table === 'memory_notes') {
-        await sb.from('memory_notes').update({ content }).eq('workspace_id', workspaceId).eq('filename', tab.filename)
+        await sb.from('memory_notes').update({ content }).eq('project_id', projectId).eq('filename', tab.filename)
       } else if (tab.table === 'org_memory_notes') {
         await sb.from('org_memory_notes').update({ content }).eq('id', tab.id)
       }
@@ -698,8 +698,8 @@ server.registerResource(
   new ResourceTemplate('delma://workspace/{viewKey}', { list: undefined }),
   { title: 'Delma Diagram View', description: 'Read a diagram view as a resource.' },
   async (uri, { viewKey }) => {
-    const { workspaceId, userId } = requireContext()
-    const view = await getDiagramView(workspaceId, viewKey, userId)
+    const { projectId, userId } = requireContext()
+    const view = await getDiagramView(projectId, viewKey, userId)
     return { contents: [{ uri: uri.href, text: JSON.stringify(view, null, 2) }] }
   }
 )

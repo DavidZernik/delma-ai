@@ -11,14 +11,14 @@ import { ChatSidebar } from './ChatSidebar.jsx'
 
 let root = null
 
-export function mountChat({ containerId, workspaceId, userId }) {
+export function mountChat({ containerId, projectId, userId }) {
   const el = document.getElementById(containerId)
   if (!el) {
     console.warn('[chat mount] container not found:', containerId)
     return
   }
   if (!root) root = createRoot(el)
-  root.render(createElement(ChatSidebar, { workspaceId, userId }))
+  root.render(createElement(ChatSidebar, { projectId, userId }))
 }
 
 export function unmountChat() {

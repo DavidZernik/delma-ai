@@ -26,9 +26,9 @@ export async function runTimeliness({ hoursBack = 24 } = {}) {
   const since = new Date(Date.now() - hoursBack * 3600 * 1000).toISOString()
 
   const [{ data: routerCalls }, { data: opLogs }, { data: mcpLogs }] = await Promise.all([
-    sb.from('quality_router_calls').select('id, created_at, duration_ms, ops, workspace_id').gte('created_at', since),
-    sb.from('api_op_logs').select('id, created_at, duration_ms, tab_key, ops, workspace_id').gte('created_at', since),
-    sb.from('mcp_call_logs').select('id, created_at, duration_ms, tool, workspace_id, success').gte('created_at', since)
+    sb.from('quality_router_calls').select('id, created_at, duration_ms, ops, project_id').gte('created_at', since),
+    sb.from('api_op_logs').select('id, created_at, duration_ms, tab_key, ops, project_id').gte('created_at', since),
+    sb.from('mcp_call_logs').select('id, created_at, duration_ms, tool, project_id, success').gte('created_at', since)
   ])
 
   const router = routerCalls || []
@@ -71,7 +71,7 @@ export async function runTimeliness({ hoursBack = 24 } = {}) {
   for (const op of ops) {
     const opT = new Date(op.created_at).getTime()
     const candidates = router.filter(r =>
-      r.workspace_id === op.workspace_id &&
+      r.project_id === op.project_id &&
       new Date(r.created_at).getTime() <= opT &&
       (opT - new Date(r.created_at).getTime()) < 10000)
     if (candidates.length) {
@@ -96,18 +96,18 @@ export async function runTimeliness({ hoursBack = 24 } = {}) {
   // > one expected turn (~30s), Claude likely processed several messages
   // before deciding to call the tool. That's Mode A.
   const { data: tickRows } = await sb.from('conversation_ticks')
-    .select('ts, workspace_id').gte('ts', since).limit(2000)
+    .select('ts, project_id').gte('ts', since).limit(2000)
   const ticks = tickRows || []
 
   if (ticks.length && mcp.length) {
     const ticksByWs = {}
-    for (const t of ticks) (ticksByWs[t.workspace_id] ||= []).push(new Date(t.ts).getTime())
+    for (const t of ticks) (ticksByWs[t.project_id] ||= []).push(new Date(t.ts).getTime())
     for (const arr of Object.values(ticksByWs)) arr.sort((a, b) => a - b)
 
     const lags = []
     for (const m of mcp) {
-      if (!m.workspace_id) continue
-      const arr = ticksByWs[m.workspace_id] || []
+      if (!m.project_id) continue
+      const arr = ticksByWs[m.project_id] || []
       const callT = new Date(m.created_at).getTime()
       // Most recent tick BEFORE the call
       let last = null

@@ -33,7 +33,7 @@ async function postOp(authHeaders, ctx, tabKey, op, args) {
     headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
     body: JSON.stringify({
       tabKey, ops: [{ op, args }],
-      workspaceId: ctx.workspaceId, orgId: ctx.orgId
+      projectId: ctx.projectId, orgId: ctx.orgId
     })
   })
   if (!res.ok) {

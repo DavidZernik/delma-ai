@@ -23,9 +23,61 @@
 import mermaid from 'mermaid'
 import elkLayouts from '@mermaid-js/layout-elk'
 import { marked } from 'marked'
+
+// Verbose diagnostic logging. Opt-in via ?debug=1 or localStorage.delmaDebug=1.
+// Keeps the console clean for normal users but trivially enabled for support.
+const DELMA_DEBUG = (() => {
+  try {
+    if (new URLSearchParams(location.search).has('debug')) return true
+    if (localStorage.getItem('delmaDebug') === '1') return true
+  } catch {}
+  return false
+})()
+const dlog = (...args) => { if (DELMA_DEBUG) console.log(...args) }
+
+// ── SFMC project template ───────────────────────────────────────────────────
+// Every new project gets seeded with these. Delma is SFMC-focused for now,
+// so the template is baked in; when there are more product types we'll swap
+// this for a table-backed template system.
+const SFMC_ENVIRONMENT_TEMPLATE = `# Files Locations and Keys
+
+## Business Units
+- Parent BU MID:
+- Child BU MID:
+
+## Data Extensions
+- Source (from CRM / Health Cloud):
+- Sync / staging DEs:
+- Response DEs:
+
+## Automations
+- Daily:
+- Triggered:
+
+## Journeys
+- Active journeys (name + ID):
+
+## CloudPages
+- Forms / quizzes (name + ID):
+
+## Email Assets
+- Templates / assets used:
+
+## API Access
+- Installed Package MID:
+- Auth URL:
+- Client ID / secret location:
+`
+
+const SFMC_DECISIONS_TEMPLATE = `# Project Details
+
+## Decisions
+- _What's been decided — include who approved and when._
+
+## Actions
+- _What needs to happen next — include owner and due date._
+`
 import { supabase } from './lib/supabase.js'
-import { ROUTER_SYSTEM_PROMPT, buildTabsBlock, buildRouterUserMessage } from './router-prompt.js'
-import { extractJsonArray } from './extract-json-array.js'
 import { isStructuredTab } from './tab-ops.js'
 import { renderStructuredEditor } from './structured-editor.js'
 import { mountChat } from './chat/mount.js'
@@ -38,25 +90,53 @@ async function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
+// Track `updated_at` of each tab at the moment the user started editing.
+// Server compares this to what's currently in the DB on save — if a
+// teammate edited in between, we get a 409 and ask the user what to do.
+const loadedUpdatedAt = new Map() // tabKey -> ISO string
+function rememberTabLoadTime(tabKey, ts) {
+  if (!tabKey || !ts) return
+  loadedUpdatedAt.set(tabKey, ts)
+}
+
 // Save the markdown editor's content for a structured tab. The server
 // re-parses markdown → JSON so the structured column stays canonical.
-async function postStructuredSave(tabKey, content) {
-  console.log('[delma save] structured tab', tabKey, 'len:', content.length)
+async function postStructuredSave(tabKey, content, { force = false } = {}) {
+  console.log('[delma save] structured tab', tabKey, 'len:', content.length, 'force:', force)
   const headers = { 'Content-Type': 'application/json', ...(await authHeaders()) }
   const res = await fetch('/api/save-structured-tab', {
     method: 'POST',
     headers,
     body: JSON.stringify({
       tabKey, content,
-      workspaceId: state.workspaceId,
-      orgId: state.org?.id
+      projectId: state.projectId,
+      orgId: state.org?.id,
+      expectedUpdatedAt: loadedUpdatedAt.get(tabKey) || null,
+      force
     })
   })
+  if (res.status === 409) {
+    const body = await res.json().catch(() => ({}))
+    const ok = confirm(
+      'Someone else edited this tab since you opened it.\n\n' +
+      'Your save would overwrite their changes.\n\n' +
+      'OK = overwrite with your version\n' +
+      'Cancel = discard yours and reload theirs'
+    )
+    if (ok) return postStructuredSave(tabKey, content, { force: true })
+    // User chose to discard — refresh from server and reload the tab.
+    await refreshWorkspace()
+    renderWorkspace()
+    throw new Error('discarded local changes, reloaded from server')
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}))
     throw new Error(err.error || `save failed (${res.status})`)
   }
-  return res.json()
+  const data = await res.json()
+  // Update our load-time stamp so the next save doesn't trigger a false conflict.
+  if (data?.structured) loadedUpdatedAt.set(tabKey, new Date().toISOString())
+  return data
 }
 
 mermaid.registerLayoutLoaders(elkLayouts)
@@ -94,9 +174,9 @@ const state = {
   userRole: 'member',   // 'owner' or 'member' — determines edit access
   org: null,             // { id, name, slug } — current organization
   orgs: [],              // all orgs user belongs to
-  workspaceId: null,
-  workspaceName: '',
-  workspaces: [],
+  projectId: null,
+  projectName: '',
+  projects: [],
   views: [],             // diagram_views rows from Supabase (includes permission field)
   memoryRows: [],        // raw memory_notes rows (includes permission, owner_id)
   memory: {},            // { filename: content } for easy access
@@ -239,7 +319,7 @@ async function signup(email, password) {
 async function logout() {
   await supabase.auth.signOut()
   state.user = null
-  state.workspaceId = null
+  state.projectId = null
   state.views = []
   state.memory = {}
   state.history = []
@@ -263,94 +343,96 @@ async function loadOrgs() {
 
 // ── Workspace CRUD ───────────────────────────────────────────────────────────
 
-async function loadWorkspaces() {
+async function loadProjects() {
   if (!state.user) return
   const { data } = await supabase
-    .from('workspace_members')
-    .select('workspace_id, role, workspaces(id, name, created_at, org_id)')
+    .from('project_members')
+    .select('project_id, role, projects(id, name, created_at, org_id)')
     .eq('user_id', state.user.id)
   // Filter to current org if one is selected
-  const all = (data || []).map(r => ({ ...r.workspaces, role: r.role }))
-  state.workspaces = state.org
+  const all = (data || []).map(r => ({ ...r.projects, role: r.role }))
+  state.projects = state.org
     ? all.filter(w => w.org_id === state.org.id)
     : all
 }
 
-async function createWorkspace(name) {
+async function createProject(name) {
   const { data: ws, error } = await supabase
-    .from('workspaces')
+    .from('projects')
     .insert({ name, created_by: state.user.id, org_id: state.org?.id || null })
     .select()
     .single()
   if (error) throw new Error(error.message)
 
-  await supabase.from('workspace_members').insert({
-    workspace_id: ws.id, user_id: state.user.id, role: 'owner'
+  await supabase.from('project_members').insert({
+    project_id: ws.id, user_id: state.user.id, role: 'owner'
   })
 
   // Seed default views
   const defaults = defaultViewTemplates()
   for (const view of defaults) {
     await supabase.from('diagram_views').insert({
-      workspace_id: ws.id, owner_id: state.user.id, ...view
+      project_id: ws.id, owner_id: state.user.id, ...view
     })
   }
 
-  // Seed default memory tabs (current vocabulary only):
+  // Seed default memory tabs with the SFMC project template. Every new
+  // project starts pre-structured for the marketing cloud work this app is
+  // designed around, so the user isn't staring at an empty canvas.
   //   environment.md → "Files Locations and Keys"
   //   decisions.md   → "Project Details"
   // (people.md + playbook.md live at the org level, my-notes.md is global per-user)
   const memDefaults = {
     'environment.md': {
-      content: '# Files Locations and Keys\n\nSFMC Business Unit, MIDs, Data Extensions, Journeys, Automations, CloudPages, and other project-specific IDs.\n',
+      content: SFMC_ENVIRONMENT_TEMPLATE,
       visibility: 'shared',
       permission: 'view-admins'
     },
     'decisions.md': {
-      content: '# Project Details\n\n## Decisions\n- _What\'s been decided._\n\n## Actions\n- _What needs to happen next._\n',
+      content: SFMC_DECISIONS_TEMPLATE,
       visibility: 'shared',
       permission: 'edit-all'
     }
   }
   for (const [filename, { content, visibility, permission }] of Object.entries(memDefaults)) {
     await supabase.from('memory_notes').insert({
-      workspace_id: ws.id, filename, content, visibility, permission, owner_id: state.user.id
+      project_id: ws.id, filename, content, visibility, permission, owner_id: state.user.id
     })
   }
 
   return ws
 }
 
-async function openWorkspace(workspaceId) {
-  console.log('[delma workspace] opening:', workspaceId)
-  state.workspaceId = workspaceId
-  dismissedTabs.clear()  // Reset dismissed prompts for new workspace
+async function openProject(projectId) {
+  console.log('[delma workspace] opening:', projectId)
+  state.projectId = projectId
   await refreshWorkspace()
   setupRealtimeSubscription()
   console.log('[delma workspace] open complete, views:', state.views.length, 'realtime subscribed')
 
   // Track active workspace so the hook auto-loads it next session AND so
   // any in-flight Claude Code session sees the project change on the next
-  // message via refreshed CLAUDE.md.
+  // message via refreshed CLAUDE.md. Await both writes before mounting the
+  // chat — otherwise the first message after a project switch can race
+  // against a stale active_project_id and address the wrong project.
   if (state.org?.id) {
-    void supabase.from('org_members')
-      .update({ active_workspace_id: workspaceId })
-      .eq('org_id', state.org.id)
-      .eq('user_id', state.user.id)
-      .then(() => {
-        // Regenerate CLAUDE.md for the NEW active workspace so Claude
-        // (mid-session) sees the project switch on the next message.
-        triggerClaudeMdRefresh()
-      })
+    try {
+      await supabase.from('org_members')
+        .update({ active_project_id: projectId })
+        .eq('org_id', state.org.id)
+        .eq('user_id', state.user.id)
+    } catch (err) {
+      console.warn('[delma workspace] active-project update failed:', err.message)
+    }
   }
 
-  setWorkspaceStatus('Workspace open. Claude Code can connect via Delma MCP.')
+  setWorkspaceStatus('Project ready.')
   appendLog('Workspace Open', `Connected to workspace. Diagrams and memory are live.`)
 
   // Mount the in-app chat. Agent SDK runs server-side; sidebar streams its
   // output. Chat lives alongside the workspace — same app, no Claude Desktop.
-  if (state.user?.id && state.workspaceId) {
-    try { mountChat({ containerId: 'chat-sidebar-root', workspaceId: state.workspaceId, userId: state.user.id }) }
+  if (state.user?.id && state.projectId) {
+    try { mountChat({ containerId: 'chat-sidebar-root', projectId: state.projectId, userId: state.user.id }) }
     catch (err) { console.warn('[delma chat] mount failed:', err.message) }
   }
 }
@@ -358,23 +440,23 @@ async function openWorkspace(workspaceId) {
 // ── Data Loading ─────────────────────────────────────────────────────────────
 
 async function refreshWorkspace() {
-  if (!state.workspaceId || !state.user) {
+  if (!state.projectId || !state.user) {
     console.log('[delma refresh] skipped — no workspace or user')
     return
   }
 
-  console.log('[delma refresh] fetching from Supabase, workspace:', state.workspaceId)
+  console.log('[delma refresh] fetching from Supabase, workspace:', state.projectId)
   const t0 = performance.now()
 
   // Fetch workspace + org data + user's role in parallel
   const queries = [
-    supabase.from('diagram_views').select('*').eq('workspace_id', state.workspaceId).order('view_key'),
-    supabase.from('memory_notes').select('*').eq('workspace_id', state.workspaceId),
+    supabase.from('diagram_views').select('*').eq('project_id', state.projectId).order('view_key'),
+    supabase.from('memory_notes').select('*').eq('project_id', state.projectId),
     supabase.from('history_snapshots').select('id, reason, created_at')
-      .eq('workspace_id', state.workspaceId).order('created_at', { ascending: false }).limit(30),
-    supabase.from('workspaces').select('name, org_id').eq('id', state.workspaceId).single(),
-    supabase.from('workspace_members').select('role')
-      .eq('workspace_id', state.workspaceId).eq('user_id', state.user.id).single()
+      .eq('project_id', state.projectId).order('created_at', { ascending: false }).limit(30),
+    supabase.from('projects').select('name, org_id').eq('id', state.projectId).single(),
+    supabase.from('project_members').select('role')
+      .eq('project_id', state.projectId).eq('user_id', state.user.id).single()
   ]
 
   // Also fetch org-level memory notes if we have an org
@@ -399,16 +481,18 @@ async function refreshWorkspace() {
   state.memory = {}
   for (const row of state.memoryRows) {
     state.memory[row.filename] = row.content
+    rememberTabLoadTime(`memory:${row.filename}`, row.updated_at)
     console.log(`[delma refresh] memory tab: ${row.filename} — ${(row.content || '').length} chars, structured: ${row.structured ? 'yes' : 'no'}`)
   }
   state.orgMemoryRows = orgMemoryRows
   state.orgMemory = {}
   for (const row of state.orgMemoryRows) {
     state.orgMemory[row.filename] = row.content
+    rememberTabLoadTime(`org:${row.filename}`, row.updated_at)
     console.log(`[delma refresh] org tab: ${row.filename} — ${(row.content || '').length} chars`)
   }
   state.history = (history || []).map(h => `${h.created_at} — ${h.reason}`)
-  state.workspaceName = ws?.name || ''
+  state.projectName = ws?.name || ''
 
   if (!state.activeViewKey || !state.views.some(v => v.view_key === state.activeViewKey)) {
     state.activeViewKey = state.views[0]?.view_key || null
@@ -513,9 +597,6 @@ function handleRealtimeChange(table, payload) {
   const tabKey = getTabKeyForChange(table, record)
   console.log('[delma realtime] change:', table, tabKey, 'current:', isCurrentTab(tabKey), 'mode:', state.diagramMode)
 
-  // Any external change also resets dismissed + starts grace window
-  noteTabChanged(tabKey)
-
   if (isCurrentTab(tabKey)) {
     if (state.diagramMode === 'edit') {
       // In edit mode — don't overwrite the editor, but show a notification
@@ -548,22 +629,23 @@ function handleRealtimeChange(table, payload) {
 }
 
 function setupRealtimeSubscription() {
-  console.log('[delma realtime] setting up subscriptions for workspace:', state.workspaceId, 'org:', state.org?.id)
+  console.log('[delma realtime] setting up subscriptions for workspace:', state.projectId, 'org:', state.org?.id)
   if (realtimeChannel) supabase.removeChannel(realtimeChannel)
+  if (presenceChannel) { supabase.removeChannel(presenceChannel); presenceChannel = null }
 
   realtimeChannel = supabase
-    .channel(`workspace-${state.workspaceId}`)
+    .channel(`workspace-${state.projectId}`)
     .on('postgres_changes', {
       event: '*',
       schema: 'public',
       table: 'diagram_views',
-      filter: `workspace_id=eq.${state.workspaceId}`
+      filter: `project_id=eq.${state.projectId}`
     }, (payload) => handleRealtimeChange('diagram_views', payload))
     .on('postgres_changes', {
       event: '*',
       schema: 'public',
       table: 'memory_notes',
-      filter: `workspace_id=eq.${state.workspaceId}`
+      filter: `project_id=eq.${state.projectId}`
     }, (payload) => handleRealtimeChange('memory_notes', payload))
     .subscribe()
 
@@ -579,129 +661,246 @@ function setupRealtimeSubscription() {
       }, (payload) => handleRealtimeChange('org_memory_notes', payload))
       .subscribe()
   }
+
+  setupPresence()
+  setupActivitySubscription()
 }
+
+// ── Activity log / History feed ─────────────────────────────────────────────
+// Subscribes to the activity_log table and renders a recent-changes feed
+// in the right-side drawer. Data is scoped to the open project + org.
+
+let activityChannel = null
+let activityRows = []
+
+function setupActivitySubscription() {
+  if (activityChannel) supabase.removeChannel(activityChannel)
+  if (!state.projectId) return
+
+  // Initial fetch: last 50 events across this workspace + its org.
+  void refreshActivityFeed()
+
+  activityChannel = supabase
+    .channel(`activity-${state.projectId}`)
+    .on('postgres_changes', {
+      event: 'INSERT', schema: 'public', table: 'activity_log',
+      filter: `project_id=eq.${state.projectId}`
+    }, (payload) => {
+      activityRows = [payload.new, ...activityRows].slice(0, 50)
+      renderActivityFeed()
+    })
+
+  if (state.org?.id) {
+    activityChannel = activityChannel.on('postgres_changes', {
+      event: 'INSERT', schema: 'public', table: 'activity_log',
+      filter: `org_id=eq.${state.org.id}`
+    }, (payload) => {
+      activityRows = [payload.new, ...activityRows].slice(0, 50)
+      renderActivityFeed()
+    })
+  }
+
+  activityChannel.subscribe()
+}
+
+async function refreshActivityFeed() {
+  const rows = []
+  if (state.projectId) {
+    const { data } = await supabase
+      .from('activity_log')
+      .select('*')
+      .eq('project_id', state.projectId)
+      .order('created_at', { ascending: false })
+      .limit(50)
+    if (data) rows.push(...data)
+  }
+  if (state.org?.id) {
+    const { data } = await supabase
+      .from('activity_log')
+      .select('*')
+      .eq('org_id', state.org.id)
+      .order('created_at', { ascending: false })
+      .limit(50)
+    if (data) rows.push(...data)
+  }
+  rows.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+  activityRows = rows.slice(0, 50)
+  renderActivityFeed()
+}
+
+function renderActivityFeed() {
+  const feed = document.getElementById('history-feed')
+  if (!feed) return
+  if (!activityRows.length) {
+    feed.innerHTML = '<div class="history-empty">No activity yet.</div>'
+    return
+  }
+  feed.innerHTML = activityRows.map(r => {
+    const who = (r.actor_email || 'someone').split('@')[0]
+    const when = timeAgo(r.created_at)
+    return `
+      <div class="history-item">
+        <div class="who">${escapeHtml(who)}</div>
+        <div class="what">${escapeHtml(r.summary || '')}</div>
+        <div class="when">${escapeHtml(when)}</div>
+      </div>
+    `
+  }).join('')
+}
+
+function setupHistoryDrawer() {
+  const toggle = document.getElementById('history-toggle-btn')
+  const drawer = document.getElementById('history-drawer')
+  const close = document.getElementById('history-close-btn')
+  if (!toggle || !drawer) return
+  toggle.addEventListener('click', () => {
+    drawer.hidden = !drawer.hidden
+    if (!drawer.hidden) refreshActivityFeed()
+  })
+  close?.addEventListener('click', () => { drawer.hidden = true })
+}
+
+// ── Presence ────────────────────────────────────────────────────────────────
+// Each user joins a per-project presence channel and broadcasts which tab
+// they're on and whether they're editing it. Every client subscribes to the
+// state and renders small avatar dots next to tabs other people are on.
+//
+// No writes to Postgres — Supabase presence is ephemeral (in-memory in the
+// realtime service). When everyone closes the tab, state is gone. Good.
+
+let presenceChannel = null
+let presenceState = new Map() // key -> { userId, displayName, color, tabKey, editing }
+
+// Stable color per user — derived from their id so it's the same in every
+// other client's browser too.
+function colorFromId(id) {
+  if (!id) return '#8F0000'
+  let h = 0
+  for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) | 0
+  return `hsl(${Math.abs(h) % 360}, 55%, 45%)`
+}
+
+// Display name: email prefix. If we ever add a profiles table we can upgrade.
+function displayNameFor(user) {
+  if (!user) return 'Someone'
+  const email = user.email || ''
+  const name = email.split('@')[0]
+  return name ? name.charAt(0).toUpperCase() + name.slice(1) : 'Someone'
+}
+
+function currentPresencePayload() {
+  const tabKey = state.activeTopTab === 'orgMemory'
+    ? `org:${state.activeMemoryFile}`
+    : state.activeTopTab === 'memory'
+      ? `mem:${state.activeMemoryFile}`
+      : state.activeTopTab === 'diagram'
+        ? `dia:${state.activeViewKey}`
+        : `top:${state.activeTopTab}`
+  return {
+    userId: state.user?.id || '',
+    displayName: displayNameFor(state.user),
+    color: colorFromId(state.user?.id || ''),
+    tabKey,
+    editing: state.diagramMode === 'edit',
+    at: Date.now()
+  }
+}
+
+function setupPresence() {
+  if (!state.user?.id || !state.projectId) return
+  presenceChannel = supabase.channel(`presence-${state.projectId}`, {
+    config: { presence: { key: state.user.id } }
+  })
+
+  presenceChannel
+    .on('presence', { event: 'sync' }, () => {
+      const raw = presenceChannel.presenceState()
+      const next = new Map()
+      for (const [key, metas] of Object.entries(raw)) {
+        // Most recent meta wins; a user may have multiple tabs open.
+        const m = metas[metas.length - 1]
+        if (!m || m.userId === state.user.id) continue
+        next.set(key, m)
+      }
+      presenceState = next
+      renderPresenceIndicators()
+    })
+    .subscribe(async (status) => {
+      if (status === 'SUBSCRIBED') {
+        await presenceChannel.track(currentPresencePayload())
+      }
+    })
+}
+
+// Re-broadcast when the user switches tabs or toggles edit mode. Throttled
+// so a click-flurry doesn't spam the channel.
+let presenceUpdateTimer = null
+function broadcastPresence() {
+  if (!presenceChannel) return
+  if (presenceUpdateTimer) clearTimeout(presenceUpdateTimer)
+  presenceUpdateTimer = setTimeout(() => {
+    presenceChannel.track(currentPresencePayload()).catch(() => {})
+  }, 120)
+}
+
+function renderPresenceIndicators() {
+  // For each tab button in the bar, add/remove a little avatar strip showing
+  // other users currently on (or editing) that tab.
+  document.querySelectorAll('.view-tab[data-tab-key]').forEach(tab => {
+    const existing = tab.querySelector('.presence-dots')
+    if (existing) existing.remove()
+    const tabKey = tab.getAttribute('data-tab-key')
+    const onThis = []
+    for (const m of presenceState.values()) {
+      if (m.tabKey === tabKey) onThis.push(m)
+    }
+    if (!onThis.length) return
+    const wrap = document.createElement('span')
+    wrap.className = 'presence-dots'
+    for (const m of onThis.slice(0, 3)) {
+      const dot = document.createElement('span')
+      dot.className = 'presence-dot' + (m.editing ? ' editing' : '')
+      dot.style.background = m.color
+      dot.title = m.editing ? `${m.displayName} is editing` : `${m.displayName} is viewing`
+      dot.textContent = (m.displayName || '?').charAt(0)
+      wrap.appendChild(dot)
+    }
+    if (onThis.length > 3) {
+      const more = document.createElement('span')
+      more.className = 'presence-dot more'
+      more.textContent = `+${onThis.length - 3}`
+      wrap.appendChild(more)
+    }
+    tab.appendChild(wrap)
+  })
+}
+
+// When the tab comes back to the foreground (phone unlock, laptop lid open,
+// window refocus), the websocket may have been napping. Reconcile by
+// re-reading the workspace and repainting. Supabase's realtime channel
+// auto-reconnects on its own, but we can't trust that it didn't miss events
+// while we were away.
+let lastVisibleAt = Date.now()
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') {
+    lastVisibleAt = Date.now()
+    return
+  }
+  const awayMs = Date.now() - lastVisibleAt
+  if (!state.projectId) return
+  // Under 2 seconds — probably a quick focus blip, don't churn.
+  if (awayMs < 2000) return
+  console.log('[delma realtime] tab visible after', awayMs, 'ms — reconciling')
+  refreshWorkspace().then(() => {
+    renderWorkspace()
+  }).catch(err => console.warn('[delma realtime] reconcile failed:', err.message))
+})
 
 // ── Diagram Mode ─────────────────────────────────────────────────────────────
 
 // ── Action Slot — fixed position between title and diagram ──────────────────
 // Same DOM element, same spot. Content swaps, position never changes.
 // View mode: proactive question (rose). Edit mode: general prompt (neutral).
-
-const actionSlot = document.getElementById('action-slot')
-let actionApplyHandler = null
-
-function removeActionBlock() {
-  actionSlot.classList.remove('open')
-  actionApplyHandler = null
-  // Clear inner after transition
-  setTimeout(() => { actionSlot.innerHTML = '' }, 350)
-}
-
-function renderActionBlock(question, modeClass, onApply) {
-  const placeholder = modeClass === 'mode-edit' ? 'Describe a change...' : 'Add detail...'
-  // Short context label shown above the question, so users know what this row is.
-  const title = modeClass === 'mode-edit'
-    ? 'Edit this tab'
-    : 'Improve the diagram'
-
-  actionSlot.innerHTML = `
-    <div class="action-slot-inner ${modeClass}">
-      <div class="action-slot-label">${title}</div>
-      <div class="action-slot-question">${escapeHtml(question)}</div>
-      <div class="action-slot-row">
-        <input class="action-slot-input" type="text" placeholder="${placeholder}" />
-        <button class="action-slot-apply">Apply</button>
-      </div>
-    </div>
-  `
-
-  // Open the slot (smooth max-height transition)
-  requestAnimationFrame(() => actionSlot.classList.add('open'))
-
-  const inner = actionSlot.querySelector('.action-slot-inner')
-  const input = actionSlot.querySelector('.action-slot-input')
-  const applyBtn = actionSlot.querySelector('.action-slot-apply')
-
-  // Typing state — question recedes
-  input.addEventListener('input', () => {
-    inner.classList.toggle('typing', input.value.trim().length > 0)
-  })
-
-  // Apply handler
-  actionApplyHandler = async function () {
-    const value = input.value.trim()
-    console.log('[delma apply] clicked, value:', value, 'hasOnApply:', !!onApply)
-    if (!value) return
-
-    // Immediately swap to loading state — hide question/input/button
-    actionSlot.innerHTML = `
-      <div class="action-slot-loading">
-        <span class="loading-dot"></span>
-        <span class="loading-dot"></span>
-        <span class="loading-dot"></span>
-        <span>Updating...</span>
-      </div>
-    `
-    console.log('[delma apply] loading state shown')
-
-    try {
-      if (onApply) {
-        console.log('[delma apply] calling onApply (proactive question)...')
-        await onApply(value, question)
-        console.log('[delma apply] onApply done, data saved to Supabase')
-      } else {
-        console.log('[delma apply] calling applyNaturalLanguageEdit...')
-        await applyNaturalLanguageEdit(value)
-        console.log('[delma apply] NL edit done — router already persisted to Supabase')
-
-        // Router writes directly to Supabase. DO NOT call saveCurrentTab() —
-        // it reads the (stale) editor textarea and would clobber the router's
-        // save. Just pause briefly for UX, then refresh to show new content.
-        await new Promise(r => setTimeout(r, 600))
-      }
-
-      // Both paths land here: hide everything, fetch fresh, show view with flash
-      console.log('[delma apply] hiding output, switching to view...')
-      removeActionBlock()
-      els.diagramOutput.style.transition = 'none'
-      els.diagramOutput.style.opacity = '0'
-      els.diagramEditor.classList.remove('visible')
-      els.diagramOutput.hidden = false
-
-      console.log('[delma apply] fetching fresh data from Supabase...')
-      await refreshWorkspace()
-
-      // Now set view mode AFTER fresh data is loaded (so renderWorkspace uses new content)
-      state.diagramMode = 'view'
-      els.modeToggle.hidden = false
-      els.viewModeBtn.hidden = true
-      els.editModeBtn.textContent = 'Edit'
-      els.editModeBtn.classList.remove('primary')
-      els.editModeBtn.classList.add('active')
-      console.log('[delma apply] view mode set, rendering fresh content...')
-
-      renderWorkspace()
-
-      requestAnimationFrame(() => {
-        els.diagramOutput.style.transition = 'opacity 400ms ease'
-        els.diagramOutput.style.opacity = '1'
-        flashContentUpdate()
-        console.log('[delma apply] view rendered with flash, content visible')
-      })
-      setWorkspaceStatus('Updated.')
-    } catch (err) {
-      console.error('[delma apply] error:', err)
-      // Restore the prompt on error
-      renderActionBlock(question, modeClass, onApply)
-      setWorkspaceStatus(`Error: ${err.message}`)
-    }
-  }
-
-  applyBtn.addEventListener('click', () => actionApplyHandler?.())
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); actionApplyHandler?.() }
-  })
-}
 
 function setDiagramMode(mode) {
   state.diagramMode = mode
@@ -714,13 +913,7 @@ function setDiagramMode(mode) {
   els.editModeBtn.classList.toggle('active', mode === 'view')
   els.diagramOutput.hidden = mode === 'edit'
   els.diagramEditor.classList.toggle('visible', mode === 'edit')
-
-  // Render action block for edit mode
-  if (mode === 'edit') {
-    renderActionBlock('What do you want to update?', 'mode-edit')
-  } else {
-    removeActionBlock()
-  }
+  broadcastPresence()
 }
 
 // ── View Helpers ─────────────────────────────────────────────────────────────
@@ -995,10 +1188,10 @@ async function renderDiagram(mermaidCode) {
     proseAbove = fenceMatch[1].trim()
     mermaidOnly = fenceMatch[2]
     proseBelow = fenceMatch[3].trim()
-    console.log('[delma render] split: proseAbove len=' + proseAbove.length + ', mermaid len=' + mermaidOnly.length + ', proseBelow len=' + proseBelow.length)
+    dlog('[delma render] split: proseAbove len=' + proseAbove.length + ', mermaid len=' + mermaidOnly.length + ', proseBelow len=' + proseBelow.length)
   } else if (isMarkdownFormat) {
     // Markdown with no mermaid fence — prose only, still in a card
-    console.log('[delma render] markdown prose only, no diagram')
+    dlog('[delma render] markdown prose only, no diagram')
     els.diagramOutput.className = ''
     els.diagramOutput.style.opacity = '1'
     els.diagramOutput.innerHTML = `<div class="diagram-card markdown-body"></div>`
@@ -1006,7 +1199,7 @@ async function renderDiagram(mermaidCode) {
     await renderMarkdownWithMermaid(card, mermaidCode)
     return true
   } else {
-    console.log('[delma render] pure Mermaid (legacy), no prose')
+    dlog('[delma render] pure Mermaid (legacy), no prose')
   }
 
   // Render the Mermaid with full zoom/drag experience.
@@ -1016,10 +1209,10 @@ async function renderDiagram(mermaidCode) {
   try {
     const renderId = `delma-diagram-${Date.now()}`
     const normalizedCode = normalizeMermaidForRender(mermaidOnly)
-    console.log('[delma render] preparing diagram (hidden), code len:', normalizedCode.length)
+    dlog('[delma render] preparing diagram (hidden), code len:', normalizedCode.length)
     const t0 = performance.now()
     const { svg } = await mermaid.render(renderId, normalizedCode)
-    console.log('[delma render] mermaid.render done in', Math.round(performance.now() - t0), 'ms')
+    dlog('[delma render] mermaid.render done in', Math.round(performance.now() - t0), 'ms')
 
     // Hide the container BEFORE replacing content. Keep its dimensions
     // (visibility:hidden, not display:none) so layout doesn't jump.
@@ -1060,18 +1253,57 @@ async function renderDiagram(mermaidCode) {
     // Wait for layout to settle BEFORE resolving the promise. This way the
     // outer renderWorkspace().then(reveal) fires only after the diagram is
     // fully prepared — no flashes of unstyled or unsized content.
-    console.log('[delma render] waiting two rAFs for layout to settle...')
+    dlog('[delma render] waiting two rAFs for layout to settle...')
     await new Promise(resolve => {
       requestAnimationFrame(() => {
-        console.log('[delma render] rAF 1 done')
+        dlog('[delma render] rAF 1 done')
         requestAnimationFrame(() => {
           setZoom(1)
-          console.log('[delma render] rAF 2 done — setZoom applied, total prep ms:', Math.round(performance.now() - t0))
+          dlog('[delma render] rAF 2 done — setZoom applied, total prep ms:', Math.round(performance.now() - t0))
           resolve()
         })
       })
     })
-    console.log('[delma render] renderDiagram resolving — outer reveal will fire next')
+    dlog('[delma render] renderDiagram resolving — outer reveal will fire next')
+
+    // Mobile scroll debug: log layout dimensions so we can see why bottom of
+    // the diagram is unreachable on stacked/mobile layouts.
+    {
+      const vv = window.visualViewport
+      const shell = document.querySelector('.app-shell')
+      const chat = document.querySelector('.chat-sidebar')
+      const canvas = wrapper.querySelector('.diagram-zoom-canvas')
+      const svgRect = svgEl?.getBoundingClientRect()
+      const wrapRect = wrapper.getBoundingClientRect()
+      dlog('[delma scroll-debug] ' + JSON.stringify({
+        innerW: window.innerWidth,
+        innerH: window.innerHeight,
+        visualViewport: vv ? { w: vv.width, h: vv.height, offsetTop: vv.offsetTop, scale: vv.scale } : null,
+        docScrollY: window.scrollY,
+        docScrollH: document.documentElement.scrollHeight,
+        shell: shell ? { h: shell.getBoundingClientRect().height, scrollH: shell.scrollHeight } : null,
+        chat: chat ? { h: chat.getBoundingClientRect().height } : null,
+        wrapper: {
+          clientH: wrapper.clientHeight,
+          scrollH: wrapper.scrollHeight,
+          maxScrollTop: wrapper.scrollHeight - wrapper.clientHeight,
+          rectTop: wrapRect.top,
+          rectBottom: wrapRect.bottom,
+          computedMaxH: getComputedStyle(wrapper).maxHeight,
+        },
+        canvas: canvas ? { h: canvas.getBoundingClientRect().height } : null,
+        svg: svgRect ? { w: svgRect.width, h: svgRect.height } : null,
+        zoom: currentZoom,
+      }))
+    }
+
+    wrapper.addEventListener('scroll', () => {
+      dlog('[delma scroll-debug] wrapper scroll ' + JSON.stringify({
+        scrollTop: wrapper.scrollTop,
+        maxScrollTop: wrapper.scrollHeight - wrapper.clientHeight,
+        atBottom: wrapper.scrollTop + wrapper.clientHeight >= wrapper.scrollHeight - 1,
+      }))
+    }, { passive: true })
     let lastPinchDist = 0
     wrapper.addEventListener('touchstart', (e) => {
       if (e.touches.length === 2) {
@@ -1223,6 +1455,7 @@ function renderViewTabs() {
     const isActive = state.activeTopTab === 'orgMemory' && state.activeMemoryFile === filename
     const btn = document.createElement('button')
     btn.className = `view-tab${isActive ? ' active' : ''}`
+    btn.dataset.tabKey = orgTabKey
     btn.innerHTML = `<div class="view-tab-title">${editable ? '' : '<span style="opacity:0.4;margin-right:3px;">&#128274;</span>'}${escapeHtml(label.title)}${dotHtml(orgTabKey)}</div>`
     btn.addEventListener('click', () => {
       saveCurrentEditState()
@@ -1244,7 +1477,7 @@ function renderViewTabs() {
   // ── Project-level tabs ─────────────────────────────────────────────────
 
   // Diagram tabs — only when a workspace is loaded (skip in empty org)
-  const views = state.workspaceId
+  const views = state.projectId
     ? (state.views.length ? state.views : defaultViewTemplates())
     : []
   for (const view of views) {
@@ -1254,6 +1487,7 @@ function renderViewTabs() {
     const diaTabKey = `dia:${key}`
     const isActive = state.activeTopTab === 'diagram' && key === state.activeViewKey
     btn.className = `view-tab${isActive ? ' active' : ''}`
+    btn.dataset.tabKey = diaTabKey
     btn.innerHTML = `<div class="view-tab-title">${editable ? '' : '<span style="opacity:0.4;margin-right:3px;">&#128274;</span>'}${escapeHtml(view.title)}${dotHtml(diaTabKey)}</div>`
     btn.addEventListener('click', () => {
       saveCurrentEditState()
@@ -1271,7 +1505,7 @@ function renderViewTabs() {
   // Filter out my-notes.md (now lives globally in user_notes table).
   const knownOrder = Object.keys(MEMORY_TAB_LABELS)
   const presentFiles = Object.keys(state.memory).filter(f => f !== 'my-notes.md')
-  const hasProject = !!state.workspaceId
+  const hasProject = !!state.projectId
   const orderedKnown = hasProject ? knownOrder.filter(f => presentFiles.includes(f) || presentFiles.length === 0) : []
   const extras = presentFiles.filter(f => !knownOrder.includes(f))
   const memFiles = [...orderedKnown, ...extras]
@@ -1283,6 +1517,7 @@ function renderViewTabs() {
     const isActive = state.activeTopTab === 'memory' && state.activeMemoryFile === filename
     const btn = document.createElement('button')
     btn.className = `view-tab${isActive ? ' active' : ''}`
+    btn.dataset.tabKey = memTabKey
     btn.innerHTML = `<div class="view-tab-title">${editable ? '' : '<span style="opacity:0.4;margin-right:3px;">&#128274;</span>'}${escapeHtml(label.title)}${dotHtml(memTabKey)}</div>`
     btn.addEventListener('click', () => {
       saveCurrentEditState()
@@ -1304,6 +1539,7 @@ function renderViewTabs() {
     const btn = document.createElement('button')
     btn.className = `view-tab${isActive ? ' active' : ''}`
     btn.innerHTML = `<div class="view-tab-title">My Notes</div>`
+    btn.dataset.tabKey = 'top:myNotes'
     btn.addEventListener('click', () => {
       saveCurrentEditState()
       state.activeTopTab = 'myNotes'
@@ -1311,6 +1547,11 @@ function renderViewTabs() {
     })
     els.viewTabs.appendChild(btn)
   }
+
+  // Presence dots go on after the tab buttons are in place, and each tab
+  // switch rebroadcasts so other clients see where you are now.
+  renderPresenceIndicators()
+  broadcastPresence()
 }
 
 function populateEditor(view) {
@@ -1398,9 +1639,8 @@ async function renderMemoryDocument(filename, isOrg = false) {
         filename,
         structured: row?.structured,
         tabKey,
-        ctx: { workspaceId: state.workspaceId, orgId: state.org?.id },
-        authHeaders,
-        onAfter: () => triggerClaudeMdRefresh()
+        ctx: { projectId: state.projectId, orgId: state.org?.id },
+        authHeaders
       })
       if (took) return
     }
@@ -1410,7 +1650,7 @@ async function renderMemoryDocument(filename, isOrg = false) {
   } else {
     els.diagramOutput.hidden = false
     els.diagramEditor.classList.remove('visible')
-    console.log('[delma render] view mode markdown, file:', filename, 'contentLen:', content.length, 'first60:', content.substring(0, 60))
+    dlog('[delma render] view mode markdown, file:', filename, 'contentLen:', content.length, 'first60:', content.substring(0, 60))
     // Wrap markdown in a .diagram-card so every tab matches Architecture's
     // visual treatment (white card on cream, dark red border).
     els.diagramOutput.className = ''
@@ -1436,7 +1676,7 @@ async function renderMemoryDocument(filename, isOrg = false) {
       zoomCtrl.querySelector('[data-zoom="out"]').addEventListener('click', () => setInlineZoom(card, currentInlineZoom - ZOOM_STEP))
       currentInlineZoom = 1
       const svgs = card.querySelectorAll('.mermaid-inline svg').length
-      console.log('[delma render] zoom controls wired —', svgs, 'inline mermaid svg(s) + prose')
+      dlog('[delma render] zoom controls wired —', svgs, 'inline mermaid svg(s) + prose')
     }
 
   }
@@ -1469,7 +1709,7 @@ function setInlineZoom(card, level) {
 let __renderSeq = 0
 function hideDiagramOutput() {
   __renderSeq += 1
-  console.log(`[delma reveal] HIDE #${__renderSeq} — visibility:hidden, opacity:0`)
+  dlog(`[delma reveal] HIDE #${__renderSeq} — visibility:hidden, opacity:0`)
   els.diagramOutput.style.transition = 'none'
   els.diagramOutput.style.opacity = '0'
   els.diagramOutput.style.visibility = 'hidden'
@@ -1477,14 +1717,14 @@ function hideDiagramOutput() {
 
 function revealDiagramOutput() {
   const seq = __renderSeq
-  console.log(`[delma reveal] REVEAL queued for #${seq}`)
+  dlog(`[delma reveal] REVEAL queued for #${seq}`)
   // Two rAFs ensure the new layout has settled before we fade in.
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
       els.diagramOutput.style.visibility = 'visible'
       els.diagramOutput.style.transition = 'opacity 200ms ease'
       els.diagramOutput.style.opacity = '1'
-      console.log(`[delma reveal] REVEAL fired for #${seq} — opacity:1`)
+      dlog(`[delma reveal] REVEAL fired for #${seq} — opacity:1`)
     })
   })
 }
@@ -1494,6 +1734,44 @@ function renderWorkspace() {
 
   // Hide before ANY render so we never see the old content swap to new.
   hideDiagramOutput()
+
+  // Spacing debug: measure the vertical stack after render settles so we can
+  // compare diagram tabs vs memory tabs and see which element grows.
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    const measure = (sel) => {
+      const el = typeof sel === 'string' ? document.querySelector(sel) : sel
+      if (!el) return null
+      const r = el.getBoundingClientRect()
+      const cs = getComputedStyle(el)
+      return {
+        top: Math.round(r.top),
+        bottom: Math.round(r.bottom),
+        h: Math.round(r.height),
+        mt: cs.marginTop,
+        mb: cs.marginBottom,
+        pt: cs.paddingTop,
+        pb: cs.paddingBottom,
+      }
+    }
+    const output = document.getElementById('diagram-output')
+    const firstChild = output?.firstElementChild
+    dlog('[delma spacing-debug] ' + JSON.stringify({
+      activeTopTab: state.activeTopTab,
+      activeMemoryFile: state.activeMemoryFile,
+      tabRow: measure('.tab-row'),
+      diagramMeta: measure('.diagram-meta'),
+      metaTitle: measure('.meta-title'),
+      metaCopy: measure('.meta-copy'),
+      metaProv: measure('.meta-provenance'),
+      diagramStage: measure('.diagram-stage'),
+      diagramShell: measure('.diagram-shell'),
+      diagramOutput: measure('#diagram-output'),
+      outputClass: output?.className,
+      firstChildTag: firstChild?.tagName,
+      firstChildClass: firstChild?.className,
+      firstChild: measure(firstChild),
+    }))
+  }))
 
   // Global My Notes (per-user, follows across orgs/projects)
   if (state.activeTopTab === 'myNotes') {
@@ -1515,7 +1793,7 @@ function renderWorkspace() {
 
   // Diagram tab
   // Empty-org case: no workspace, show prominent CTA to create the first project
-  if (!state.workspaceId) {
+  if (!state.projectId) {
     els.viewTitle.textContent = `Welcome to ${state.org?.name || 'your workspace'}`
     els.viewDescription.textContent = 'No projects yet. Get started by creating one.'
     els.viewProvenance.textContent = ''
@@ -1558,7 +1836,7 @@ function renderWorkspace() {
 
   if (state.diagramMode !== 'edit') {
     const mermaidCode = state.previewMermaid || view.mermaid || ''
-    console.log('[delma render] view mode render, mermaidLen:', mermaidCode.length, 'first60:', mermaidCode.substring(0, 60))
+    dlog('[delma render] view mode render, mermaidLen:', mermaidCode.length, 'first60:', mermaidCode.substring(0, 60))
     els.diagramOutput.className = ''
     // renderDiagram handles its own internal hide/reveal cycle.
     void renderDiagram(mermaidCode).then(revealDiagramOutput)
@@ -1612,19 +1890,6 @@ function updateActiveViewFromEditor() {
 
 // ── Save to Supabase ─────────────────────────────────────────────────────────
 
-// Fire-and-forget refresh of CLAUDE.md so the next message Claude Code
-// sends will see the latest workspace state via the UserPromptSubmit hook.
-function triggerClaudeMdRefresh() {
-  if (!state.workspaceId) return
-  fetch('/api/refresh-claude-md', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ workspaceId: state.workspaceId })
-  }).then(r => r.json()).then(data => {
-    console.log('[delma claude-md] refreshed:', data.length, 'chars in', data.ms, 'ms')
-  }).catch(err => console.error('[delma claude-md] refresh failed:', err))
-}
-
 async function saveCurrentTab() {
   // Global My Notes (no workspace required — follows the user)
   if (state.activeTopTab === 'myNotes') {
@@ -1633,11 +1898,8 @@ async function saveCurrentTab() {
     setWorkspaceStatus('Notes saved.')
     return
   }
-  if (!state.workspaceId) return
+  if (!state.projectId) return
   console.log('[delma save] saving tab:', state.activeTopTab, state.activeMemoryFile || state.activeViewKey)
-
-  // Reset dismissed flag + start grace window for this tab
-  noteTabChanged(getCurrentTabKey())
 
   // Save org-level memory tab
   if (state.activeTopTab === 'orgMemory') {
@@ -1679,13 +1941,13 @@ async function saveCurrentTab() {
     } else {
       const { data: existing } = await supabase
         .from('memory_notes').select('id')
-        .eq('workspace_id', state.workspaceId).eq('filename', filename)
+        .eq('project_id', state.projectId).eq('filename', filename)
         .or(`visibility.eq.shared,owner_id.eq.${state.user.id}`).single()
       if (existing) {
         await supabase.from('memory_notes').update({ content }).eq('id', existing.id)
       } else {
         await supabase.from('memory_notes').insert({
-          workspace_id: state.workspaceId, filename, content, visibility: 'shared', owner_id: state.user.id
+          project_id: state.projectId, filename, content, visibility: 'shared', owner_id: state.user.id
         })
       }
     }
@@ -1708,7 +1970,7 @@ async function saveCurrentTab() {
     if (error) throw new Error(error.message)
 
     await supabase.from('history_snapshots').insert({
-      workspace_id: state.workspaceId,
+      project_id: state.projectId,
       reason: `save-${view.view_key}`,
       snapshot: { view },
       created_by: state.user.id
@@ -1717,9 +1979,6 @@ async function saveCurrentTab() {
     await refreshWorkspace()
     setWorkspaceStatus('Saved.')
   }
-
-  // Refresh CLAUDE.md so Claude Code sees the change on its next message.
-  triggerClaudeMdRefresh()
 }
 
 // ── Custom Branded Dropdown — used for both Org and Project selectors ───────
@@ -1728,7 +1987,6 @@ async function saveCurrentTab() {
 // brand instead of the OS-native chrome. Last item is "+ New …" which
 // transforms the trigger into an inline input.
 
-const orgSelector = document.getElementById('org-selector')
 const projectSelector = document.getElementById('project-selector')
 
 // Track which dropdown is currently open so click-outside closes it
@@ -1822,79 +2080,23 @@ function renderBrandDropdown(container, { items, activeId, placeholder, onSelect
   })
 }
 
-function renderOrgSelector() {
-  renderBrandDropdown(orgSelector, {
-    items: state.orgs.map(o => ({ id: o.id, label: o.name })),
-    activeId: state.org?.id,
-    placeholder: 'No organizations',
-    newLabel: '+ New organization…',
-    onSelect: async (orgId) => {
-      console.log('[delma org] switching to', orgId)
-      state.org = state.orgs.find(o => o.id === orgId) || null
-      state.orgMemory = {}
-      state.orgMemoryRows = []
-      await loadWorkspaces()
-      console.log('[delma org] switched, workspaces:', state.workspaces.length)
-      renderOrgSelector()        // refresh active highlight
-      renderProjectSelector()
-      if (state.workspaces.length) {
-        await openWorkspace(state.workspaces[0].id)
-      } else {
-        // No projects yet — clear state and show an empty card
-        state.workspaceId = null
-        state.views = []
-        state.memoryRows = []
-        state.memory = {}
-        if (els.viewTitle) els.viewTitle.textContent = state.org?.name || ''
-        if (els.viewDescription) els.viewDescription.textContent = 'No projects yet. Use the project dropdown to create one.'
-        if (els.viewProvenance) els.viewProvenance.textContent = ''
-        renderWorkspace()
-        setWorkspaceStatus(`Switched to ${state.org?.name}. Add a project to get started.`)
-      }
-    },
-    onCreate: async (name) => {
-      console.log('[delma org] creating new org via server:', name)
-      const res = await fetch('/api/create-org', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, userId: state.user.id })
-      })
-      const data = await res.json()
-      if (!res.ok) {
-        console.error('[delma org] create failed:', data)
-        alert(`Couldn't create organization: ${data.error}`)
-        throw new Error(data.error)
-      }
-      console.log('[delma org] created:', data.org)
-      state.orgs.push({ ...data.org, orgRole: 'admin' })
-      state.org = state.orgs[state.orgs.length - 1]
-      state.workspaces = []
-      state.workspaceId = null
-      renderOrgSelector()
-      renderProjectSelector()
-      renderWorkspace()
-      setWorkspaceStatus(`Created organization "${name}". Add a project to get started.`)
-    }
-  })
-}
-
 function renderProjectSelector() {
   renderBrandDropdown(projectSelector, {
-    items: state.workspaces.map(w => ({ id: w.id, label: w.name })),
-    activeId: state.workspaceId,
+    items: state.projects.map(w => ({ id: w.id, label: w.name })),
+    activeId: state.projectId,
     placeholder: 'No projects',
     newLabel: '+ New project…',
-    onSelect: async (wsId) => { await openWorkspace(wsId) },
+    onSelect: async (wsId) => { await openProject(wsId) },
     onCreate: createProjectFromName
   })
 }
 
 // Reusable project creation — used by the dropdown AND the empty-state CTA.
 async function createProjectFromName(name) {
-  const ws = await createWorkspace(name)
-  state.workspaces.push({ ...ws, role: 'owner' })
+  const ws = await createProject(name)
+  state.projects.push({ ...ws, role: 'owner' })
   renderProjectSelector()
-  await openWorkspace(ws.id)
+  await openProject(ws.id)
   setWorkspaceStatus(`Created "${ws.name}".`)
 }
 
@@ -1980,144 +2182,6 @@ function highlightEditorLines(firstLine, lastLine) {
 //   3. Returns JSON patches scoped to those tabs
 // Applies patches to Supabase, returns list of affected tab keys.
 
-async function routeAndPatchFact(input, questionContext = null) {
-  console.log('[delma router] starting, input:', input.substring(0, 80), 'questionCtx:', questionContext?.substring(0, 40))
-  const t0 = performance.now()
-
-  // Build snapshot of all tabs with their content + metadata
-  const tabs = []
-
-  // Diagrams — stored as markdown-with-inline-mermaid
-  for (const v of state.views) {
-    if (!v.mermaid) continue
-    tabs.push({
-      key: `diagram:${v.view_key}`,
-      type: 'markdown-with-mermaid',
-      title: v.title,
-      scope: 'Architecture document — plain-english prose explaining how the system works, PLUS an inline Mermaid diagram in a ```mermaid fence. Scope: automations, DEs, SQL, journeys, emails, cloudpages, decision splits. NOT people or roles.',
-      content: v.mermaid,
-      id: v.id,
-      table: 'diagram_views'
-    })
-  }
-
-  // Project memory — include structured JSON when present so the LLM can
-  // output precise ops rather than guess at shape.
-  for (const row of state.memoryRows) {
-    if (!row.content && !row.structured) continue
-    tabs.push({
-      key: `memory:${row.filename}`,
-      title: MEMORY_TAB_LABELS[row.filename]?.title || row.filename,
-      content: row.content,
-      structured: row.structured || null,
-      filename: row.filename
-    })
-  }
-
-  // Org memory
-  for (const row of state.orgMemoryRows) {
-    if (!row.content && !row.structured) continue
-    tabs.push({
-      key: `org:${row.filename}`,
-      title: ORG_TAB_LABELS[row.filename]?.title || row.filename,
-      content: row.content,
-      structured: row.structured || null,
-      filename: row.filename
-    })
-  }
-
-  console.log('[delma router] tabs available:', tabs.map(t => t.key).join(', '))
-
-  const tabsBlock = buildTabsBlock(tabs)
-  const userMessage = buildRouterUserMessage(input, tabsBlock, questionContext)
-
-  try {
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Delma-Caller': 'router', ...(await authHeaders()) },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5',
-        max_tokens: 2000,
-        system: ROUTER_SYSTEM_PROMPT,
-        user: userMessage,
-        // Logged server-side as the input that produced these ops:
-        meta: { input, workspace_id: state.workspaceId }
-      })
-    })
-
-    console.log('[delma router] response status:', res.status, 'in', Math.round(performance.now() - t0), 'ms')
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      console.error('[delma router] error:', err)
-      return { updatedTabs: [] }
-    }
-
-    const data = await res.json()
-    let raw = data.content?.[0]?.text?.trim()
-    console.log('[delma router] raw response:', raw?.substring(0, 300))
-    if (!raw) return { updatedTabs: [] }
-
-    const ops = extractJsonArray(raw)
-    console.log('[delma router] parsed', ops.length, 'op(s):', ops.map(o => `${o.tab}/${o.op}`).join(', '))
-
-    if (!Array.isArray(ops) || !ops.length) {
-      console.log('[delma router] no ops (empty array)')
-      return { updatedTabs: [] }
-    }
-
-    // Group ops by tab so we can POST once per tab.
-    const opsByTab = {}
-    for (const o of ops) {
-      if (!o.tab || !o.op) continue
-      if (!opsByTab[o.tab]) opsByTab[o.tab] = []
-      opsByTab[o.tab].push({ op: o.op, args: o.args || {} })
-    }
-
-    const updatedTabs = []
-    for (const [tabKey, tabOps] of Object.entries(opsByTab)) {
-      console.log('[delma router] POST /api/op', tabKey, tabOps.length, 'op(s)')
-      const headers = { 'Content-Type': 'application/json', ...(await authHeaders()) }
-      const res = await fetch('/api/op', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          tabKey, ops: tabOps,
-          workspaceId: state.workspaceId,
-          orgId: state.org?.id
-        })
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        console.error('[delma router] op failed for', tabKey, err)
-        continue
-      }
-      const result = await res.json()
-      if (result.errors?.length) console.warn('[delma router] partial errors for', tabKey, result.errors)
-      const title = tabs.find(t => t.key === tabKey)?.title || tabKey
-      updatedTabs.push({ key: tabKey, title })
-      noteTabChanged(tabKey)
-    }
-
-    console.log('[delma router] done in', Math.round(performance.now() - t0), 'ms, updated', updatedTabs.length, 'tab(s)')
-    if (updatedTabs.length) triggerClaudeMdRefresh()
-    return { updatedTabs }
-  } catch (err) {
-    console.error('[delma router] fetch error:', err)
-    return { updatedTabs: [] }
-  }
-}
-
-async function applyNaturalLanguageEdit(instruction) {
-  if (!instruction?.trim()) return
-  console.log('[delma edit] routing through unified fact router')
-  const { updatedTabs } = await routeAndPatchFact(instruction)
-  if (!updatedTabs.length) {
-    setWorkspaceStatus('Noted — nothing matched a tab.')
-    return
-  }
-  const names = updatedTabs.map(t => t.title).join(', ')
-  setWorkspaceStatus(`Updated: ${names}`)
-}
 
 // ── Event Listeners ──────────────────────────────────────────────────────────
 
@@ -2266,11 +2330,10 @@ els.authForm.addEventListener('submit', (e) => {
     setWorkspaceStatus('Signed in.')
     appendLog('Signed In', 'Workspace and memory tools available.')
     await loadOrgs()
-    await loadWorkspaces()
-    renderOrgSelector()
+    await loadProjects()
     renderProjectSelector()
-    if (state.workspaces.length) {
-      await openWorkspace(state.workspaces[0].id)
+    if (state.projects.length) {
+      await openProject(state.projects[0].id)
     }
   })()
 })
@@ -2284,12 +2347,14 @@ els.logoutBtn.addEventListener('click', () => {
 // ── Default Templates ────────────────────────────────────────────────────────
 
 function defaultViewTemplates() {
+  // SFMC project starter diagram. Every new project begins with this skeleton;
+  // users rename nodes, add journeys/automations, and delete what doesn't apply.
   return [
     {
       view_key: 'architecture',
-      title: 'Architecture',
+      title: 'Project High Level',
       kind: 'architecture',
-      description: 'How systems, integrations, and automation surfaces connect.',
+      description: 'System flow and business rules for this SFMC project.',
       summary: 'Technical architecture.',
       visibility: 'shared',
       mermaid: `---
@@ -2298,13 +2363,42 @@ config:
   theme: neo
   layout: elk
 ---
-flowchart LR
-  CRM["Salesforce CRM"] --> Sync["Integration Layer"]
-  SFMC["SFMC"] --> Sync
-  Sync --> Journeys["Journeys / Automations"]
-  Sync --> Data["Data Extensions / Objects"]
-  Delma["Delma Memory"] --> Claude["Claude Code"]
-  Claude --> Sync
+flowchart TD
+  subgraph source["Patient / Contact Source"]
+    CRM["Salesforce Health Cloud / CRM"]
+    OptIn["Opt-in DE (ENT.All_Patients_Opted_In)"]
+    CRM --> OptIn
+  end
+
+  subgraph filter["Daily Filter"]
+    SQL["Birthday / Trigger SQL"]
+    Staging["Staging DE"]
+    SQL --> Staging
+  end
+
+  subgraph journey["Main Journey"]
+    Entry["Journey Entry"]
+    Email["Email Send (brand template)"]
+    Wait["Wait step"]
+    Entry --> Email --> Wait
+  end
+
+  subgraph cloudpage["CloudPage / Quiz"]
+    Page["CloudPage"]
+    Responses["Response DE (birthday_quiz_responses)"]
+    Page --> Responses
+  end
+
+  subgraph followup["Follow-Up"]
+    Poll["Follow-Up Entry Automation"]
+    FJourney["Follow-Up Journey"]
+    Poll --> FJourney
+  end
+
+  OptIn --> SQL
+  Staging --> Entry
+  Email --> Page
+  Responses --> Poll
 `
     }
   ]
@@ -2331,18 +2425,17 @@ async function init() {
   const user = await checkAuth()
 
   if (user) {
-    console.log('[delma init] loading orgs and workspaces...')
+    console.log('[delma init] loading orgs and projects...')
     await loadOrgs()
-    await loadWorkspaces()
-    console.log('[delma init] orgs:', state.orgs.length, 'workspaces:', state.workspaces.length)
-    renderOrgSelector()
+    await loadProjects()
+    console.log('[delma init] orgs:', state.orgs.length, 'projects:', state.projects.length)
     renderProjectSelector()
 
-    if (state.workspaces.length) {
-      console.log('[delma init] opening first workspace:', state.workspaces[0].name)
-      await openWorkspace(state.workspaces[0].id)
+    if (state.projects.length) {
+      console.log('[delma init] opening first workspace:', state.projects[0].name)
+      await openProject(state.projects[0].id)
     } else {
-      console.log('[delma init] no workspaces found')
+      console.log('[delma init] no projects found')
       setWorkspaceStatus('Create a project to get started.')
       // No workspace — render the empty default and reveal
       renderWorkspace()
@@ -2352,183 +2445,6 @@ async function init() {
     renderWorkspace()
   }
   console.log('[delma init] complete')
-}
-
-// ── Proactive Prompt Engine ──────────────────────────────────────────────────
-//
-// Every 5 minutes, reads the current tab content and asks DeepSeek if
-// anything is obviously missing. If yes, shows one quiet inline prompt
-// below the title. The user can answer (content appends to the tab),
-// or dismiss with X (gone for this tab this session).
-//
-// Rules:
-//   - One question at a time. Never stack.
-//   - Only appears when the screen is calm (no typing/scrolling for 3s).
-//   - Dismissed tabs are remembered for the session.
-//   - No history, no trace. Just a better document.
-
-const dismissedTabs = new Set()
-// When a tab's content changes, we clear its dismissed flag AND record the
-// change time so we don't fire a gap question instantly — the user deserves
-// a grace window to see their own edit first.
-const tabChangedAt = new Map() // tabKey -> timestamp
-const TAB_CHANGE_GRACE_MS = 60 * 1000
-let promptTimer = null
-let idleTimer = null
-let lastActivity = Date.now()
-
-// Called whenever a tab's content changes (router, realtime, manual save).
-// Clears the dismissed flag so a fresh gap question can fire after grace.
-function noteTabChanged(tabKey) {
-  if (!tabKey) return
-  const wasDismissed = dismissedTabs.has(tabKey)
-  dismissedTabs.delete(tabKey)
-  tabChangedAt.set(tabKey, Date.now())
-  console.log('[delma prompt] tab changed:', tabKey, 'wasDismissed:', wasDismissed, 'grace until:', new Date(Date.now() + TAB_CHANGE_GRACE_MS).toLocaleTimeString())
-}
-
-// Track user activity — only show prompts when idle
-document.addEventListener('keydown', () => { lastActivity = Date.now() })
-document.addEventListener('scroll', () => { lastActivity = Date.now() }, true)
-document.addEventListener('pointermove', () => { lastActivity = Date.now() })
-
-function getCurrentTabContent() {
-  if (state.activeTopTab === 'orgMemory') return state.orgMemory[state.activeMemoryFile] || ''
-  if (state.activeTopTab === 'memory') return state.memory[state.activeMemoryFile] || ''
-  if (state.activeTopTab === 'diagram') {
-    const view = getActiveView()
-    return view ? `${view.title}\n${view.description}\n${view.mermaid}` : ''
-  }
-  return ''
-}
-
-function getCurrentTabKey() {
-  if (state.activeTopTab === 'orgMemory') return `org:${state.activeMemoryFile}`
-  if (state.activeTopTab === 'memory') return `mem:${state.activeMemoryFile}`
-  if (state.activeTopTab === 'diagram') return `dia:${state.activeViewKey}`
-  return ''
-}
-
-async function askDeepSeekForGap(content, tabTitle) {
-  console.log('[delma gap] checking for gaps in:', tabTitle, 'contentLen:', content.length)
-  const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY
-  if (!apiKey) { console.log('[delma gap] no API key'); return null }
-
-  const t0 = performance.now()
-  try {
-    const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model: 'deepseek-chat',
-        max_tokens: 80,
-        messages: [{
-          role: 'user',
-          content: `You are reviewing a project workspace tab called "${tabTitle}" in a Salesforce Marketing Cloud project. Here is the current content:\n\n${content.slice(0, 2000)}\n\nAsk one short question about a missing or unclear detail that a project manager would want answered. Focus on: who approves things, what happens next, timing, ownership, or process gaps.\n\nRespond with ONLY a natural question, 5-12 words. Examples:\n- "Who approves go-live for this campaign?"\n- "What happens after the third follow-up email?"\n- "When was this last tested end-to-end?"\n\nDo NOT ask about technical IDs, API keys, or system configuration. Only ask about business and operational gaps.\n\nIf the content seems complete, respond with exactly: NONE`
-        }]
-      })
-    })
-    console.log('[delma gap] DeepSeek response:', res.status, 'in', Math.round(performance.now() - t0), 'ms')
-    if (!res.ok) return null
-    const data = await res.json()
-    const answer = data.choices?.[0]?.message?.content?.trim()
-    if (!answer || answer === 'NONE' || answer.length > 120) {
-      console.log('[delma gap] no question (NONE or empty)')
-      return null
-    }
-    console.log('[delma gap] question:', answer)
-    return answer
-  } catch (err) {
-    console.error('[delma gap] error:', err.message)
-    return null
-  }
-}
-
-let activePromptTimer = null
-
-function showPrompt(question, tabKey) {
-  if (activePromptTimer) clearTimeout(activePromptTimer)
-
-  // Same spot, different intent based on mode
-  const modeClass = state.diagramMode === 'edit' ? 'mode-edit' : 'mode-view'
-
-  // Answer handler for proactive questions
-  // Uses DeepSeek to intelligently update the content (including Mermaid diagrams)
-  // instead of just appending raw text.
-  async function onApply(answer, q) {
-    console.log('[delma onApply] answer:', answer, 'question:', q)
-    const { updatedTabs } = await routeAndPatchFact(answer, q)
-    if (!updatedTabs.length) {
-      setWorkspaceStatus('Noted — nothing needed updating.')
-      return
-    }
-    const names = updatedTabs.map(t => t.title).join(', ')
-    setWorkspaceStatus(`Updated: ${names}`)
-  }
-
-  // Stop polling while a question is visible — prevents re-rendering the block
-  if (promptTimer) { clearInterval(promptTimer); promptTimer = null }
-  console.log('[delma prompt] showing question:', question, 'mode:', modeClass, 'tabKey:', tabKey)
-
-  renderActionBlock(question, modeClass, onApply)
-
-  // Auto-dismiss after 25 seconds — revert based on mode, restart polling
-  activePromptTimer = setTimeout(() => {
-    console.log('[delma prompt] auto-dismissed after 25s, tabKey:', tabKey)
-    if (state.diagramMode === 'edit') {
-      // Revert to general edit prompt
-      renderActionBlock('What do you want to update?', 'mode-edit')
-    } else {
-      removeActionBlock()
-    }
-    dismissedTabs.add(tabKey)
-    // Restart polling after dismiss
-    promptTimer = setInterval(maybeShowPrompt, 5 * 60 * 1000)
-  }, 25000)
-}
-
-async function maybeShowPrompt() {
-  console.log('[delma prompt] maybeShowPrompt tick, workspace:', !!state.workspaceId, 'mode:', state.diagramMode)
-  if (!state.workspaceId) return
-  if (state.diagramMode === 'edit') { console.log('[delma prompt] skipped (edit mode)'); return }
-
-  const tabKey = getCurrentTabKey()
-  if (!tabKey || dismissedTabs.has(tabKey)) { console.log('[delma prompt] skipped (no tab or dismissed):', tabKey); return }
-
-  // Grace period after a content change — let the user see their own edit first.
-  const changedAt = tabChangedAt.get(tabKey)
-  if (changedAt && Date.now() - changedAt < TAB_CHANGE_GRACE_MS) {
-    const remainMs = TAB_CHANGE_GRACE_MS - (Date.now() - changedAt)
-    console.log('[delma prompt] skipped (in ' + Math.round(remainMs / 1000) + 's grace after edit)')
-    return
-  }
-
-  if (Date.now() - lastActivity < 3000) { console.log('[delma prompt] skipped (user active)'); return }
-
-  const content = getCurrentTabContent()
-  if (!content || content.length < 20) return
-
-  const tabTitle = state.activeTopTab === 'orgMemory'
-    ? (ORG_TAB_LABELS[state.activeMemoryFile]?.title || state.activeMemoryFile)
-    : state.activeTopTab === 'memory'
-      ? (MEMORY_TAB_LABELS[state.activeMemoryFile]?.title || state.activeMemoryFile)
-      : (getActiveView()?.title || 'Architecture')
-
-  const question = await askDeepSeekForGap(content, tabTitle)
-
-  if (question) {
-    showPrompt(question, tabKey)
-  }
-}
-
-function startPromptEngine() {
-  console.log('[delma prompt] engine starting — first check in 30s, then every 5min')
-  if (promptTimer) clearInterval(promptTimer)
-  setTimeout(() => {
-    console.log('[delma prompt] first tick firing')
-    maybeShowPrompt()
-    promptTimer = setInterval(maybeShowPrompt, 5 * 60 * 1000)
-  }, 30000)
 }
 
 // ── Chat collapse toggle ──────────────────────────────────────────────────
@@ -2641,7 +2557,7 @@ function delmaDebugLayout(tag = 'manual') {
     data.overflowingPastPanel = overflowers
   }
 
-  console.log('[delma layout]', tag, JSON.stringify(data, null, 2))
+  dlog('[delma layout]', tag, JSON.stringify(data, null, 2))
   return data
 }
 window.delmaDebug = delmaDebugLayout
@@ -2665,9 +2581,9 @@ function wireLayoutDebug() {
 }
 
 void init().then(() => {
-  console.log('[delma] init done, starting prompt engine')
+  console.log('[delma] init done')
   setupChatToggle()
+  setupHistoryDrawer()
   wireLayoutDebug()
   delmaDebugLayout('post-init')
-  startPromptEngine()
 }).catch(err => console.error('[delma] INIT CRASHED:', err))

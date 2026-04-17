@@ -79,11 +79,11 @@ export function canEdit(permission, ownerId, userId, role) {
 /**
  * Get the user's role in a workspace. Returns 'owner' or 'member'.
  */
-export async function getUserRole(workspaceId, userId) {
+export async function getUserRole(projectId, userId) {
   const { data, error } = await supabase
-    .from('workspace_members')
+    .from('project_members')
     .select('role')
-    .eq('workspace_id', workspaceId)
+    .eq('project_id', projectId)
     .eq('user_id', userId)
     .single()
   if (error) console.error('[delma-state] getUserRole error:', error.message)
@@ -118,17 +118,17 @@ flowchart LR
 
 // ── Workspaces ───────────────────────────────────────────────────────────────
 
-export async function createWorkspace(name, userId) {
+export async function createProject(name, userId) {
   const { data: workspace, error } = await supabase
-    .from('workspaces')
+    .from('projects')
     .insert({ name, created_by: userId })
     .select()
     .single()
   if (error) throw new Error(`Failed to create workspace: ${error.message}`)
 
   // Add creator as owner
-  await supabase.from('workspace_members').insert({
-    workspace_id: workspace.id,
+  await supabase.from('project_members').insert({
+    project_id: workspace.id,
     user_id: userId,
     role: 'owner'
   })
@@ -136,7 +136,7 @@ export async function createWorkspace(name, userId) {
   // Seed default diagram views with permission levels
   for (const view of DEFAULT_VIEWS) {
     await supabase.from('diagram_views').insert({
-      workspace_id: workspace.id,
+      project_id: workspace.id,
       owner_id: userId,
       permission: 'view-all',  // everyone sees architecture, admins edit
       ...view
@@ -148,7 +148,7 @@ export async function createWorkspace(name, userId) {
     const visibility = VISIBILITY_RULES[filename] || 'shared'
     const permission = DEFAULT_PERMISSIONS[filename] || 'edit-all'
     await supabase.from('memory_notes').insert({
-      workspace_id: workspace.id,
+      project_id: workspace.id,
       filename,
       content,
       visibility,
@@ -162,18 +162,18 @@ export async function createWorkspace(name, userId) {
 
 export async function listWorkspaces(userId) {
   const { data, error } = await supabase
-    .from('workspace_members')
-    .select('workspace_id, role, workspaces(id, name, created_at)')
+    .from('project_members')
+    .select('project_id, role, projects(id, name, created_at)')
     .eq('user_id', userId)
-  if (error) throw new Error(`Failed to list workspaces: ${error.message}`)
-  return data.map(row => ({ ...row.workspaces, role: row.role }))
+  if (error) throw new Error(`Failed to list projects: ${error.message}`)
+  return data.map(row => ({ ...row.projects, role: row.role }))
 }
 
-export async function getWorkspace(workspaceId) {
+export async function getWorkspace(projectId) {
   const { data, error } = await supabase
-    .from('workspaces')
+    .from('projects')
     .select('*')
-    .eq('id', workspaceId)
+    .eq('id', projectId)
     .single()
   if (error) throw new Error(`Workspace not found: ${error.message}`)
   return data
@@ -181,22 +181,22 @@ export async function getWorkspace(workspaceId) {
 
 // ── Diagram Views ────────────────────────────────────────────────────────────
 
-export async function readDiagramViews(workspaceId, userId) {
+export async function readDiagramViews(projectId, userId) {
   const { data, error } = await supabase
     .from('diagram_views')
     .select('*')
-    .eq('workspace_id', workspaceId)
+    .eq('project_id', projectId)
     .or(`visibility.eq.shared,owner_id.eq.${userId}`)
     .order('view_key')
   if (error) throw new Error(`Failed to read views: ${error.message}`)
   return data
 }
 
-export async function getDiagramView(workspaceId, viewKey, userId) {
+export async function getDiagramView(projectId, viewKey, userId) {
   const { data, error } = await supabase
     .from('diagram_views')
     .select('*')
-    .eq('workspace_id', workspaceId)
+    .eq('project_id', projectId)
     .eq('view_key', viewKey)
     .or(`visibility.eq.shared,owner_id.eq.${userId}`)
     .single()
@@ -204,20 +204,20 @@ export async function getDiagramView(workspaceId, viewKey, userId) {
   return data
 }
 
-export async function saveDiagramView(workspaceId, viewKey, updates, userId, reason) {
+export async function saveDiagramView(projectId, viewKey, updates, userId, reason) {
   console.log('[delma-state] saveDiagramView:', viewKey, 'updates:', Object.keys(updates))
   // Find existing view
   const { data: existing, error: findErr } = await supabase
     .from('diagram_views')
     .select('id')
-    .eq('workspace_id', workspaceId)
+    .eq('project_id', projectId)
     .eq('view_key', viewKey)
     .or(`visibility.eq.shared,owner_id.eq.${userId}`)
     .single()
   if (findErr && findErr.code !== 'PGRST116') console.error('[delma-state] saveDiagramView find error:', findErr.message)
 
   const payload = {
-    workspace_id: workspaceId,
+    project_id: projectId,
     view_key: viewKey,
     owner_id: userId,
     ...updates
@@ -244,18 +244,18 @@ export async function saveDiagramView(workspaceId, viewKey, updates, userId, rea
   }
 
   // Write history snapshot
-  await writeHistorySnapshot(workspaceId, userId, reason || `save-${viewKey}`)
+  await writeHistorySnapshot(projectId, userId, reason || `save-${viewKey}`)
 
   return view
 }
 
 // ── Memory Notes ─────────────────────────────────────────────────────────────
 
-export async function readMemoryMap(workspaceId, userId) {
+export async function readMemoryMap(projectId, userId) {
   const { data, error } = await supabase
     .from('memory_notes')
     .select('*')
-    .eq('workspace_id', workspaceId)
+    .eq('project_id', projectId)
     .or(`visibility.eq.shared,owner_id.eq.${userId}`)
   if (error) throw new Error(`Failed to read memory: ${error.message}`)
 
@@ -266,7 +266,7 @@ export async function readMemoryMap(workspaceId, userId) {
   return map
 }
 
-export async function appendMemoryNote(workspaceId, filename, note, heading, userId) {
+export async function appendMemoryNote(projectId, filename, note, heading, userId) {
   console.log('[delma-state] appendMemoryNote:', filename, 'heading:', heading, 'noteLen:', note.length)
   const visibility = VISIBILITY_RULES[filename] || 'shared'
 
@@ -274,7 +274,7 @@ export async function appendMemoryNote(workspaceId, filename, note, heading, use
   const { data: existing } = await supabase
     .from('memory_notes')
     .select('id, content')
-    .eq('workspace_id', workspaceId)
+    .eq('project_id', projectId)
     .eq('filename', filename)
     .or(`visibility.eq.shared,owner_id.eq.${userId}`)
     .single()
@@ -291,7 +291,7 @@ export async function appendMemoryNote(workspaceId, filename, note, heading, use
     await supabase
       .from('memory_notes')
       .insert({
-        workspace_id: workspaceId,
+        project_id: projectId,
         filename,
         content: newContent,
         visibility,
@@ -302,13 +302,13 @@ export async function appendMemoryNote(workspaceId, filename, note, heading, use
   return newContent
 }
 
-export async function updateMemoryNote(workspaceId, filename, content, userId) {
+export async function updateMemoryNote(projectId, filename, content, userId) {
   const visibility = VISIBILITY_RULES[filename] || 'shared'
 
   const { data: existing } = await supabase
     .from('memory_notes')
     .select('id')
-    .eq('workspace_id', workspaceId)
+    .eq('project_id', projectId)
     .eq('filename', filename)
     .or(`visibility.eq.shared,owner_id.eq.${userId}`)
     .single()
@@ -321,30 +321,30 @@ export async function updateMemoryNote(workspaceId, filename, content, userId) {
   } else {
     await supabase
       .from('memory_notes')
-      .insert({ workspace_id: workspaceId, filename, content, visibility, owner_id: userId })
+      .insert({ project_id: projectId, filename, content, visibility, owner_id: userId })
   }
 }
 
 // ── History ──────────────────────────────────────────────────────────────────
 
-export async function writeHistorySnapshot(workspaceId, userId, reason) {
+export async function writeHistorySnapshot(projectId, userId, reason) {
   // Capture current state as snapshot
-  const views = await readDiagramViews(workspaceId, userId)
-  const memory = await readMemoryMap(workspaceId, userId)
+  const views = await readDiagramViews(projectId, userId)
+  const memory = await readMemoryMap(projectId, userId)
 
   await supabase.from('history_snapshots').insert({
-    workspace_id: workspaceId,
+    project_id: projectId,
     reason,
     snapshot: { views, memory },
     created_by: userId
   })
 }
 
-export async function listHistory(workspaceId) {
+export async function listHistory(projectId) {
   const { data, error } = await supabase
     .from('history_snapshots')
     .select('id, reason, created_at, created_by')
-    .eq('workspace_id', workspaceId)
+    .eq('project_id', projectId)
     .order('created_at', { ascending: false })
     .limit(30)
   if (error) throw new Error(`Failed to list history: ${error.message}`)
@@ -353,10 +353,10 @@ export async function listHistory(workspaceId) {
 
 // ── MCP Call Logging ─────────────────────────────────────────────────────────
 
-export async function logMcpCall({ workspaceId, userId, tool, input, durationMs, success, error }) {
+export async function logMcpCall({ projectId, userId, tool, input, durationMs, success, error }) {
   try {
     await supabase.from('mcp_call_logs').insert({
-      workspace_id: workspaceId || null,
+      project_id: projectId || null,
       user_id: userId || null,
       tool,
       input,
@@ -373,8 +373,8 @@ export async function logMcpCall({ workspaceId, userId, tool, input, durationMs,
 
 // CLAUDE.md is now maintained manually as a static behavior file.
 // composeClaudeMd returns the static content from the summarizer.
-export async function composeClaudeMd(workspaceId, userId) {
-  console.log('[delma-state] composeClaudeMd called, workspace:', workspaceId)
+export async function composeClaudeMd(projectId, userId) {
+  console.log('[delma-state] composeClaudeMd called, workspace:', projectId)
   const { readFile } = await import('fs/promises')
   const { resolve } = await import('path')
   try {

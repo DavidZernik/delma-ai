@@ -7,7 +7,7 @@ import { embeddingDupPreCheck } from './similarity.js'
 
 // Scope can be:
 //   { kind: 'org', orgId, filename }
-//   { kind: 'project', workspaceId, userId, filename }
+//   { kind: 'project', projectId, userId, filename }
 export async function applyOpsToTab(sb, scope, ops) {
   if (!isStructuredTab(scope.filename)) {
     throw new Error(`tab "${scope.filename}" is not a structured tab`)
@@ -79,9 +79,9 @@ function rowRefs(scope) {
     return {
       table: 'memory_notes',
       contentColumn: 'content',
-      filter: { workspace_id: scope.workspaceId, filename: scope.filename },
+      filter: { project_id: scope.projectId, filename: scope.filename },
       insertRow: {
-        workspace_id: scope.workspaceId,
+        project_id: scope.projectId,
         filename: scope.filename,
         visibility: 'shared',
         owner_id: scope.userId || null
@@ -92,9 +92,9 @@ function rowRefs(scope) {
     return {
       table: 'diagram_views',
       contentColumn: 'mermaid',
-      filter: { workspace_id: scope.workspaceId, view_key: scope.filename },
+      filter: { project_id: scope.projectId, view_key: scope.filename },
       insertRow: {
-        workspace_id: scope.workspaceId,
+        project_id: scope.projectId,
         view_key: scope.filename,
         title: scope.filename === 'architecture' ? 'Architecture' : scope.filename,
         kind: 'flowchart',
@@ -109,11 +109,11 @@ function rowRefs(scope) {
 //   org:people.md / org:playbook.md  → org_memory_notes
 //   memory:decisions.md / ...        → memory_notes
 //   diagram:architecture / ...       → diagram_views
-export function parseTabKey(tabKey, { workspaceId, orgId, userId }) {
+export function parseTabKey(tabKey, { projectId, orgId, userId }) {
   const [prefix, filename] = (tabKey || '').split(':')
   if (!filename || !isStructuredTab(filename)) return null
   if (prefix === 'org') return { kind: 'org', orgId, userId, filename }
-  if (prefix === 'memory') return { kind: 'project', workspaceId, userId, filename }
-  if (prefix === 'diagram') return { kind: 'diagram', workspaceId, userId, filename }
+  if (prefix === 'memory') return { kind: 'project', projectId, userId, filename }
+  if (prefix === 'diagram') return { kind: 'diagram', projectId, userId, filename }
   return null
 }

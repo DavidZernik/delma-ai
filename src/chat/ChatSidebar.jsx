@@ -8,8 +8,8 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useChatStream } from './useChatStream.js'
 
-export function ChatSidebar({ workspaceId, userId }) {
-  const { messages, status, send, abort } = useChatStream({ workspaceId, userId })
+export function ChatSidebar({ projectId, userId }) {
+  const { messages, status, send, abort } = useChatStream({ projectId, userId })
   const [input, setInput] = useState('')
   const scrollRef = useRef(null)
 

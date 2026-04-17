@@ -16,29 +16,5 @@
       "/Users/davidzernik/Desktop"
     ]
   },
-  "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "DELMA_USER_ID=dab61e85-4a99-4641-9b2d-957b12843f0a DELMA_PROJECT_DIR=$CLAUDE_PROJECT_DIR $CLAUDE_PROJECT_DIR/hooks/load-workspace.sh"
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/hooks/inject-claude-md.sh"
-          }
-        ]
-      }
-    ]
-  },
   "enableAllProjectMcpServers": true
 }

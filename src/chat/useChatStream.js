@@ -7,8 +7,15 @@
 // is exactly this file.
 
 import { useCallback, useRef, useState } from 'react'
+import { supabase } from '../lib/supabase.js'
 
-export function useChatStream({ workspaceId, userId }) {
+async function authHeader() {
+  const { data: { session } } = await supabase.auth.getSession()
+  const token = session?.access_token
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
+export function useChatStream({ projectId, userId }) {
   const [messages, setMessages] = useState([])   // normalized for UI
   const [status, setStatus] = useState('idle')   // 'idle' | 'streaming' | 'error'
   const [conversationId, setConversationId] = useState(null)
@@ -27,8 +34,10 @@ export function useChatStream({ workspaceId, userId }) {
     try {
       const res = await fetch('/api/chat/stream', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userText, workspaceId, userId }),
+        headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+        // userId is taken from the verified JWT server-side; we still send
+        // projectId so the server knows which project to scope to.
+        body: JSON.stringify({ message: userText, projectId }),
         signal: ctrl.signal
       })
       if (!res.ok || !res.body) {
@@ -106,7 +115,7 @@ export function useChatStream({ workspaceId, userId }) {
     } finally {
       abortRef.current = null
     }
-  }, [workspaceId, userId, status])
+  }, [projectId, userId, status])
 
   const abort = useCallback(() => {
     abortRef.current?.abort()

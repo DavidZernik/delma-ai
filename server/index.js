@@ -5,18 +5,24 @@
 import express from 'express'
 import { config } from 'dotenv'
 import { fileURLToPath } from 'url'
-import { dirname, join, resolve } from 'path'
-import { writeFile } from 'fs/promises'
+import { dirname, join } from 'path'
 import { createClient } from '@supabase/supabase-js'
-import { generateClaudeMd } from './lib/summarizer.js'
 import { applyOpsToTab, parseTabKey } from './lib/apply-op.js'
-import { requireUser, requireOrgMembership, requireWorkspaceMembership } from './lib/auth.js'
+import { requireUser, requireOrgMembership, requireProjectMembership } from './lib/auth.js'
 import { parseStructuredContent } from './lib/parse-tab.js'
 import { render, isStructuredTab } from '../src/tab-ops.js'
 import { runAllLayers, runOvernight } from './quality/runner.js'
 import { renderLogsPage } from './quality/logs-page.js'
 import { ANTHROPIC_URL, anthropicHeaders } from './lib/llm.js'
 import { handleChatStream } from './chat/stream.js'
+import { makeLimiter } from './lib/rate-limit.js'
+
+// Per-user rate limits. Numbers tuned to be invisible to humans but stop
+// a runaway loop or a malicious script from burning credits / spamming
+// the DB. Tune if users start hitting them in normal use.
+const chatLimiter = makeLimiter({ windowMs: 60_000, max: 20 })        // 20 chat msgs/min
+const tickLimiter = makeLimiter({ windowMs: 60_000, max: 60 })        // 60 ticks/min
+const MAX_CHAT_MESSAGE_BYTES = 50_000                                  // ~50KB per message
 
 // override: true ensures .env values beat any empty shell env vars
 // (e.g. ANTHROPIC_API_KEY="" set globally by Claude Desktop)
@@ -64,16 +70,24 @@ async function callOpenAICompatible(apiUrl, apiKey, provider, model, system, use
 }
 
 app.post('/api/chat', async (req, res) => {
+  // Require a valid session. This endpoint proxies to the LLM provider with
+  // server-held API keys; unauthenticated access lets anyone burn credits.
+  let authedUser
+  try { authedUser = await requireUser(req) }
+  catch (err) { return res.status(err.status || 401).json({ error: err.message }) }
+
+  if (!chatLimiter.allow(authedUser.id)) {
+    return res.status(429).json({ error: 'Too many chat requests, slow down.' })
+  }
+
   const { system, user, max_tokens, meta } = req.body
+  if (typeof user === 'string' && user.length > MAX_CHAT_MESSAGE_BYTES) {
+    return res.status(413).json({ error: `Message too large (max ${MAX_CHAT_MESSAGE_BYTES} chars).` })
+  }
   const model = req.body.model || 'claude-sonnet-4-20250514'
   const isRouter = req.headers['x-delma-caller'] === 'router'
   const t0 = Date.now()
-
-  // Best-effort: capture authenticated user for router-call logging.
-  let authedUserId = null
-  if (isRouter) {
-    try { authedUserId = (await requireUser(req)).id } catch { /* unauthenticated chat is allowed */ }
-  }
+  const authedUserId = authedUser.id
 
   if (model.startsWith('deepseek-')) {
     if (!process.env.DEEPSEEK_API_KEY) return res.status(500).json({ error: 'DEEPSEEK_API_KEY not set' })
@@ -111,7 +125,7 @@ app.post('/api/chat', async (req, res) => {
       let ops = []
       try { ops = extractJsonArrayServer(raw) } catch {}
       void sb.from('quality_router_calls').insert({
-        user_id: authedUserId, workspace_id: meta.workspace_id || null,
+        user_id: authedUserId, project_id: meta.project_id || null,
         input: meta.input, ops, raw_response: raw, model,
         duration_ms: Date.now() - t0
       })
@@ -152,105 +166,9 @@ function getSb() {
   return __sb
 }
 
-// Create org + membership via service role (bypasses RLS edge cases on client).
-app.post('/api/create-org', async (req, res) => {
-  const { name, userId } = req.body
-  if (!name?.trim() || !userId) return res.status(400).json({ error: 'name and userId required' })
-  console.log('[server] create-org:', name, 'for user', userId)
-
-  const sb = getSb()
-  if (!sb) return res.status(500).json({ error: 'Supabase not configured on server' })
-  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '-' + Date.now().toString(36)
-  try {
-    const { data: org, error } = await sb
-      .from('organizations')
-      .insert({ name: name.trim(), slug, created_by: userId })
-      .select()
-      .single()
-    if (error) throw new Error(error.message)
-
-    const { error: memberErr } = await sb
-      .from('org_members')
-      .insert({ org_id: org.id, user_id: userId, role: 'admin' })
-    if (memberErr) throw new Error(memberErr.message)
-
-    // Seed default org-level tabs (People + Playbook) so the new org has
-    // its full tab set immediately.
-    await sb.from('org_memory_notes').insert([
-      {
-        org_id: org.id,
-        filename: 'people.md',
-        content: '# People\n\nTeam members, roles, ownership.\n',
-        permission: 'edit-all',
-        owner_id: userId
-      },
-      {
-        org_id: org.id,
-        filename: 'playbook.md',
-        content: '# General Patterns and Docs\n\nHow work happens here. Processes, approval paths, unwritten rules, timing gotchas.\n',
-        permission: 'edit-all',
-        owner_id: userId
-      }
-    ])
-
-    console.log('[server] org created with People + Playbook seeded:', org.id)
-    res.json({ ok: true, org })
-  } catch (err) {
-    console.error('[server] create-org failed:', err.message)
-    res.status(500).json({ error: err.message })
-  }
-})
-
-app.post('/api/refresh-claude-md', async (req, res) => {
-  const sb = getSb()
-  if (!sb) return res.status(500).json({ error: 'Supabase not configured on server' })
-  let { workspaceId, userId } = req.body
-  // If no workspaceId given, look up the user's active one
-  if (!workspaceId && userId) {
-    const { data: m } = await sb
-      .from('org_members')
-      .select('active_workspace_id')
-      .eq('user_id', userId)
-      .not('active_workspace_id', 'is', null)
-      .limit(1)
-      .single()
-    workspaceId = m?.active_workspace_id
-  }
-  if (!workspaceId) return res.status(400).json({ error: 'workspaceId or userId required' })
-  console.log('[server] refresh-claude-md for workspace:', workspaceId)
-  const t0 = Date.now()
-
-  try {
-    const [{ data: views }, { data: memoryRows }, { data: ws }] = await Promise.all([
-      sb.from('diagram_views').select('*').eq('workspace_id', workspaceId),
-      sb.from('memory_notes').select('*').eq('workspace_id', workspaceId),
-      sb.from('workspaces').select('name, org_id').eq('id', workspaceId).single()
-    ])
-
-    let orgName = ''
-    if (ws?.org_id) {
-      const { data: org } = await sb.from('organizations').select('name').eq('id', ws.org_id).single()
-      orgName = org?.name || ''
-    }
-
-    const memoryMap = {}
-    for (const row of memoryRows || []) memoryMap[row.filename] = row.content
-
-    const claudeMd = await generateClaudeMd(views || [], memoryMap, orgName, ws?.name || '')
-    const cwd = process.env.DELMA_PROJECT_DIR || process.cwd()
-    await writeFile(resolve(cwd, 'CLAUDE.md'), claudeMd, 'utf-8')
-
-    console.log('[server] CLAUDE.md refreshed in', Date.now() - t0, 'ms,', claudeMd.length, 'chars')
-    res.json({ ok: true, length: claudeMd.length, ms: Date.now() - t0 })
-  } catch (err) {
-    console.error('[server] refresh failed:', err.message)
-    res.status(500).json({ error: err.message })
-  }
-})
-
 // ── Typed-op endpoint ─────────────────────────────────────────────────────────
 // Body: { tabKey: "org:people.md" | "memory:decisions.md" | ...,
-//         ops: [{ op, args }, ...], workspaceId, orgId }
+//         ops: [{ op, args }, ...], projectId, orgId }
 // Auth: Authorization: Bearer <supabase_access_token>
 // userId is taken from the verified token, NEVER from the request body.
 
@@ -261,17 +179,17 @@ app.post('/api/op', async (req, res) => {
   try { user = await requireUser(req) }
   catch (err) { return res.status(err.status || 401).json({ error: err.message }) }
 
-  const { tabKey, ops, workspaceId, orgId } = req.body || {}
+  const { tabKey, ops, projectId, orgId } = req.body || {}
   if (!tabKey || !Array.isArray(ops) || !ops.length) {
     return res.status(400).json({ error: 'tabKey and non-empty ops[] required' })
   }
-  const scope = parseTabKey(tabKey, { workspaceId, orgId, userId: user.id })
+  const scope = parseTabKey(tabKey, { projectId, orgId, userId: user.id })
   if (!scope) return res.status(400).json({ error: `not a structured tab: ${tabKey}` })
 
   // Authorize: the verified user must be a member of the relevant container.
   try {
     if (scope.kind === 'org') await requireOrgMembership(sb, user.id, orgId)
-    else if (scope.kind === 'project' || scope.kind === 'diagram') await requireWorkspaceMembership(sb, user.id, workspaceId)
+    else if (scope.kind === 'project' || scope.kind === 'diagram') await requireProjectMembership(sb, user.id, projectId)
   } catch (err) { return res.status(err.status || 403).json({ error: err.message }) }
 
   console.log('[server] op:', tabKey, 'ops:', ops.map(o => o.op).join(','), 'by', user.id.slice(0, 8))
@@ -280,7 +198,7 @@ app.post('/api/op', async (req, res) => {
     const result = await applyOpsToTab(sb, scope, ops)
     console.log('[server] op applied — applied:', result.applied.length, 'errors:', result.errors.length)
     void sb.from('api_op_logs').insert({
-      user_id: user.id, workspace_id: workspaceId, org_id: orgId,
+      user_id: user.id, project_id: projectId, org_id: orgId,
       tab_key: tabKey, ops, applied_count: result.applied.length, error_count: result.errors.length,
       duration_ms: Date.now() - t0, success: true
     })
@@ -288,7 +206,7 @@ app.post('/api/op', async (req, res) => {
   } catch (err) {
     console.error('[server] op failed:', err.message)
     void sb.from('api_op_logs').insert({
-      user_id: user.id, workspace_id: workspaceId, org_id: orgId,
+      user_id: user.id, project_id: projectId, org_id: orgId,
       tab_key: tabKey, ops, duration_ms: Date.now() - t0, success: false, error: err.message
     })
     res.status(500).json({ error: err.message })
@@ -301,7 +219,7 @@ app.post('/api/op', async (req, res) => {
 // in sync. Without this, manual edits would be silently overwritten the next
 // time the typed-op router or MCP tools touch the tab.
 //
-// Body: { tabKey, content, workspaceId, orgId }
+// Body: { tabKey, content, projectId, orgId }
 // Auth: Authorization: Bearer <supabase_access_token>
 
 app.post('/api/save-structured-tab', async (req, res) => {
@@ -311,7 +229,7 @@ app.post('/api/save-structured-tab', async (req, res) => {
   try { user = await requireUser(req) }
   catch (err) { return res.status(err.status || 401).json({ error: err.message }) }
 
-  const { tabKey, content, workspaceId, orgId } = req.body || {}
+  const { tabKey, content, projectId, orgId, expectedUpdatedAt, force } = req.body || {}
   if (!tabKey || typeof content !== 'string') {
     return res.status(400).json({ error: 'tabKey and content required' })
   }
@@ -322,7 +240,7 @@ app.post('/api/save-structured-tab', async (req, res) => {
 
   try {
     if (prefix === 'org') await requireOrgMembership(sb, user.id, orgId)
-    else if (prefix === 'memory') await requireWorkspaceMembership(sb, user.id, workspaceId)
+    else if (prefix === 'memory') await requireProjectMembership(sb, user.id, projectId)
     else return res.status(400).json({ error: `unknown tab prefix: ${prefix}` })
   } catch (err) { return res.status(err.status || 403).json({ error: err.message }) }
 
@@ -343,17 +261,30 @@ app.post('/api/save-structured-tab', async (req, res) => {
   const table = prefix === 'org' ? 'org_memory_notes' : 'memory_notes'
   const filter = prefix === 'org'
     ? { org_id: orgId, filename }
-    : { workspace_id: workspaceId, filename }
+    : { project_id: projectId, filename }
 
-  // Upsert
-  const { data: existing } = await sb.from(table).select('id').match(filter).maybeSingle()
+  // Upsert. If the client gave us the timestamp it loaded, compare against
+  // the current row's updated_at. If someone else saved since, refuse unless
+  // the client explicitly sets `force` after reviewing the diff.
+  const { data: existing } = await sb.from(table).select('id, updated_at, content').match(filter).maybeSingle()
+  if (existing && expectedUpdatedAt && !force) {
+    const serverTs = new Date(existing.updated_at).getTime()
+    const clientTs = new Date(expectedUpdatedAt).getTime()
+    if (Number.isFinite(serverTs) && Number.isFinite(clientTs) && serverTs - clientTs > 1000) {
+      return res.status(409).json({
+        error: 'conflict',
+        serverContent: existing.content,
+        serverUpdatedAt: existing.updated_at
+      })
+    }
+  }
   if (existing) {
     const { error } = await sb.from(table).update({ structured, content: rendered }).eq('id', existing.id)
     if (error) return res.status(500).json({ error: error.message })
   } else {
     const insertRow = prefix === 'org'
       ? { org_id: orgId, filename, structured, content: rendered, permission: 'edit-all', owner_id: user.id }
-      : { workspace_id: workspaceId, filename, structured, content: rendered, visibility: 'shared', owner_id: user.id }
+      : { project_id: projectId, filename, structured, content: rendered, visibility: 'shared', owner_id: user.id }
     const { error } = await sb.from(table).insert(insertRow)
     if (error) return res.status(500).json({ error: error.message })
   }
@@ -381,11 +312,17 @@ app.get('/logs', async (req, res) => {
 // No auth — internal observability ping. Worst case someone spams ticks
 // and we flag it as noise.
 app.post('/api/conversation-tick', async (req, res) => {
+  // Called fire-and-forget from the Claude Code CLI hook (dev-only analytics).
+  // No JWT because the hook doesn't have one. Rate-limit by client IP so
+  // a loop can't fill the table. If this ever leaves dev, add real auth.
+  const ip = req.ip || req.socket?.remoteAddress || 'unknown'
+  if (!tickLimiter.allow(ip)) return res.status(429).json({ error: 'rate limited' })
+
   const sb = getSb()
   if (!sb) return res.status(500).json({ error: 'Supabase not configured' })
-  const { workspace_id, user_id, source } = req.body || {}
+  const { project_id, user_id, source } = req.body || {}
   void sb.from('conversation_ticks').insert({
-    workspace_id: workspace_id || null,
+    project_id: project_id || null,
     user_id: user_id || null,
     source: source || 'inject-hook'
   })

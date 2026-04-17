@@ -4,5 +4,5 @@ node_modules/
 dist/
 .vercel
 .DS_Store
-.claude/.delma-last-injected-mtime
 .claude/worktrees/
+supabase/.temp/

@@ -15,19 +15,30 @@
 // ──────────────────────────────────────────────────────────────────────────────
 
 import { config } from 'dotenv'
+import { createHash } from 'crypto'
 config()
 
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY
 
+// In-memory cache: fingerprint of full context → generated markdown. Keeps
+// every chat turn from paying for a Haiku round-trip when workspace state
+// hasn't actually changed. Bounded so unbounded workspace growth can't blow
+// the heap; eviction is oldest-first.
+const SUMMARY_CACHE = new Map()
+const SUMMARY_CACHE_MAX = 64
+function fingerprint(ctx) {
+  return createHash('sha1').update(ctx).digest('hex')
+}
+
 /**
  * Build a plain-text dump of the workspace for the summarizer to read.
  */
-function buildFullContext(views, memoryMap, orgName, workspaceName) {
+function buildFullContext(views, memoryMap, orgName, projectName) {
   const parts = []
 
   if (orgName) parts.push(`Organization: ${orgName}`)
-  if (workspaceName) parts.push(`Workspace: ${workspaceName}`)
+  if (projectName) parts.push(`Workspace: ${projectName}`)
   parts.push('')
 
   for (const view of views || []) {
@@ -112,13 +123,13 @@ async function summarizeWithLLM(fullContext) {
  * Fallback: build a simple summary without an LLM.
  * Just extracts the first line of each section.
  */
-function simpleSummary(views, memoryMap, orgName, workspaceName) {
+function simpleSummary(views, memoryMap, orgName, projectName) {
   const parts = []
 
-  if (orgName && workspaceName) {
-    parts.push(`# ${orgName} / ${workspaceName}`)
+  if (orgName && projectName) {
+    parts.push(`# ${orgName} / ${projectName}`)
   } else {
-    parts.push(`# ${workspaceName || 'Delma Workspace'}`)
+    parts.push(`# ${projectName || 'Delma Workspace'}`)
   }
   parts.push('')
 
@@ -140,35 +151,30 @@ function simpleSummary(views, memoryMap, orgName, workspaceName) {
 /**
  * Generate the full CLAUDE.md content: behavior instructions + workspace summary.
  */
-export async function generateClaudeMd(views, memoryMap, orgName, workspaceName) {
-  const fullContext = buildFullContext(views, memoryMap, orgName, workspaceName)
+export async function generateClaudeMd(views, memoryMap, orgName, projectName) {
+  const fullContext = buildFullContext(views, memoryMap, orgName, projectName)
+  const key = fingerprint(fullContext)
+
+  if (SUMMARY_CACHE.has(key)) {
+    // Touch the entry by re-inserting so LRU-ish eviction keeps hot entries.
+    const cached = SUMMARY_CACHE.get(key)
+    SUMMARY_CACHE.delete(key)
+    SUMMARY_CACHE.set(key, cached)
+    return cached
+  }
 
   // Try Haiku first, fall back to simple summary
-  const summary = await summarizeWithLLM(fullContext) || simpleSummary(views, memoryMap, orgName, workspaceName)
+  const summary = await summarizeWithLLM(fullContext) || simpleSummary(views, memoryMap, orgName, projectName)
 
-  return `# Delma Workspace
+  const output = `# Delma Workspace
 
-## Recording control (privacy default)
-
-**Reads are always on.** You can see the workspace below.
-**Writes are OFF by default.** This conversation does NOT sync to Delma
-unless the user explicitly turns it on.
-
-If the user says "delma on" / "record this" / "sync to delma":
-1. Run: \`touch .claude/.delma-on\`
-2. Acknowledge: "Delma recording — I'll sync notable updates."
-3. From now you may call write tools (\`sync_conversation_summary\`,
-   \`save_diagram_view\`, \`append_memory_note\`) when appropriate.
-
-If the user says "delma off" / "stop recording" / "pause delma":
-1. Run: \`rm -f .claude/.delma-on\`
-2. Acknowledge: "Delma off — won't sync this conversation."
-3. Do NOT call any write tools for the rest of the session.
-
-ALWAYS check for \`.claude/.delma-on\` before writing. If absent, don't write.
+The in-app chat is always connected to Delma. Reads and writes are both
+on — call write tools (\`sync_conversation_summary\`, \`save_diagram_view\`,
+\`append_memory_note\`, etc.) whenever it's appropriate, without waiting
+for the user to opt in.
 
 The active project is whatever is open in the web app
-(via \`org_members.active_workspace_id\` in Supabase). When unsure,
+(via \`org_members.active_project_id\` in Supabase). When unsure,
 call \`get_workspace_state\`.
 
 ---
@@ -177,4 +183,11 @@ call \`get_workspace_state\`.
 
 ${summary}
 `
+
+  SUMMARY_CACHE.set(key, output)
+  if (SUMMARY_CACHE.size > SUMMARY_CACHE_MAX) {
+    const oldest = SUMMARY_CACHE.keys().next().value
+    SUMMARY_CACHE.delete(oldest)
+  }
+  return output
 }

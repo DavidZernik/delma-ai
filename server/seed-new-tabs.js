@@ -1,4 +1,4 @@
-// One-shot: seed the new Playbook + My Notes tabs for existing users/orgs/workspaces.
+// One-shot: seed the new Playbook + My Notes tabs for existing users/orgs/projects.
 // Safe to re-run — uses insert-if-missing logic.
 //
 // Run with: node server/seed-new-tabs.js
@@ -70,20 +70,20 @@ How work actually happens here. Processes, approval paths, unwritten rules, timi
 }
 
 // ── Seed My Notes (project-level, private) for every workspace member ──────
-const { data: workspaces } = await supabase.from('workspaces').select('id, name')
-console.log(`\nFound ${workspaces?.length || 0} workspace(s)`)
+const { data: projects } = await supabase.from('projects').select('id, name')
+console.log(`\nFound ${projects?.length || 0} workspace(s)`)
 
-for (const ws of workspaces || []) {
+for (const ws of projects || []) {
   const { data: members } = await supabase
-    .from('workspace_members')
+    .from('project_members')
     .select('user_id')
-    .eq('workspace_id', ws.id)
+    .eq('project_id', ws.id)
 
   for (const m of members || []) {
     const { data: existing } = await supabase
       .from('memory_notes')
       .select('id')
-      .eq('workspace_id', ws.id)
+      .eq('project_id', ws.id)
       .eq('filename', 'my-notes.md')
       .eq('owner_id', m.user_id)
       .maybeSingle()
@@ -105,7 +105,7 @@ Jot down:
 `
 
     const { error } = await supabase.from('memory_notes').insert({
-      workspace_id: ws.id,
+      project_id: ws.id,
       filename: 'my-notes.md',
       content,
       visibility: 'private',

@@ -91,12 +91,23 @@
     }
     /* Mobile: stack diagram above chat, both full width. */
     @media (max-width: 900px) {
+      html, body {
+        height: auto;
+        overflow: auto;
+      }
       .app-shell,
       .app-shell.chat-collapsed {
         grid-template-columns: 1fr;
         grid-template-rows: auto auto;
         height: auto;
         min-height: 100vh;
+      }
+      /* Let the diagram grow to its natural height and rely on page scroll,
+         instead of trapping scroll inside a 70vh wrapper that the user can
+         overshoot on touch. */
+      .diagram-zoom-wrapper {
+        max-height: none;
+        overflow-y: visible;
       }
     }
     .chat-sidebar {
@@ -116,6 +127,55 @@
         height: 60vh;
         min-height: 420px;
       }
+      /* The chat-toggle button controls a grid column that doesn't exist
+         when the layout stacks — hide it, because tapping it would collapse
+         the chat off-screen with no way to bring it back from a phone.
+         Uses .app-shell compound selector so we outrank the base
+         `.chat-toggle { display: inline-flex }` rule defined later in the
+         stylesheet. */
+      .app-shell .chat-toggle,
+      .app-shell.chat-collapsed .chat-toggle { display: none; }
+      /* Touch-sized tab pills. iOS HIG says ~44pt minimum; we land at ~40
+         with the extra padding plus 1px borders. */
+      .view-tab {
+        min-height: 40px;
+        padding: 10px 14px;
+        font-size: 13px;
+      }
+      .view-tab-title { font-size: 13px; }
+      /* Same treatment for the Edit / Cancel / Save pill. */
+      .mode-btn {
+        min-height: 40px;
+        padding: 10px 22px;
+        font-size: 13px;
+        min-width: 92px;
+      }
+      /* Horizontal-scroll tab bars get a right-edge fade so the user knows
+         there are more tabs past the edge. Tap-and-drag still works. */
+      .tab-bar {
+        -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 24px), transparent 100%);
+                mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 24px), transparent 100%);
+      }
+      /* Zoom controls get BIGGER on touch, not smaller. The old scale(0.85)
+         override at 768px shrank them below usable size. */
+      .diagram-zoom-controls {
+        transform: none;
+        top: 12px;
+        right: 12px;
+      }
+      .zoom-btn {
+        width: 40px;
+        height: 40px;
+        font-size: 18px;
+      }
+      /* Composer (chat input) respects the iPhone home-indicator / gesture
+         bar. Without this the send button sits behind the system UI. */
+      .composer-shell {
+        padding-bottom: max(12px, env(safe-area-inset-bottom));
+      }
+      /* Header stacks cleanly on narrow; don't let one long project name
+         push the logout button off-screen. */
+      .workspace-header { flex-wrap: wrap; row-gap: 8px; }
     }
 
     /* Toggle button on the chat sidebar edge. Always visible — when chat is
@@ -154,8 +214,13 @@
     }
 
     .workspace-panel {
-      display: grid;
-      grid-template-rows: auto auto 1fr auto;
+      display: flex;
+      flex-direction: column;
+      /* Only the stage flexes; everything else sizes to content. Flex is more
+         robust than grid for this shape — the panel has a mix of visible and
+         hidden children, and with grid-template-rows we had to keep the
+         template track count in sync with the visible count, which broke
+         silently when a child was added or hidden. */
       min-height: 0;
       min-width: 0;          /* prevents grid from overflowing into chat column */
       overflow: hidden;
@@ -404,6 +469,114 @@
       opacity: 0.6;
     }
 
+    /* History drawer — a right-side panel that slides in with recent edits. */
+    .history-drawer {
+      position: fixed;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: 360px;
+      max-width: 100vw;
+      background: var(--panel);
+      border-left: 1px solid var(--line);
+      box-shadow: -8px 0 24px rgba(0,0,0,0.08);
+      z-index: 200;
+      display: flex;
+      flex-direction: column;
+      transform: translateX(0);
+      animation: history-drawer-in 220ms ease-out;
+    }
+    @keyframes history-drawer-in {
+      from { transform: translateX(100%); }
+      to   { transform: translateX(0); }
+    }
+    .history-drawer[hidden] { display: none !important; }
+    .history-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--line);
+    }
+    .history-head h3 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+    .history-close {
+      font-size: 20px;
+      line-height: 1;
+      color: var(--muted);
+      padding: 4px 8px;
+      border-radius: 6px;
+    }
+    .history-close:hover { background: var(--bg); color: var(--ink); }
+    .history-feed {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0;
+    }
+    .history-item {
+      padding: 10px 18px;
+      border-bottom: 1px solid rgba(232, 216, 210, 0.5);
+      font-size: 12px;
+      color: var(--ink);
+    }
+    .history-item .who {
+      font-weight: 600;
+      color: var(--ink);
+    }
+    .history-item .what {
+      color: var(--ink-secondary);
+      margin-top: 2px;
+    }
+    .history-item .when {
+      font-size: 10px;
+      color: var(--muted);
+      margin-top: 4px;
+      letter-spacing: 0.02em;
+    }
+    .history-empty {
+      padding: 20px;
+      color: var(--muted);
+      font-size: 12px;
+      text-align: center;
+    }
+
+    /* Presence dots — tiny avatars next to a tab showing who else is on it.
+       Empty circle = viewing. Inner dot / ring = editing. */
+    .presence-dots {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+    .presence-dot {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: #999;
+      color: #fff;
+      font-size: 9px;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 2px solid var(--panel);
+      line-height: 1;
+      text-transform: uppercase;
+    }
+    .view-tab.active .presence-dot { border-color: var(--accent); }
+    .presence-dot.editing {
+      box-shadow: 0 0 0 2px var(--panel), 0 0 0 3px var(--accent);
+    }
+    .presence-dot.more {
+      background: #bbb;
+      font-size: 8px;
+    }
+
     .view-tab.action-tab {
       flex: 0 0 auto;
     }
@@ -444,7 +617,11 @@
       letter-spacing: -0.035em;
       color: var(--ink);
       line-height: 1.1;
-      min-height: 24px;
+      /* Always one line so meta header height is constant across tabs. */
+      height: 24px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .meta-copy {
@@ -453,8 +630,12 @@
       font-size: 13px;
       line-height: 1.4;
       max-width: 520px;
-      /* Reserve 2 lines of space — most tab descriptions are 1-2 lines. */
-      min-height: 36px;
+      /* Always exactly 2 lines so meta header height is constant across tabs. */
+      height: 36px;
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
     }
 
     .meta-provenance {
@@ -527,6 +708,7 @@
     }
 
     .diagram-stage {
+      flex: 1 1 auto;
       min-height: 0;
       min-width: 0;  /* allow flex stage to shrink below its content width */
       overflow: auto;
@@ -797,145 +979,6 @@
       background: var(--ink-secondary);
     }
 
-    /* ── Proactive prompt — pre-diagram note ──────────────────────── */
-    /* Sits between title and artifact. Reads as "here's what's       */
-    /* missing" — context for the diagram, not a conversation.        */
-    /* Reserves minimal height so appearance doesn't shift layout.    */
-
-    /* ── Action slot — fixed between title and diagram ──────────── */
-    /* Collapses to 0 when empty. Expands smoothly when content.    */
-    /* No layout shift on the diagram. The slot is always there.    */
-
-    .action-slot {
-      display: flex;
-      justify-content: center;
-      padding: 0 max(20px, calc((100% - 1000px) / 2));
-      /* Collapses to nothing when empty. The inner pill is position-absolute
-         when present, so prompts still appear without shifting the diagram.  */
-      min-height: 0;
-    }
-    .action-slot:empty { display: none; }
-
-    .action-slot-inner {
-      width: 100%;
-      max-width: 780px;
-      padding: 12px 0 8px;
-      opacity: 0;
-      transition: opacity 400ms ease;
-    }
-
-    .action-slot.open .action-slot-inner {
-      opacity: 1;
-    }
-
-    /* Action slot — neutral white card, no red stripe. */
-    .action-slot-inner.mode-view,
-    .action-slot-inner.mode-edit {
-      background: #FFFFFF;
-      border: 1px solid #E8D8D2;
-      border-radius: 10px;
-      padding: 16px 20px 14px;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-    }
-
-    .action-slot-label {
-      font-size: 10px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: var(--muted);
-      margin: 0 0 6px;
-    }
-
-    .action-slot-question {
-      font-size: 14px;
-      font-weight: 500;
-      color: var(--ink);
-      margin: 0 0 10px;
-      line-height: 1.4;
-      transition: opacity 200ms ease;
-    }
-
-    .action-slot-inner.typing .action-slot-question {
-      opacity: 0.35;
-    }
-
-    .action-slot-row {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-    }
-
-    .action-slot-input {
-      flex: 1;
-      padding: 9px 12px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: var(--panel);
-      font: inherit;
-      font-size: 13px;
-      color: var(--ink);
-      outline: none;
-      transition: border-color 150ms ease;
-    }
-
-    .action-slot-input:focus {
-      border-color: rgba(143, 0, 0, 0.2);
-    }
-
-    .action-slot-input::placeholder {
-      color: var(--muted);
-      opacity: 0.5;
-    }
-
-    .action-slot-apply {
-      padding: 8px 14px;
-      border-radius: 7px;
-      border: none;
-      background: var(--accent);
-      color: var(--accent-ink);
-      font-size: 11px;
-      font-weight: 600;
-      cursor: pointer;
-      white-space: nowrap;
-      transition: background 120ms ease;
-    }
-
-    .action-slot-apply:hover {
-      background: var(--accent-hover);
-    }
-
-    .action-slot-apply:disabled {
-      opacity: 0.7;
-      cursor: default;
-    }
-
-    /* ── Loading state inside action slot ─────────────────────────── */
-    .action-slot-loading {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 14px 18px;
-      font-size: 12px;
-      color: var(--ink-secondary);
-      letter-spacing: 0.01em;
-    }
-
-    .action-slot-loading .loading-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--accent);
-      animation: pulse-dot 1.2s ease-in-out infinite;
-    }
-
-    .action-slot-loading .loading-dot:nth-child(2) { animation-delay: 0.2s; }
-    .action-slot-loading .loading-dot:nth-child(3) { animation-delay: 0.4s; }
-
-    @keyframes pulse-dot {
-      0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
-      40% { opacity: 1; transform: scale(1.2); }
-    }
 
     /* ── Inline prose around the diagram (inside the .diagram-card) ── */
     /* No own background or border — the parent card provides those.    */
@@ -1613,9 +1656,6 @@
       .struct-row { flex-wrap: wrap; }
       .struct-input-owner { max-width: 100%; }
       .markdown-body table { display: block; overflow-x: auto; }
-      .diagram-zoom-controls { transform: scale(0.85); transform-origin: top right; }
-      .action-slot { padding: 12px; }
-      .action-slot-input { font-size: 14px; }
       .auth-overlay { padding: 24px 16px; }
       .empty-state { padding: 40px 16px; min-height: 280px; }
     }
@@ -1660,9 +1700,6 @@
         </div>
       </div>
 
-      <!-- Action slot: fixed position between title and diagram. Never shifts layout. -->
-      <div id="action-slot" class="action-slot"></div>
-
       <!-- Hidden elements -->
       <div id="edit-strip" hidden></div>
       <input id="project-dir" type="hidden" />
@@ -1680,10 +1717,22 @@
           <span id="workspace-status"></span>
         </div>
         <div class="footer-actions">
+          <button id="history-toggle-btn" class="secondary-btn" type="button" title="Recent activity">History</button>
           <button id="reset-example-btn" class="secondary-btn" style="display:none;">Reset</button>
           <button id="save-workspace-btn" class="primary-btn" style="display:none;">Save</button>
         </div>
       </div>
+
+      <!-- History drawer — slides in from the right when opened. -->
+      <aside id="history-drawer" class="history-drawer" hidden>
+        <header class="history-head">
+          <h3>Recent activity</h3>
+          <button id="history-close-btn" class="history-close" type="button" aria-label="Close history">&times;</button>
+        </header>
+        <div id="history-feed" class="history-feed">
+          <div class="history-empty">Loading…</div>
+        </div>
+      </aside>
       <span id="sdk-status" style="display:none;"></span>
     </main>
 

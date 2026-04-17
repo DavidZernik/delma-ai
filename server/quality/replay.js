@@ -71,7 +71,7 @@ export async function runReplay({ hoursBack = 24, max = 20 } = {}) {
         // Pull the current structured state for this tab — best approximation
         // of "before". (True before-state would require diffing history snapshots.)
         const filename = opSpec.tab.split(':')[1]
-        const { data: row } = await stateRowFor(opSpec.tab, call.workspace_id)
+        const { data: row } = await stateRowFor(opSpec.tab, call.project_id)
         const beforeState = row?.structured || emptyData(filename)
         let afterState
         try { afterState = applyOp(filename, beforeState, opSpec.op, opSpec.args || {}) }
@@ -121,14 +121,14 @@ Audit this op.`
   return { observed }
 }
 
-async function stateRowFor(tabKey, workspaceId) {
+async function stateRowFor(tabKey, projectId) {
   const [prefix, filename] = tabKey.split(':')
-  if (prefix === 'memory') return sb.from('memory_notes').select('structured').eq('workspace_id', workspaceId).eq('filename', filename).maybeSingle()
+  if (prefix === 'memory') return sb.from('memory_notes').select('structured').eq('project_id', projectId).eq('filename', filename).maybeSingle()
   if (prefix === 'org') {
-    const { data: ws } = await sb.from('workspaces').select('org_id').eq('id', workspaceId).maybeSingle()
+    const { data: ws } = await sb.from('projects').select('org_id').eq('id', projectId).maybeSingle()
     if (!ws?.org_id) return { data: null }
     return sb.from('org_memory_notes').select('structured').eq('org_id', ws.org_id).eq('filename', filename).maybeSingle()
   }
-  if (prefix === 'diagram') return sb.from('diagram_views').select('structured').eq('workspace_id', workspaceId).eq('view_key', filename).maybeSingle()
+  if (prefix === 'diagram') return sb.from('diagram_views').select('structured').eq('project_id', projectId).eq('view_key', filename).maybeSingle()
   return { data: null }
 }
