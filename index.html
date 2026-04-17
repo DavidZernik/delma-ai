@@ -1,8 +1,10 @@
 <!DOCTYPE html>
-<html lang="en" translate="no" class="notranslate">
+<html lang="en" xml:lang="en" translate="no" class="notranslate">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Language" content="en" />
+  <meta name="google" content="notranslate" />
   <title>Delma</title>
   <style>
     :root {
@@ -74,28 +76,73 @@
       box-shadow: 0 0 0 4px rgba(143, 0, 0, 0.06);
     }
 
+    /* Two-column layout on desktop. Chat is open by default; user can
+       collapse it via the toggle to give the diagram full viewport width. */
     .app-shell {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+      grid-template-columns: minmax(0, 1fr) 360px;
       gap: 0;
       height: 100vh;
       padding: 0;
+      transition: grid-template-columns 220ms ease;
     }
-    /* Mobile: stack workspace above chat. Chat collapses via toggle button. */
+    .app-shell.chat-collapsed {
+      grid-template-columns: minmax(0, 1fr) 40px;
+    }
+    /* Mobile: stack diagram above chat, both full width. */
     @media (max-width: 900px) {
-      .app-shell {
+      .app-shell,
+      .app-shell.chat-collapsed {
         grid-template-columns: 1fr;
-        grid-template-rows: 1fr auto;
+        grid-template-rows: auto auto;
+        height: auto;
+        min-height: 100vh;
       }
     }
     .chat-sidebar {
       min-height: 0;
+      min-width: 0;
       overflow: hidden;
       border-left: 1px solid var(--line);
       background: var(--bg);
       display: flex;
       flex-direction: column;
+      position: relative;
     }
+    @media (max-width: 900px) {
+      .chat-sidebar {
+        border-left: none;
+        border-top: 1px solid var(--line);
+        height: 60vh;
+        min-height: 420px;
+      }
+    }
+
+    /* Toggle button on the chat sidebar edge. Always visible — when chat is
+       open, it sits at the top-left of the chat panel; when collapsed, it
+       becomes the only visible part of the 40px rail. */
+    .chat-toggle {
+      position: absolute;
+      top: 10px;
+      left: 6px;
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+      background: #FFFFFF;
+      color: var(--ink);
+      font-size: 14px;
+      line-height: 1;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+      transition: background 140ms ease;
+    }
+    .chat-toggle:hover { background: var(--bg); }
+    .app-shell.chat-collapsed .chat-sidebar #chat-sidebar-root { display: none; }
+    .app-shell.chat-collapsed .chat-toggle { left: 50%; transform: translateX(-50%); }
     .hidden-helpers { display: none !important; }
 
     .panel {
@@ -110,6 +157,7 @@
       display: grid;
       grid-template-rows: auto auto 1fr auto;
       min-height: 0;
+      min-width: 0;          /* prevents grid from overflowing into chat column */
       overflow: hidden;
       border-right: 1px solid var(--line);
       background: var(--bg);
@@ -123,6 +171,7 @@
       padding: 14px max(20px, calc((100% - 1000px) / 2));
       border-bottom: 1px solid var(--line);
       background: var(--chrome);
+      min-width: 0;  /* allow flex row to shrink below its content width */
     }
 
     .eyebrow {
@@ -308,6 +357,7 @@
       box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
       position: relative;
       z-index: 2;
+      min-width: 0;  /* allow flex row to shrink below its content width */
     }
 
     .tab-bar {
@@ -375,16 +425,13 @@
       width: 100%;
       max-width: 780px;       /* match diagram-card width so Edit aligns with card right edge */
       margin: 0 auto;
-      padding: 16px 0 10px;
+      padding: 8px 0 4px;
       box-sizing: border-box;
     }
 
     .meta-block {
       min-width: 0;
       overflow: hidden;
-      /* Reserve consistent height across tabs so the diagram card sits at
-         the same vertical position regardless of description length. */
-      min-height: 80px;
     }
 
     .meta-label {
@@ -481,8 +528,9 @@
 
     .diagram-stage {
       min-height: 0;
+      min-width: 0;  /* allow flex stage to shrink below its content width */
       overflow: auto;
-      padding: 24px max(24px, calc((100% - 1000px) / 2)) 96px;
+      padding: 10px max(24px, calc((100% - 1000px) / 2)) 24px;
       display: flex;
       justify-content: center;
       background: var(--bg);
@@ -516,11 +564,11 @@
       position: relative;          /* anchor for zoom controls */
       width: 100%;
       max-width: 780px;
-      margin: 28px auto 120px;    /* generous breathing room top + bottom */
+      margin: 8px auto 24px;       /* tight — let the diagram own the viewport */
       background: #FFFFFF;
       border: 1.5px solid var(--accent);   /* dark red border — brand presence */
       border-radius: 12px;
-      padding: 48px 52px;          /* generous internal padding */
+      padding: 20px 28px;
       box-sizing: border-box;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
       transition: box-shadow 200ms ease;
@@ -529,30 +577,58 @@
       box-shadow: 0 4px 14px rgba(143, 0, 0, 0.08);
     }
 
-    /* Inside the card the diagram zoom area is bare — no border, no shadow,
-       no gap between prose and diagram. They share the same surface.   */
+    /* Scrollable viewport for the diagram. Both axes scroll independently
+       so the user can pan the full diagram when it's wider or taller than
+       the card column. Scrollbars are FORCED VISIBLE (overflow: scroll
+       instead of auto) so the pan affordance isn't hidden by macOS's
+       "show scrollbars only while scrolling" default. */
     .diagram-zoom-wrapper {
-      overflow: auto;
+      overflow-x: scroll;
+      overflow-y: scroll;
       -webkit-overflow-scrolling: touch;
       position: relative;
       cursor: grab;
       touch-action: pan-x pan-y;
       user-select: none;
       min-height: 320px;
-      max-height: 60vh;
+      max-height: 70vh;
       background: transparent;
       border: none;
       border-radius: 0;
       padding: 0;
       margin: 0;
       box-shadow: none;
+      /* Reserve space for scrollbars on both axes, even when the OS hides
+         overlay scrollbars. Ensures the affordance is always visible. */
+      scrollbar-gutter: stable both-edges;
+      /* Firefox */
+      scrollbar-width: auto;
+      scrollbar-color: rgba(143, 0, 0, 0.55) rgba(0, 0, 0, 0.05);
     }
+    /* Chrome/Safari — always-visible styled scrollbars */
+    .diagram-zoom-wrapper::-webkit-scrollbar {
+      width: 12px;
+      height: 12px;
+      -webkit-appearance: none;
+    }
+    .diagram-zoom-wrapper::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.06);
+      border-radius: 6px;
+    }
+    .diagram-zoom-wrapper::-webkit-scrollbar-thumb {
+      background: rgba(143, 0, 0, 0.55);
+      border-radius: 6px;
+      border: 2px solid rgba(255, 255, 255, 0.8);
+    }
+    .diagram-zoom-wrapper::-webkit-scrollbar-thumb:hover { background: rgba(143, 0, 0, 0.8); }
+    .diagram-zoom-wrapper::-webkit-scrollbar-corner { background: transparent; }
 
     .diagram-zoom-wrapper.dragging { cursor: grabbing; }
 
-    /* Center the diagram inside the card */
+    /* SVG renders at its natural viewBox size. The zoom engine scales via
+       transform: scale(). Initial zoom stays at 100% so horizontal/vertical
+       scrolling reveals the full diagram. */
     .diagram-zoom-wrapper svg {
-      min-width: 550px;
       display: block;
       margin: 0 auto;
       transform-origin: top left;
@@ -734,10 +810,11 @@
       display: flex;
       justify-content: center;
       padding: 0 max(20px, calc((100% - 1000px) / 2));
-      /* Reserve enough height for label + question + input row + padding.   */
-      /* Prevents layout shift when a proactive question appears.            */
-      min-height: 130px;
+      /* Collapses to nothing when empty. The inner pill is position-absolute
+         when present, so prompts still appear without shifting the diagram.  */
+      min-height: 0;
     }
+    .action-slot:empty { display: none; }
 
     .action-slot-inner {
       width: 100%;
@@ -1560,6 +1637,7 @@
       <div class="workspace-header">
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
           <div class="eyebrow" style="margin-right:4px;">DELMA</div>
+          <div id="project-selector" class="brand-dropdown"></div>
         </div>
         <div style="display:flex;align-items:center;gap:8px;">
           <button id="logout-btn" class="secondary-btn logout-btn" type="button">Log out</button>
@@ -1618,7 +1696,10 @@
       <button id="send-btn" style="display:none;" disabled></button>
     </div>
     <aside class="chat-sidebar" aria-label="Delma chat">
-      <div id="chat-sidebar-root" style="flex:1; min-height:0; display:flex;"></div>
+      <button id="chat-toggle" class="chat-toggle" type="button" aria-label="Collapse chat" title="Collapse chat (⌘\)">
+        <span id="chat-toggle-icon" aria-hidden="true">›</span>
+      </button>
+      <div id="chat-sidebar-root" style="flex:1; min-height:0; display:flex; padding-top:44px;"></div>
     </aside>
   </div>
 

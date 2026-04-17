@@ -27,22 +27,21 @@ call `get_workspace_state`.
 
 ## Current Workspace Summary
 
-**PROJECT:** Emory Healthcare - Birthday Campaign  
-**TEAM:** Keyona Abbott (Manager/PM), David Zernik (SFMC Architect)  
-**STATUS:** Development/Testing. Core journeys built & published (v1). Main daily automation is paused. Follow-up journey uses 5-min test waits.  
+**Project:** Emory Healthcare - Birthday Campaign  
+**Team:** David Zernik (Lead), Keyona Abbott (Stakeholder)  
+**Status:** Built in SFMC, in final testing. Main automation (`Birthday_Daily_Send_Refresh`) is paused. Follow-up journey uses 5-minute test waits.  
 
-**KEY SYSTEMS/IDs:**  
-*   **Source:** `ENT.All_Patients_Opted_In` (Salesforce Health Cloud sync).  
-*   **Automation:** `Birthday_Daily_Send_Refresh` (ID: 11515afe...), scheduled 5 AM CT, currently paused.  
-*   **SQL Query:** `Birthday_Daily_Filter` (ID: cbb76dd1...).  
-*   **Journeys:** Main `Birthday Daily Email` (ID: d53b5e04...). Follow-up `Birthday Quiz Follow-Up` (ID: cb195f60...).  
-*   **Assets:** Email `brand_all_hbd_2026`. CloudPage `8085`. Response DE `birthday_quiz_responses`.  
-*   **Parent BU MID:** `514018310` (for API access to synced DEs).  
+**Key Systems/IDs:**  
+*   **Source:** `ENT.All_Patients_Opted_In` (A5BD1930-82C8-48EE-9353-A33F3E095594)  
+*   **Automation:** `Birthday_Daily_Send_Refresh` (11515afe-c5c3-4b6e-8005-f7e8c8a50a45) - Daily 5 AM CT, paused.  
+*   **Query:** `Birthday_Daily_Filter` (cbb76dd1-0bfd-4bbc-a05d-5b91e6984c43)  
+*   **Journeys:** Main `Birthday Daily Email` (d53b5e04-ec9a-4526-b05e-8b8bd0b6e746), Follow-up `Birthday Quiz Follow-Up` (cb195f60-a163-4a5b-b4cc-2ecb6a62c485).  
+*   **Email:** `brand_all_hbd_2026` (264938).  
+*   **CloudPage:** 8085 (264940).  
+*   **Data Extensions:** Staging `TEST_Birthday_Daily_Send`; Response `birthday_quiz_responses` (0C53F1BE-0AAB-4F7D-83C6-C743CAF1F1A8).  
 
-**NEXT ACTIONS:**  
-1.  Point SQL filter to production source DE (`ENT.All_Patients_Opted_In`).  
+**Next Actions:**  
+1.  Point filter query to production source DE (`ENT.All_Patients_Opted_In`).  
 2.  Change follow-up journey wait steps from 5 minutes to 48 hours.  
-3.  Activate the `Birthday_Daily_Send_Refresh` automation on schedule.  
-4.  Execute soft launch (start with LastName A%, expand daily).  
-
-**RULES:** No Friday launches. Legal review required. Seed test with Keyona first. Document decisions in Slack.
+3.  Activate the main daily automation on schedule.  
+4.  Execute soft launch (start with LastName A%).

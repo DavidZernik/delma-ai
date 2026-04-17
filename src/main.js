@@ -2531,7 +2531,143 @@ function startPromptEngine() {
   }, 30000)
 }
 
+// ── Chat collapse toggle ──────────────────────────────────────────────────
+//
+// Chat is in a grid column, open by default. The toggle collapses it to a
+// thin 40px rail so the diagram gets full viewport width when needed.
+// State is persisted in localStorage.
+function setupChatToggle() {
+  const shell = document.querySelector('.app-shell')
+  const btn = document.getElementById('chat-toggle')
+  const icon = document.getElementById('chat-toggle-icon')
+  if (!shell || !btn) return
+
+  const KEY = 'delma.chat.collapsed'
+  const setCollapsed = (collapsed) => {
+    shell.classList.toggle('chat-collapsed', collapsed)
+    btn.setAttribute('aria-label', collapsed ? 'Expand chat' : 'Collapse chat')
+    btn.title = collapsed ? 'Expand chat (⌘\\)' : 'Collapse chat (⌘\\)'
+    if (icon) icon.textContent = collapsed ? '‹' : '›'
+    try { localStorage.setItem(KEY, collapsed ? '1' : '0') } catch {}
+  }
+
+  // Default: open. Restore prior state if set.
+  let initial = false
+  try { initial = localStorage.getItem(KEY) === '1' } catch {}
+  setCollapsed(initial)
+
+  btn.addEventListener('click', () => {
+    setCollapsed(!shell.classList.contains('chat-collapsed'))
+  })
+  document.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === '\\') {
+      e.preventDefault()
+      setCollapsed(!shell.classList.contains('chat-collapsed'))
+    }
+  })
+}
+
+// ── Layout debug ───────────────────────────────────────────────────────────
+//
+// Dumps the current layout measurements to the console. Call window.delmaDebug()
+// at any time from DevTools, or watch the automatic logs on resize/render.
+function delmaDebugLayout(tag = 'manual') {
+  const q = (sel) => document.querySelector(sel)
+  const measure = (el) => el ? {
+    clientW: el.clientWidth,
+    scrollW: el.scrollWidth,
+    offsetW: el.offsetWidth,
+    rectL: Math.round(el.getBoundingClientRect().left),
+    rectR: Math.round(el.getBoundingClientRect().right),
+    overflows: el.scrollWidth > el.clientWidth + 1
+  } : null
+
+  const shell = q('.app-shell')
+  const panel = q('.workspace-panel')
+  const chat = q('.chat-sidebar')
+  const header = q('.workspace-header')
+  const tabRow = q('.tab-row')
+  const tabBar = q('.tab-bar')
+  const meta = q('.diagram-meta')
+  const stage = q('.diagram-stage')
+  const card = q('.diagram-card')
+  const wrapper = q('.diagram-zoom-wrapper')
+  const canvas = q('.diagram-zoom-canvas')
+  const svg = wrapper?.querySelector('svg')
+
+  const data = {
+    tag,
+    viewport: { w: window.innerWidth, h: window.innerHeight },
+    shellGrid: shell ? getComputedStyle(shell).gridTemplateColumns : null,
+    chatCollapsed: shell?.classList.contains('chat-collapsed') || false,
+    panel: measure(panel),
+    chat: measure(chat),
+    header: measure(header),
+    tabRow: measure(tabRow),
+    tabBar: measure(tabBar),
+    meta: measure(meta),
+    stage: measure(stage),
+    card: measure(card),
+    wrapper: measure(wrapper),
+    canvas: measure(canvas),
+    svg: svg ? {
+      viewBox: svg.getAttribute('viewBox'),
+      width: svg.getAttribute('width'),
+      height: svg.getAttribute('height'),
+      baseW: svg.dataset.baseWidth,
+      baseH: svg.dataset.baseHeight,
+      transform: svg.style.transform
+    } : null
+  }
+
+  // Find elements inside the panel that extend past its right edge
+  if (panel) {
+    const pr = Math.round(panel.getBoundingClientRect().right)
+    const overflowers = []
+    for (const el of panel.querySelectorAll('*')) {
+      const r = el.getBoundingClientRect()
+      if (r.width > 0 && Math.round(r.right) > pr + 1) {
+        overflowers.push({
+          tag: el.tagName.toLowerCase(),
+          cls: (el.className || '').toString().slice(0, 60),
+          id: el.id,
+          rectR: Math.round(r.right),
+          diff: Math.round(r.right - pr)
+        })
+        if (overflowers.length >= 8) break
+      }
+    }
+    data.panelRight = pr
+    data.overflowingPastPanel = overflowers
+  }
+
+  console.log('[delma layout]', tag, JSON.stringify(data, null, 2))
+  return data
+}
+window.delmaDebug = delmaDebugLayout
+
+function wireLayoutDebug() {
+  // Log at key moments
+  window.addEventListener('resize', () => {
+    clearTimeout(window.__delmaResizeT)
+    window.__delmaResizeT = setTimeout(() => delmaDebugLayout('resize'), 200)
+  })
+  // Log on tab switches
+  const origRender = renderWorkspace
+  // (renderWorkspace is already async and exported; just log when diagram mounts)
+  const obs = new MutationObserver(() => {
+    if (document.querySelector('.diagram-zoom-wrapper')) {
+      obs.disconnect()
+      setTimeout(() => delmaDebugLayout('diagram-rendered'), 100)
+    }
+  })
+  if (document.body) obs.observe(document.body, { childList: true, subtree: true })
+}
+
 void init().then(() => {
   console.log('[delma] init done, starting prompt engine')
+  setupChatToggle()
+  wireLayoutDebug()
+  delmaDebugLayout('post-init')
   startPromptEngine()
 }).catch(err => console.error('[delma] INIT CRASHED:', err))
