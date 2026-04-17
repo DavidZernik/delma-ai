@@ -27,28 +27,25 @@ call `get_workspace_state`.
 
 ## Current Workspace Summary
 
-**Project:** Emory Healthcare - Birthday Campaign  
-**Team:** Marketing Automation Team (Owner: Delma)  
+**Project Name:** Emory Healthcare Birthday Campaign
 
-**Current Status:** Ready for end-to-end testing. Both journeys (Birthday Daily Email & Birthday Quiz Follow-Up) are Published. 7 test contacts are seeded. The daily automation is built but not activated.
+**Team Members & Roles:**
+*   **Marketing Automation Team:** Builds/maintains SFMC journeys, automations, and data flows.
+*   **Data/CRM Team:** Manages source patient data in Salesforce Health Cloud.
+
+**Current Status:** System is designed and documented. Core daily send automation (`Birthday_Daily_Send_Refresh`) is **paused for testing**. Follow-up automation (`Follow-Up Entry Automation`) is a manual, run-once process, not real-time.
 
 **Key Systems/IDs:**
-*   **Source DE:** `All_Patients_Opted_In` (Shared)
-*   **Trigger Automation:** `Birthday_Daily_Send_Refresh` (ID: `11515afe-c5c3-4b6e-8005-f7e8c8a50a45`)
-*   **Staging DE:** `TEST_Birthday_Daily_Send`
-*   **Main Journey:** `Birthday Daily Email` (ID: `d53b5e04-ec9a-4526-b05e-8b8bd0b6e746`)
-*   **Birthday Email:** `brand_all_hbd_2026` (Asset ID: `264938`)
-*   **Quiz CloudPage:** Page ID `8085`
-*   **Response DE:** `birthday_quiz_responses`
-*   **Follow-up Journey:** `Birthday Quiz Follow-Up` (ID: `cb195f60-a163-4a5b-b4cc-2ecb6a62c485`)
-*   **Test Seed DE:** `Birthday_Test_Seed`
+*   **Source:** Salesforce Health Cloud `All_Patients_Opted_In` DE.
+*   **Filter:** SQL `Birthday_Daily_Filter`.
+*   **Staging DE:** `TEST_Birthday_Daily_Send`.
+*   **Journeys:** `Birthday Daily Email Journey v2` (main), `Birthday Quiz Follow-Up Journey v2` (routing).
+*   **Email:** `brand_all_hbd_2026`.
+*   **CloudPage:** Birthday Quiz (Page 8085).
+*   **Response DE:** `birthday_quiz_responses` (stores `Answer1`, `ResultPath`, `ProcessedFlag`).
+*   **Follow-up Journeys:** `Heart & Vascular` (hv_lead_nurture), `Women's Services` (ws_journey_rebrand), `General Health` (brand_welcome).
 
-**What Needs to Happen Next (Immediate):**
-1.  **Fire test contacts** into the Birthday Daily Email journey via Fire Event API (rows in the DE do not auto-trigger).
-2.  Verify all 7 test addresses receive the birthday email.
-3.  Click each quiz button (Heart, Womens, Active, Nutrition) from different emails.
-4.  Confirm the CloudPage displays correctly and writes to `birthday_quiz_responses`.
-5.  Verify follow-up emails are routed and sent correctly (wait steps are set to 5 minutes for testing).
-6.  Check that the `ProcessedFlag` in the response DE flips to 'Y'.
-
-**Pre-Launch Sequence:** After testing, manually run automation, swap journey entry source to production DE, reset wait steps to 48 hours, activate the daily automation schedule, and activate journeys on the real source.
+**What Needs to Happen Next:**
+1.  **Testing:** Execute end-to-end test of the paused daily send flow.
+2.  **Automation Optimization:** Address the manual, non-real-time nature of the `Follow-Up Entry Automation`.
+3.  **Monitoring:** Establish process to monitor the `birthday_quiz_responses` DE and journey performance post-launch.

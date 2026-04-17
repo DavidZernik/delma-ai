@@ -98,8 +98,14 @@ export async function handleChatStream(req, res) {
     return res.status(400).json({ error: 'message, workspaceId, userId required' })
   }
 
+  let conversationId
+  try {
+    const scratchDir = ensureScratchDir(workspaceId)
+    conversationId = await getOrCreateConversation(workspaceId, userId)
+  } catch (err) {
+    return res.status(400).json({ error: err.message })
+  }
   const scratchDir = ensureScratchDir(workspaceId)
-  const conversationId = await getOrCreateConversation(workspaceId, userId)
 
   // Persist the user message before the turn starts.
   await saveMessage(conversationId, { role: 'user', content: message })
