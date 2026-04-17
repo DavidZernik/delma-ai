@@ -76,10 +76,25 @@
 
     .app-shell {
       display: grid;
-      grid-template-columns: 1fr;
+      grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
       gap: 0;
       height: 100vh;
       padding: 0;
+    }
+    /* Mobile: stack workspace above chat. Chat collapses via toggle button. */
+    @media (max-width: 900px) {
+      .app-shell {
+        grid-template-columns: 1fr;
+        grid-template-rows: 1fr auto;
+      }
+    }
+    .chat-sidebar {
+      min-height: 0;
+      overflow: hidden;
+      border-left: 1px solid var(--line);
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
     }
 
     .panel {
@@ -1604,6 +1619,9 @@
       <textarea id="input" style="display:none;" disabled></textarea>
       <button id="send-btn" style="display:none;" disabled></button>
     </div>
+    <aside class="chat-sidebar" aria-label="Delma chat">
+      <div id="chat-sidebar-root" style="flex:1; min-height:0; display:flex;"></div>
+    </aside>
   </div>
 
   <div id="auth-overlay" class="auth-overlay" aria-hidden="true">

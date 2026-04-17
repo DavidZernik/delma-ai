@@ -28,6 +28,7 @@ import { ROUTER_SYSTEM_PROMPT, buildTabsBlock, buildRouterUserMessage } from './
 import { extractJsonArray } from './extract-json-array.js'
 import { isStructuredTab } from './tab-ops.js'
 import { renderStructuredEditor } from './structured-editor.js'
+import { mountChat } from './chat/mount.js'
 
 // Helper: get the current user's Supabase JWT for authenticated server calls.
 // Server endpoints verify this token and never trust a client-supplied userId.
@@ -345,6 +346,13 @@ async function openWorkspace(workspaceId) {
 
   setWorkspaceStatus('Workspace open. Claude Code can connect via Delma MCP.')
   appendLog('Workspace Open', `Connected to workspace. Diagrams and memory are live.`)
+
+  // Mount the in-app chat. Agent SDK runs server-side; sidebar streams its
+  // output. Chat lives alongside the workspace — same app, no Claude Desktop.
+  if (state.user?.id && state.workspaceId) {
+    try { mountChat({ containerId: 'chat-sidebar-root', workspaceId: state.workspaceId, userId: state.user.id }) }
+    catch (err) { console.warn('[delma chat] mount failed:', err.message) }
+  }
 }
 
 // ── Data Loading ─────────────────────────────────────────────────────────────

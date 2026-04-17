@@ -1,0 +1,156 @@
+// Custom hook: SSE consumer for /api/chat/stream. Parses the event stream
+// Agent SDK emits and surfaces a tidy { messages, send, status } interface
+// the React component renders against.
+//
+// Keeping this thin so we can swap @assistant-ui for a different chat UI
+// library later without touching the streaming logic. The adapter layer
+// is exactly this file.
+
+import { useCallback, useRef, useState } from 'react'
+
+export function useChatStream({ workspaceId, userId }) {
+  const [messages, setMessages] = useState([])   // normalized for UI
+  const [status, setStatus] = useState('idle')   // 'idle' | 'streaming' | 'error'
+  const [conversationId, setConversationId] = useState(null)
+  const abortRef = useRef(null)
+
+  const send = useCallback(async (userText) => {
+    if (status === 'streaming') return
+    setStatus('streaming')
+
+    // Optimistic user message.
+    setMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'user', content: userText }])
+
+    const ctrl = new AbortController()
+    abortRef.current = ctrl
+
+    try {
+      const res = await fetch('/api/chat/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: userText, workspaceId, userId }),
+        signal: ctrl.signal
+      })
+      if (!res.ok || !res.body) {
+        throw new Error(`stream failed: ${res.status}`)
+      }
+
+      // Manual SSE parser — the Fetch response body is a ReadableStream of
+      // text. SSE frames are separated by blank lines; each line starts
+      // with a key (`event:` or `data:`).
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let currentAssistant = null
+
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        let idx
+        while ((idx = buffer.indexOf('\n\n')) !== -1) {
+          const frame = buffer.slice(0, idx)
+          buffer = buffer.slice(idx + 2)
+          const parsed = parseFrame(frame)
+          if (!parsed) continue
+
+          if (parsed.event === 'meta') {
+            setConversationId(parsed.data.conversationId)
+            continue
+          }
+          if (parsed.event === 'error') {
+            setStatus('error')
+            setMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'system', content: `Error: ${parsed.data.message}` }])
+            continue
+          }
+          if (parsed.event === 'done') {
+            currentAssistant = null
+            continue
+          }
+          if (parsed.event === 'message') {
+            const m = parsed.data
+            // Agent SDK emits various message shapes: assistant-text, tool_use,
+            // tool_result, system. Surface what's meaningful to the UI and
+            // group sequential assistant chunks into a single bubble.
+            if (m.type === 'assistant' || m.role === 'assistant') {
+              const text = extractText(m)
+              const toolUse = extractToolUses(m)
+              if (currentAssistant) {
+                setMessages(prev => prev.map(x =>
+                  x.id === currentAssistant ? { ...x, content: (x.content || '') + text, tools: [...(x.tools || []), ...toolUse] } : x
+                ))
+              } else {
+                const id = crypto.randomUUID()
+                currentAssistant = id
+                setMessages(prev => [...prev, { id, role: 'assistant', content: text, tools: toolUse }])
+              }
+            } else if (m.type === 'user' && m.message?.content) {
+              // Tool results come through as user-role messages from Agent SDK.
+              const toolResults = extractToolResults(m)
+              if (toolResults.length) {
+                setMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'tool', results: toolResults }])
+              }
+            } else if (m.type === 'result' || m.subtype === 'final') {
+              // Final wrap message — end of turn.
+              currentAssistant = null
+            }
+          }
+        }
+      }
+      setStatus('idle')
+    } catch (err) {
+      if (err.name === 'AbortError') { setStatus('idle'); return }
+      console.error('[chat] stream error:', err)
+      setStatus('error')
+      setMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'system', content: `Error: ${err.message}` }])
+    } finally {
+      abortRef.current = null
+    }
+  }, [workspaceId, userId, status])
+
+  const abort = useCallback(() => {
+    abortRef.current?.abort()
+  }, [])
+
+  return { messages, status, conversationId, send, abort }
+}
+
+function parseFrame(frame) {
+  const lines = frame.split('\n')
+  let event = 'message'
+  const dataLines = []
+  for (const line of lines) {
+    if (line.startsWith('event:')) event = line.slice(6).trim()
+    else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim())
+  }
+  if (!dataLines.length) return null
+  try { return { event, data: JSON.parse(dataLines.join('\n')) } }
+  catch { return null }
+}
+
+function extractText(msg) {
+  const content = msg.message?.content || msg.content
+  if (!content) return ''
+  if (typeof content === 'string') return content
+  if (Array.isArray(content)) {
+    return content.filter(c => c.type === 'text').map(c => c.text).join('')
+  }
+  return ''
+}
+
+function extractToolUses(msg) {
+  const content = msg.message?.content || msg.content
+  if (!Array.isArray(content)) return []
+  return content.filter(c => c.type === 'tool_use').map(c => ({
+    id: c.id, name: c.name, input: c.input
+  }))
+}
+
+function extractToolResults(msg) {
+  const content = msg.message?.content
+  if (!Array.isArray(content)) return []
+  return content.filter(c => c.type === 'tool_result').map(c => ({
+    tool_use_id: c.tool_use_id,
+    output: typeof c.content === 'string' ? c.content : JSON.stringify(c.content)
+  }))
+}
