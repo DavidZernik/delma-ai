@@ -250,7 +250,7 @@ async function renderRunDetail(runId) {
   const [{ data: run }, { data: sims }, { data: evals }, { data: candidates }, { data: stateChecks }, { data: signals }] = await Promise.all([
     sb.from('quality_runs').select('*').eq('id', runId).maybeSingle(),
     sb.from('quality_simulations').select('*').eq('run_id', runId).order('ran_at', { ascending: true }),
-    sb.from('quality_eval_runs').select('*').eq('run_id', runId).order('ran_at', { ascending: true }),
+    sb.from('quality_eval_runs').select('*').eq('run_id', runId).order('run_at', { ascending: true }),
     sb.from('quality_candidate_evals').select('*').eq('run_id', runId).order('found_at', { ascending: true }),
     sb.from('quality_state_checks').select('*').eq('run_id', runId).order('checked_at', { ascending: true }),
     sb.from('quality_signals').select('*').eq('run_id', runId).order('checked_at', { ascending: true })

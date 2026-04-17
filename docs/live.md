@@ -7,35 +7,50 @@ repo today.
 
 ## 1. What Delma is
 
-> **Delma is a visual workspace that captures project context from AI
-> conversations and makes it visible, editable, and shareable — so
-> non-technical people can manage technical projects through Claude Code
-> without needing an engineer.**
+> **Delma is a visual workspace with an embedded AI chat that captures
+> project context and makes it visible, editable, and shareable — so
+> non-technical people can manage technical projects without needing an
+> engineer.**
 
-No local repo required. Everything lives in Supabase. Claude Code
-connects via MCP and reads/writes the same data the web app shows.
+Everything lives in Supabase. The web app is the primary surface:
+workspace on the left, Claude chat sidebar on the right. Claude runs
+via the Agent SDK server-side, with Delma's typed ops exposed as MCP
+tools internally. A standalone MCP server also exists for Claude Code
+(local CLI) users.
 
 ---
 
 ## 2. Architecture
 
 ```
-Claude Code  -->  Delma MCP Server  -->  Supabase (Postgres + Realtime)
-                                              ^
-                                              |
-                                         Delma Web App
-                                     (Supabase Realtime subscriptions)
-                                              |
-                              ┌───────────────┴───────────────┐
-                              |                               |
-                         DeepSeek API                  Claude Haiku 4.5
-                    (markdown patches,              (Mermaid diagram
-                     proactive gaps,                 structural edits,
-                     sync conversation)              via /api/chat proxy)
+Browser
+  ├── Workspace UI (vanilla JS, left pane)
+  │     ├── Typed-op router (Haiku) for NL edits
+  │     ├── Supabase Realtime subscriptions
+  │     └── Mermaid diagram renderer
+  └── Chat sidebar (React island, right pane)
+        └── SSE stream ←→ POST /api/chat/stream
+
+Express Server (Render)
+  ├── /api/chat/stream ── Claude Agent SDK ── Anthropic API
+  │                           ├── Default tools (Bash, Read, Write, etc.)
+  │                           └── Delma MCP server (internal, typed ops)
+  ├── /api/op ── applyOpsToTab (web router writes)
+  ├── /api/chat ── proxy for Haiku/DeepSeek calls (router, proactive Qs)
+  ├── /logs ── quality lab dashboard (server-rendered HTML)
+  └── /quality/* ── overnight + smoke run triggers
+
+Supabase (Postgres + Auth + Realtime)
+  └── Source of truth for all workspace data
+
+External services:
+  - Helicone: LLM observability (all Anthropic calls proxied)
+  - Gemini: embeddings for semantic dedup (free tier)
+  - DeepSeek: proactive gap analysis + conversation sync
 ```
 
-Both Claude (via MCP) and the user (via web app) write to the same
-Supabase tables. Supabase Realtime pushes changes to all connected
+Both Claude (via chat or MCP) and the user (via web app) write to the
+same Supabase tables. Supabase Realtime pushes changes to all connected
 clients instantly.
 
 ---
@@ -43,17 +58,18 @@ clients instantly.
 ## 3. Organization and Workspace Hierarchy
 
 ```
-Organization (e.g. "Emory Healthcare")
+Organization (one per user — no multi-org for now)
   ├── Org-level tabs (shared across all projects)
-  │   ├── SFMC Setup (environment.md)
-  │   └── People (people.md)
+  │   ├── People (people.md)
+  │   └── General Patterns and Docs (playbook.md)
   └── Workspaces (e.g. "Birthday Campaign")
-      ├── Diagram views (Architecture, Org Chart, etc.)
-      └── Memory notes (logic.md, session-log.md, etc.)
+      ├── Diagram views (Architecture, etc.)
+      └── Memory notes (decisions.md, environment.md, etc.)
 ```
 
-Users belong to organizations. Each org has shared tabs (people,
-environment) and multiple workspaces for individual projects.
+One org auto-created per user. Flat tab presentation: org-level and
+project-level tabs render together in the tab bar. One long-running
+conversation per workspace (no multi-thread).
 
 ---
 
@@ -85,7 +101,7 @@ separate "diagram type" vs "document type" — just content.
 
 **My Notes is GLOBAL** — keyed by `user_id`, NOT by workspace or org.
 The same notes follow you whether you're in Birthday Campaign, Memorial
-Day Campaign, or any project in any org. Like a notebook you carry.
+Day Campaign, or any project in any org.
 
 ### What changes when you switch context
 
@@ -99,19 +115,18 @@ Day Campaign, or any project in any org. Like a notebook you carry.
 
 Every memory tab is stored as **structured JSON** in a `structured`
 column, and the rendered markdown `content` is regenerated from it.
-The LLM (in the web router or in Claude Desktop via MCP) never
-rewrites entire tab content — it picks one of a small set of typed
-operations and fills 2–3 fields. Deterministic code does the actual
-mutation + render. This is the most important architectural invariant
-in Delma; see Section 13 for the full design.
+The LLM never rewrites entire tab content — it picks one of a small set
+of typed operations and fills 2-3 fields. Deterministic code does the
+actual mutation + render. This is the most important architectural
+invariant in Delma; see Section 13 for the full design.
 
 ---
 
 ## 5. Tab Permissions
 
 Each tab has a permission level that controls who can see and edit it.
-This is enforced at two levels: Postgres RLS policies (hard boundary)
-and UI controls (lock icons, hidden Edit buttons).
+Enforced at two levels: Postgres RLS policies (hard boundary) and UI
+controls (lock icons, hidden Edit buttons).
 
 | Permission | Who sees it | Who edits it |
 |-----------|-------------|-------------|
@@ -128,18 +143,32 @@ and UI controls (lock icons, hidden Edit buttons).
 
 | Table | Purpose |
 |-------|---------|
-| `organizations` | Named orgs (e.g. "Emory Healthcare") |
+| `organizations` | Named orgs (one per user) |
 | `org_members` | Who belongs to each org + role + active_workspace_id |
 | `org_memory_notes` | Org-level shared tabs (people, playbook) |
 | `workspaces` | Named projects within an org |
 | `workspace_members` | Who belongs + role (owner/member) |
 | `diagram_views` | Mermaid diagrams with title, description, summary, permission |
 | `memory_notes` | Markdown documents with filename, content, permission |
-| `user_notes` | Per-user GLOBAL notes (My Notes) — keyed by user_id, follows across orgs/projects |
+| `user_notes` | Per-user GLOBAL notes (My Notes) — keyed by user_id |
 | `history_snapshots` | Timestamped JSON snapshots on every save |
 | `mcp_call_logs` | Every MCP tool call logged for analytics |
-| `conversation_ticks` | One row per user message in Claude Code (fired by `hooks/inject-claude-md.sh` via `/api/conversation-tick`). Joined to `mcp_call_logs` for real Mode-A timeliness. |
-| `quality_candidate_evals` | Missed/wrong findings from the overnight critic, auto-filed as eval-case candidates for human review. |
+| `conversation_ticks` | One row per user message in Claude Code (via hooks) |
+| `conversations` | Chat conversations (one per workspace) |
+| `messages` | Ordered messages within conversations (user, assistant, tool, system) |
+| `token_usage` | Per-user per-workspace monthly token accounting |
+| `sfmc_accounts` | SFMC OAuth credentials per org (pgcrypto-encrypted) |
+| `sfmc_audit_log` | Every SFMC operation the chat invokes |
+| `quality_observations` | Critic findings from overnight runs |
+| `quality_simulations` | Narrative simulation results |
+| `quality_eval_runs` | Regression eval results per case |
+| `quality_state_checks` | State hygiene findings |
+| `quality_signals` | Timeliness + router signal patterns |
+| `quality_experiments` | A/B leaderboard results |
+| `quality_candidate_evals` | Auto-filed eval-case candidates from critic findings |
+| `quality_runs` | Per-run grouping (run cards on /logs) |
+| `quality_runner_status` | Layer-level status tracking |
+| `api_op_logs` | Every /api/op write logged |
 | `__delma_migrations` | Migration tracking — one row per applied SQL file |
 
 ### Auth
@@ -149,31 +178,68 @@ Supabase Auth with email/password. First login auto-creates the account.
 ### Real-time
 
 `diagram_views`, `memory_notes`, `org_memory_notes`, and `user_notes`
-have Supabase Realtime enabled. When Claude writes via MCP, the web
-app updates live.
+have Supabase Realtime enabled. When Claude writes via typed ops, the
+web app updates live.
 
 ### Migrations (DDL)
 
-The Supabase JS client can't run DDL (CREATE TABLE etc.). For schema
-changes, we use a one-off Node script (`server/run-migrations.js`) that
-connects via `DATABASE_URL` (set in `.env`, gitignored) using the `pg`
-driver. It tracks applied migrations in `__delma_migrations` so re-runs
-are safe.
+Schema changes use `server/run-migrations.js` — connects via
+`DATABASE_URL` (`.env`, gitignored) using the `pg` driver. Tracks
+applied migrations in `__delma_migrations` so re-runs are safe.
 
-Run it: `node server/run-migrations.js`. The DATABASE_URL is the
-Supabase pooler connection string from
-**Connect → Direct → Connection pooling** in the dashboard.
+Run: `node server/run-migrations.js`. 17 migrations exist (001 through
+017), covering initial schema through chat tables and SFMC credentials.
 
 ---
 
-## 7. The MCP Server
+## 7. The Chat (Agent SDK)
 
-Runs locally via `npm run start:mcp` (stdio transport).
-Requires env vars: `DELMA_WORKSPACE_ID`, `DELMA_USER_ID`.
+Chat lives inside the Delma web app as a right-sidebar React island.
+Claude runs server-side via the Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`).
 
-| Tool | Purpose |
-|------|---------|
-**Read tools**
+### How it works
+
+1. User types a message in `ChatSidebar.jsx`
+2. `useChatStream.js` POSTs to `/api/chat/stream`
+3. `server/chat/stream.js` calls `query()` from the Agent SDK with:
+   - Default tools (Bash, Read, Write, Edit, Glob, Grep)
+   - Delma's MCP server as an internal tool source (typed ops)
+   - Per-workspace scratch directory for file operations
+4. Server streams responses back via SSE
+5. All messages persisted to `conversations` + `messages` tables
+
+### Key design decisions
+
+- **One conversation per workspace** — no multi-thread complexity
+- **Always-on writes** — in-app chat writes freely (no "delma on/off"
+  toggle; that privacy contract only applies to the external MCP path)
+- **Model-agnostic** — defaults to `claude-sonnet-4-5`, configurable
+  via `DELMA_CHAT_MODEL` env var
+- **Scratch dirs** — each workspace gets `/tmp/delma-workspaces/<id>/`
+  where Claude can write/read files
+
+### Files
+
+| File | Role |
+|------|------|
+| `server/chat/stream.js` | Agent SDK chat endpoint (SSE streaming) |
+| `src/chat/ChatSidebar.jsx` | React component for the chat UI |
+| `src/chat/useChatStream.js` | React hook for SSE streaming |
+| `src/chat/mount.js` | React island mount/unmount for vanilla JS host |
+
+---
+
+## 8. The MCP Server (external + internal)
+
+The MCP server serves two roles:
+
+1. **Internal** — the Agent SDK chat calls it for typed ops
+2. **External** — Claude Code connects via `npm run start:mcp` (stdio)
+
+Requires env vars: `DELMA_WORKSPACE_ID`, `DELMA_USER_ID` (for external).
+
+### Read tools
+
 | Tool | Purpose |
 |------|---------|
 | `open_workspace` | Set active workspace by name or ID |
@@ -182,150 +248,109 @@ Requires env vars: `DELMA_WORKSPACE_ID`, `DELMA_USER_ID`.
 | `compose_claude_md` | Return CLAUDE.md behavior instructions |
 | `list_history` | List history snapshots |
 
-**Typed-op tools (structured tabs)** — one tool per operation. Claude
-Desktop picks the right tool from the conversation; deterministic code
-mutates the structured JSON + re-renders the view. No full rewrites.
+### Typed-op tools (one tool per operation)
 
-| Tool | Tab | Args |
-|------|-----|------|
-| `delma_add_person` | People | name, role?, kind?, reports_to? |
-| `delma_set_role` | People | person, role |
-| `delma_remove_person` | People | name |
-| `delma_add_reporting_line` | People | from, to |
-| `delma_add_playbook_rule` | Playbook | text, section? |
-| `delma_set_environment_key` | Environment | key, value, note? |
-| `delma_add_decision` | Decisions | text, owner? |
-| `delma_add_action` | Decisions | text, owner?, due? |
-| `delma_complete_action` | Decisions | id |
-| `delma_append_my_note` | My Notes | text |
+**People:**
+`delma_add_person`, `delma_set_role`, `delma_remove_person`,
+`delma_add_reporting_line`, `delma_remove_reporting_line`, `delma_set_manager`
 
-**Legacy tools (still present for diagram_views + bulk sync)**
-| Tool | Purpose |
-|------|---------|
-| `save_diagram_view` | Update a Mermaid diagram view (architecture, etc.) |
-| `append_memory_note` | Free-form append to a memory file (legacy) |
-| `sync_conversation_summary` | Bulk-sync facts from conversation (legacy) |
+**Playbook:**
+`delma_add_playbook_rule`, `delma_remove_playbook_rule`, `delma_supersede_rule`
 
-All write operations check permissions before executing. If a user
-doesn't have edit access, the MCP server returns a clear error.
+**Environment:**
+`delma_set_environment_key`, `delma_remove_environment_key`
 
-### Conversation Sync
+**Decisions:**
+`delma_add_decision`, `delma_add_action`, `delma_complete_action`,
+`delma_complete_action_by_text`, `delma_supersede_decision`
 
-The `sync_conversation_summary` tool is the primary way context flows
-from Claude Code conversations into Delma. Claude calls it every few
-exchanges with a plain-English summary of what was discussed.
+**Architecture:**
+`delma_arch_set_prose`, `delma_arch_add_node`, `delma_arch_set_node_label`,
+`delma_arch_set_node_note`, `delma_arch_set_node_kind`, `delma_arch_move_node`,
+`delma_arch_remove_node`, `delma_arch_add_edge`, `delma_arch_remove_edge`,
+`delma_arch_add_layer`, `delma_arch_remove_layer`
 
-The tool:
-1. Reads all current workspace tabs from Supabase
-2. Sends the summary + current content to DeepSeek
-3. DeepSeek returns JSON patches for tabs that need updating
-4. Patches are applied to Supabase
-5. Supabase Realtime pushes changes to the web app
+**My Notes:**
+`delma_append_my_note`
 
-This means the web app updates in real-time as the user talks to
-Claude — no manual syncing, no polling.
+**Legacy (still present for diagram_views + bulk sync):**
+`save_diagram_view`, `append_memory_note`, `sync_conversation_summary`
 
-### CLAUDE.md Instructions
+### Handler-level dedup
 
-CLAUDE.md tells Claude when to sync:
-- After a decision is confirmed
-- When a new person or system is mentioned
-- After working out technical details
-- When finishing a task or switching topics
-- If 5+ exchanges have passed without a sync
+Ops that create items (`add_playbook_rule`, `add_decision`, `add_node`,
+`add_action`, `add_edge`) enforce dedup at the handler level. The LLM
+was told "don't duplicate" in prose and ignored it — now code enforces
+it via:
 
-### MCP Call Logger
+- Stemmer + Jaccard + character-subsequence matching (sync, browser-safe)
+- Gemini embeddings for semantic near-dups (server-side, `server/lib/similarity.js`)
+- `add_edge` also runs cycle detection before inserting
+- `add_node` dedup is kind-aware (a "de" node and a "journey" node with
+  the same label are NOT duplicates)
 
-Every tool call is logged to `mcp_call_logs` with timestamp, tool name,
-input, duration, and success/error. Console logs (`[mcp]` prefix) trace
-every tool call with timing on the server side.
+New ops added for governance: `merge_nodes` and `supersede_rule` let
+Claude consolidate duplicates that slipped through before dedup existed.
 
 ---
 
-## 8. Context Loading & Bidirectional Sync
+## 9. Context Loading & Bidirectional Sync
 
-Context flows into Claude Code through three mechanisms working together
-to maintain true bidirectional sync between the web app and the chat.
+Context flows into Claude Code (external MCP path) through three
+mechanisms working together.
 
 ### Active project follows the web app
 
 Both the SessionStart hook and the MCP server look up the user's
-**`org_members.active_workspace_id`** at startup — that's whatever
-project tab is currently open in the browser. No hardcoded workspace
-in `.mcp.json`. Switch projects in the browser → next Claude Code
-session sees the new project.
+**`org_members.active_workspace_id`** at startup. Switch projects in
+the browser and the next Claude Code session sees the new project.
 
-For mid-session switches: when the web app's project dropdown changes,
-it both updates `active_workspace_id` AND triggers `/api/refresh-claude-md`,
-so the next message you send Claude sees the new project's content.
+### Privacy default: writes off until "delma on" (external MCP only)
 
-### Privacy default: writes off until "delma on"
+CLAUDE.md leads with a privacy contract for the external Claude Code path:
 
-CLAUDE.md leads with a privacy contract:
+- **Reads always on.** Claude can see the workspace.
+- **Writes OFF by default.** Enabled via "delma on" (creates `.claude/.delma-on`).
 
-- **Reads always on.** Claude can see the workspace from the moment
-  the session starts.
-- **Writes OFF by default.** Claude will NOT call `sync_conversation_summary`,
-  `save_diagram_view`, or `append_memory_note` unless the user explicitly
-  enables it.
-
-Triggers:
-- "delma on" / "record this" / "sync to delma" → creates `.claude/.delma-on`
-  flag, Claude starts syncing
-- "delma off" / "stop recording" → removes the flag, Claude goes silent
-
-Claude must check the flag before any write tool call.
+The in-app chat sidebar has **always-on writes** — no toggle needed.
 
 ### Session start: full content (via hook)
 
 `hooks/load-workspace.sh` runs once at session start and loads the full
-workspace content from Supabase — all tabs dumped to stdout. Claude has
-every detail before the first message.
+workspace content from Supabase. Claude has every detail before the
+first message.
 
 ### Ongoing: summary in CLAUDE.md (auto-updated)
 
-After every MCP write OR web app save, `refreshClaudeMd()` (server-side)
-reads all tabs, sends them to the summarizer (DeepSeek → Haiku fallback),
-and writes a condensed summary to CLAUDE.md locally. Two trigger points:
+After every MCP write OR web app save, `refreshClaudeMd()` reads all
+tabs, sends them to the summarizer (DeepSeek, Haiku fallback), and
+writes a condensed summary to CLAUDE.md locally. Trigger points:
+MCP writes and web app saves (via `POST /api/refresh-claude-md`).
 
-1. **MCP writes** — `server/mcp.js` calls `refreshClaudeMd()` after
-   every `save_diagram_view`, `append_memory_note`, or
-   `sync_conversation_summary`.
-2. **Web app saves** — frontend calls `POST /api/refresh-claude-md`
-   after every Save and after every router write. Server runs the same
-   summarizer and updates the file.
+### Per-message: smart hook (only when changed)
 
-### Per-message: smart hook injects fresh content (only when changed)
+`hooks/inject-claude-md.sh` is a `UserPromptSubmit` hook. Before every
+user message it checks CLAUDE.md mtime — if changed since last
+injection, injects fresh content wrapped in `<delma-fresh-context>`.
+Most messages: zero token cost (file unchanged).
 
-`hooks/inject-claude-md.sh` is a `UserPromptSubmit` hook registered in
-`.claude/settings.json`. Before every user message:
+### Net result
 
-1. Reads CLAUDE.md mtime
-2. Compares to the last-injected mtime (stored in `.claude/.delma-last-injected-mtime`)
-3. **If unchanged**: exits silently (zero token cost — most messages)
-4. **If changed**: injects fresh CLAUDE.md content wrapped in
-   `<delma-fresh-context>` with a one-line "X seconds ago" timestamp,
-   plus a fallback instruction telling Claude to call `get_workspace_state`
-   if it suspects further drift
-
-### Net result: true bidirectional sync
-
-- **Claude → Web app**: MCP write → Supabase → Realtime websocket pushes
-  to all open browsers (instant)
-- **Web app → Claude**: Save → server refreshes CLAUDE.md → next user
-  message → hook injects fresh content (~1-10s end-to-end)
-- **Mid-session drift**: Claude can call `get_workspace_state` for fresh
-  data on demand
-
-### Cost model
-
-- Most messages: zero token overhead (file unchanged → hook injects nothing)
-- After any web edit: one fresh CLAUDE.md injection (~500 tokens)
-- ~$0.0015 per fresh injection at Sonnet pricing — negligible
+- **Claude -> Web app**: typed op -> Supabase -> Realtime push (instant)
+- **Web app -> Claude**: Save -> server refreshes CLAUDE.md -> next
+  message -> hook injects fresh content (~1-10s end-to-end)
+- **Mid-session drift**: Claude can call `get_workspace_state` on demand
 
 ---
 
-## 9. Web App Features
+## 10. Web App Features
+
+### Layout
+
+Workspace on the left, chat sidebar on the right. The workspace UI is
+vanilla JS (`src/main.js`). The chat sidebar is a React island
+(`src/chat/`) mounted into a DOM node by `mountChat()`. This lets us
+add React without rewriting the existing workspace renderer.
 
 ### Natural Language Editing — Typed-Op Router
 
@@ -333,124 +358,87 @@ All user input (proactive question answers + manual NL edits) flows
 through a **typed-op router** that uses Claude Haiku 4.5 via the
 `/api/chat` proxy.
 
-**How it works:**
-1. The router sees all tabs with their **current structured JSON state**
-   (not rendered markdown — the actual data shape).
-2. It returns a list of TYPED OPERATIONS as JSON:
+1. The router sees all tabs with their **current structured JSON state**.
+2. Returns typed operations as JSON:
    `[{ "tab": "org:people.md", "op": "add_person", "args": {...} }, ...]`
-3. The web app POSTs each tab's ops to `/api/op`, which calls
-   `applyOpsToTab()` → mutates structured JSON → re-renders content →
-   writes both back to Supabase.
+3. Web app POSTs each tab's ops to `/api/op` -> `applyOpsToTab()` ->
+   mutates structured JSON -> re-renders content -> writes to Supabase.
 4. Realtime pushes changes to all connected clients.
 
-**Why typed ops:**
-- LLM emits ~10 tokens (op name + args), not hundreds (rewritten content)
-- Zero syntax errors possible — code does the rendering
-- Every op is auditable, named, testable
-- New features = new handler + eval case, not more prompt rules
+**Cost**: ~$0.001-0.003 per input (median ~800ms round-trip).
 
-**Rules in the (much smaller) system prompt:**
-- Respect each tab's scope.
-- "Corrections" use update-style ops (`set_role`) not add-style.
-- Ambiguous / irrelevant input → `[]` (no guessing, no prose).
-
-**Cost**: ~$0.001–0.003 per input (median ~800ms round-trip).
-
-**Test harness**: `scripts/eval-router.js` runs 9 scored cases against
-the live prompt. `npm run eval:router`. All passing.
+**Test harness**: `scripts/eval-router.js` runs scored cases against
+the live prompt. `npm run eval:router`.
 
 ### Proactive Questions
 
-DeepSeek analyzes tab content and surfaces questions about gaps
-(missing people, unclear logic, incomplete diagrams). Questions appear
-in a fixed action slot below the tab header.
-
+DeepSeek analyzes tab content and surfaces questions about gaps.
+Questions appear in a fixed action slot below the tab header.
 Timing: first check 30s after load, then every 5 minutes.
-User must be idle 3s before a question fires.
 Dismissed questions don't reappear for that tab.
 
-### Mermaid Diagrams — typed visual vocabulary per tab
+### Mermaid Diagrams
 
 Each tab type has its own shape + color + emoji vocabulary baked into
-the router system prompt, so future updates produce diagrams in the
-right style automatically.
+the router system prompt.
 
-**Project High Level (SFMC architecture):**
-- Cylinders for Data Extensions, hexagons for Automations, stadiums for
-  Journeys, parallelograms for Emails, trapezoids for CloudPages,
-  diamonds for Decisions
-- Light color tints per category (DE blue, email beige, journey pink, etc.)
-- Emoji prefixes: 💾 ⚙️ 🔍 ⚡ 📧 🌐 🔀
-- Layer subgraphs group nodes by role ("Patient Source", "Daily Filter")
-- Floating italic labels next to each technical node
+**Architecture** — Cylinders for DEs, hexagons for Automations, stadiums
+for Journeys, parallelograms for Emails, trapezoids for CloudPages,
+diamonds for Decisions. Light color tints per category. Emoji prefixes.
+Layer subgraphs group nodes by role. Floating italic labels.
 
-**People (org charts):**
-- Stored as `{people: [{id, name, role, kind, reports_to}]}` and
-  rendered to Mermaid by `src/tab-ops.js`
-- Shapes per role: rounded for ICs/managers, trapezoid for stakeholders,
-  cylinder for teams, parallelogram for vendors
+**People** — Shapes per role: rounded for ICs/managers, trapezoid for
+stakeholders, cylinder for teams, parallelogram for vendors.
 
-**General Patterns and Docs (process flows):**
-- 📝 process steps, 🚦 approval diamonds, ⏳ wait hexagons, ✅ actions,
-  📄 docs, 🚫 hard-rule diamonds with brand-red border
-
-### Zoom
-
-Every tab gets +/- zoom controls in the top-right of the card.
-Architecture's setZoom scales the SVG via transform + prose via CSS zoom.
-Markdown tabs use CSS `zoom` on the entire `.markdown-content` so text,
-tables, headings, and inline Mermaid SVGs all scale uniformly.
-
-### Loading
-
-`renderWorkspace()` hides `diagramOutput` (visibility:hidden + opacity 0)
-before any tab switch or refresh. Reveal happens only after the new
-content is fully prepared (Mermaid rendered, branding applied, layout
-settled via two rAFs). No flash of unstyled content. Init waits until
-real workspace data loads before revealing — no template flicker.
+**Playbook** — Process steps, approval diamonds, wait hexagons, action
+checkmarks, doc parallelograms, hard-rule diamonds with brand-red border.
 
 ### Real-time Sync
 
-When another client (Claude via MCP or another browser tab) writes
-to Supabase, the active tab fades and re-renders with the new content,
-plus a red border flash animation to signal the update. Inactive tabs
-show a dot indicator on their pill.
-
-If the user is in edit mode when an external change arrives, a status
-message appears instead of overwriting the editor: "Content updated
-externally — save or cancel to see changes."
+External writes (Claude via MCP or another browser tab) cause the
+active tab to fade and re-render with a red border flash animation.
+Inactive tabs show a dot indicator. If the user is in edit mode, a
+status message appears instead of overwriting the editor.
 
 ---
 
-## 10. Bidirectional Editing
+## 11. Bidirectional Editing
 
-Both Claude and the user write to the same Supabase tables.
-Supabase Realtime pushes changes to all connected clients.
-No polling. No manual refresh.
+Both Claude and the user write to the same Supabase tables. Supabase
+Realtime pushes changes to all connected clients. No polling. No
+manual refresh.
 
-Conflict model: last-write-wins. History snapshots on every save
-make any overwrite recoverable.
+Conflict model: last-write-wins. History snapshots on every save make
+any overwrite recoverable.
 
 ---
 
-## 11. The Product Thesis
+## 12. The Product Thesis
 
 Delma is a **context layer that makes AI assistants usable by
 non-technical people** on technical projects.
 
-The PM doesn't need to be technical because Claude has the
-Environment tab (every ID, every API endpoint) and the Campaign
-Logic tab (every business rule). The PM just says what they want
-in plain English. Claude does the rest.
+The PM doesn't need to be technical because Claude has the Environment
+tab (every ID, every API endpoint) and the Decisions tab (every business
+rule). The PM just says what they want in plain English. Claude does the
+rest.
 
-The diagrams and memory aren't documentation — they're the
-**shared truth** that makes this possible.
+The workspace and memory aren't documentation — they're the **shared
+truth** that makes this possible.
 
 ---
 
-## 12. Observability
+## 13. Observability
 
-Console logs with prefixes trace every operation:
+### Helicone (LLM calls)
+
+All Anthropic API calls route through Helicone when `HELICONE_API_KEY`
+is set (`server/lib/llm.js`). Every call is tagged with its surface
+(critic, router, run-summary, narrative-sim, quality-layer) for
+filtering in the Helicone dashboard. Logs latency, token usage, cost,
+and full prompt/response.
+
+### Console log prefixes
 
 | Prefix | Layer | What it covers |
 |--------|-------|----------------|
@@ -460,39 +448,32 @@ Console logs with prefixes trace every operation:
 | `[delma realtime]` | Frontend | Subscription setup, change handling |
 | `[delma save]` | Frontend | Tab saves to Supabase |
 | `[delma apply]` | Frontend | Apply flow (both NL edit + proactive) |
-| `[delma render]` | Frontend | Diagram/markdown render with content info |
-| `[delma refresh]` | Frontend | Supabase fetch timing + error checking |
-| `[delma prompt]` | Frontend | Proactive engine ticks, questions, dismissals |
-| `[delma gap]` | Frontend | DeepSeek gap analysis (timing + responses) |
-| `[delma router]` | Frontend | Typed-op router — tabs seen, ops parsed, /api/op posts |
+| `[delma render]` | Frontend | Diagram/markdown render |
+| `[delma router]` | Frontend | Typed-op router |
 | `[delma edit]` | Frontend | Manual NL edit entry point |
 | `[delma onApply]` | Frontend | Proactive question answer entry point |
 | `[delma reveal]` | Frontend | Hide / reveal cycle for tab content |
-| `[delma inline-zoom]` | Frontend | Zoom on markdown tabs (text + diagrams together) |
-| `[delma fit]` | Frontend | SVG natural width vs wrapper width measurements |
-| `[delma claude-md]` | Frontend | CLAUDE.md refresh trigger after web saves |
-| `[server]` | Server | /api/refresh-claude-md endpoint timing |
+| `[quality]` | Server | Quality lab layers (L1-L5) |
+| `[server]` | Server | Express endpoints |
 | `[mcp]` | Server | All MCP tool calls with timing |
-| `[mcp sync]` | Server | Conversation sync patches |
-| `[delma-state]` | Server | Supabase CRUD operations + errors |
-| `[server] op:` | Server | `/api/op` endpoint — typed-op application |
+| `[delma-state]` | Server | Supabase CRUD operations |
+| `[server] op:` | Server | /api/op typed-op application |
 
 ---
 
-## 13. Structured Tabs (the architecture that beats prompt engineering)
+## 14. Structured Tabs (the architecture that beats prompt engineering)
 
 **Principle**: the LLM never rewrites tab content. It picks one of a
-small set of typed operations and fills 2–3 fields. Deterministic
-code does the actual mutation and rendering. This is what keeps
-Delma reliable as features grow.
+small set of typed operations and fills 2-3 fields. Deterministic code
+does the actual mutation and rendering.
 
 ### The three layers
 
 | Layer | What it does | Cost when wrong |
 |---|---|---|
 | **Schema** (JSON in `structured` column) | Source of truth | Fix in code; data round-trips |
-| **Renderer / op handlers** (`src/tab-ops.js`) | Pure functions: data ↔ markdown | Fix in code; testable |
-| **LLM** (Haiku via `/api/chat` or Claude Desktop via MCP) | Classify intent, fill 2–3 fields | Bounded — can only call known ops |
+| **Renderer / op handlers** (`src/tab-ops.js`) | Pure functions: data <-> markdown | Fix in code; testable |
+| **LLM** (Haiku via `/api/chat` or Agent SDK via chat or MCP) | Classify intent, fill 2-3 fields | Bounded — can only call known ops |
 
 ### File map
 
@@ -501,151 +482,137 @@ Delma reliable as features grow.
 | `src/tab-ops.js` | Schemas, renderers, op handlers (pure). Shared browser+node. |
 | `src/router-prompt.js` | Compact system prompt that returns typed ops. |
 | `src/extract-json-array.js` | Robust JSON-array parser (ignores trailing prose). |
-| `server/lib/apply-op.js` | Reads row → applies ops → writes structured + content. |
-| `server/index.js` → `POST /api/op` | Web app endpoint for typed ops. |
+| `server/lib/apply-op.js` | Reads row -> applies ops -> writes structured + content. |
+| `server/lib/similarity.js` | Gemini embedding dedup (server-side, circuit breaker). |
+| `server/lib/llm.js` | Centralized Anthropic/Helicone helper (URL + headers). |
+| `server/index.js` -> `POST /api/op` | Web app endpoint for typed ops. |
 | `server/mcp.js` | `delma_*` MCP tools — one per op. |
-| `scripts/eval-router.js` | 9 scored eval cases. `npm run eval:router`. |
-| `scripts/backfill-structured.js` | One-shot legacy markdown → structured JSON. |
-| `supabase/migrations/007_structured_tabs.sql` | Adds `structured jsonb` columns + GIN indexes. |
+| `scripts/eval-router.js` | Scored eval cases. `npm run eval:router`. |
+| `scripts/backfill-structured.js` | One-shot legacy markdown -> structured JSON. |
 
 ### Tab schemas
 
 ```
-people.md     → { people: [{id, name, role, kind, reports_to: [id]}] }
-playbook.md   → { rules: [{id, text, section?}] }
-environment.md → { entries: [{key, value, note?}] }
-decisions.md  → { decisions: [{id, text, owner?}], actions: [{id, text, owner?, due?, done}] }
-my-notes.md   → { text: string }
+people.md      -> { people: [{id, name, role, kind, reports_to: [id]}] }
+playbook.md    -> { rules: [{id, text, section?}] }
+environment.md -> { entries: [{key, value, note?}] }
+decisions.md   -> { decisions: [{id, text, owner?, superseded_by?}],
+                    actions: [{id, text, owner?, due?, done}] }
+my-notes.md    -> { text: string }
+architecture   -> { prose, nodes: [{id, label, kind, note?, layer?}],
+                    edges: [{from, to, label?}],
+                    layers: [{id, label}] }
 ```
 
-`structured` is the source of truth. `content` (markdown) is regenerated
-from it on every write so what users see is always in sync.
+`structured` is the source of truth. `content` (markdown) is
+regenerated from it on every write.
 
-### Available ops
+### Available ops per tab
 
-Defined in `src/tab-ops.js` and exposed both via `/api/op` (web) and
-`delma_*` MCP tools (Claude Desktop). See Section 7 for the full
-MCP surface.
+```
+people.md:      add_person, set_role, remove_person, add_reporting_line,
+                remove_reporting_line, set_manager
+playbook.md:    add_playbook_rule, remove_playbook_rule, supersede_rule
+environment.md: set_environment_key, remove_environment_key
+decisions.md:   add_decision, add_action, complete_action,
+                complete_action_by_text, remove_decision, supersede_decision
+my-notes.md:    append_my_note
+architecture:   set_prose, add_node, set_node_label, set_node_note,
+                set_node_kind, move_node_to_layer, remove_node,
+                merge_nodes, add_edge, remove_edge, add_layer, remove_layer
+```
 
-### Two write paths, same handlers
+### Three write paths, same handlers
 
-- **Web NL router**: input → Haiku returns `[{tab, op, args}]` →
-  `POST /api/op` → `applyOpsToTab`
-- **Claude Desktop**: in conversation → picks a `delma_*` MCP tool →
-  server-side `runOp` → same `applyOpsToTab`
+- **Web NL router**: input -> Haiku returns `[{tab, op, args}]` ->
+  `POST /api/op` -> `applyOpsToTab`
+- **In-app chat**: user message -> Agent SDK -> internal MCP tool ->
+  server-side `runOp` -> same `applyOpsToTab`
+- **Claude Code (external)**: conversation -> picks a `delma_*` MCP
+  tool -> server-side `runOp` -> same `applyOpsToTab`
 
-Both end at the exact same pure functions in `src/tab-ops.js`.
-
-### Backfill
-
-Existing rows with `content` but no `structured` were converted in a
-one-shot run of `scripts/backfill-structured.js`:
-- Deterministic regex parsers for Decisions, Environment, Playbook,
-  My Notes (simple bullet/heading structures)
-- Haiku-assisted parser for People (Mermaid → JSON)
-- Re-run is idempotent (skips rows already in structured mode)
-
-### Why this matters
-
-| Before (prompt-driven full rewrites) | After (typed ops) |
-|---|---|
-| LLM emits hundreds of tokens of markdown/Mermaid | LLM emits ~10 tokens of JSON |
-| Syntax errors possible on every edit | Zero — renderer is deterministic |
-| 2–5s per edit | ~800ms median |
-| Router prompt grew with every feature | Prompt shrunk; new feature = handler + eval case |
-| No record of "what changed" | Every op auditable, named, testable |
-| Photo loss, mangled diagrams, lost rules | Deterministic — can't lose what code didn't touch |
+All three end at the exact same pure functions in `src/tab-ops.js`.
 
 ---
 
-## 14. Quality Lab — overnight self-evaluation
+## 15. Quality Lab
 
-While David sleeps (10pm–7am PT), the server runs one comprehensive
-end-to-end test plus cheap regression + hygiene checks. Findings persist
-to `quality_*` tables and are visible publicly at **`/logs`**.
+While David sleeps (midnight PT nightly), the server runs a
+comprehensive end-to-end test pipeline. Findings persist to `quality_*`
+tables and are visible publicly at **`/logs`**.
 
-### Headline overnight job — replay-first, narrative-fallback
+### Run structure
 
-The runner picks one of two modes based on real activity:
+Every quality run is grouped into a `quality_runs` row
+(`server/quality/run-tracker.js`). The /logs page renders one clickable
+card per run with:
+- Trigger type (smoke, overnight, manual)
+- Narratives run and average scores
+- Sonnet-generated "what to act on" summary
 
-**REPLAY mode** (when there are ≥5 real `api_op_logs` from the last 24h):
-1. Pulls yesterday's actual router inputs + ops that ran in production
-2. For each op, reconstructs the structured state before it ran
-3. Re-applies the op against a fresh in-memory copy
-4. Sends the user input + before/after state to a **Sonnet critic** that
-   grades 1–5: did this op match what the user actually said?
-5. Writes per-op observations to `quality_observations` (severity:
-   clean / minor / suspicious / wrong)
+Two views: `/logs` (list of recent run cards) and `/logs?run=<id>`
+(detail view for a single run).
 
-**NARRATIVE mode** (when production traffic is sparse — early days):
-- Runs a small library of curated multi-turn conversation scripts (in
-  `server/quality/narratives.js`). Each script is a deliberate full-arc
-  workday — a PM onboarding, a scope pivot mid-conversation, chitchat
-  mixed with real facts — written by hand with an "expected outcome"
-  ground truth.
-- For each script: a Haiku "Claude" decides which typed ops to call
-  per turn, ops apply via the same `/api/op` code path, then a Sonnet
-  critic compares the final structured state against the expected
-  outcome. Stored in `quality_simulations`.
+### Headline job — replay-first, narrative-fallback
 
-The two modes share the same critic schema, so the morning view treats
-them identically.
+**REPLAY mode** (when >= 5 real `api_op_logs` from last 24h):
+Pulls yesterday's actual router inputs + ops, reconstructs
+before-state, re-applies, and has a Sonnet critic grade 1-5.
 
-### Two distinct timeliness modes (per David's framing)
+**NARRATIVE mode** (when production traffic is sparse):
+Runs curated multi-turn conversation scripts
+(`server/quality/narratives.js`) — each is a deliberate full-arc
+workday with ground truth. A Haiku "Claude" decides which typed ops to
+call per turn; the same `/api/op` code path applies them. Then:
 
-`server/quality/timeliness.js` separates:
+1. **Sonnet critic** compares final state to expected outcome (quality score)
+2. **Deterministic fidelity** (`server/quality/fidelity.js`) computes
+   entity-level capture rate — extracts named entities from expected
+   blocks AND user turns, matches against actual state. Stable across
+   runs; separates real regressions from critic noise.
+3. **Post-turn reflection** catches named objects the primary pass drops.
+
+Per-narrative org isolation ensures no ghost data between test runs.
+
+### Two timeliness modes
 
 | Mode | What it measures | Source |
 |------|------------------|--------|
-| **A — "Claude was slow to call the tool"** | Claude saw relevant info but processed N more messages before calling MCP | Precise in all modes. `hooks/inject-claude-md.sh` POSTs `/api/conversation-tick` on every `UserPromptSubmit`, inserting into `conversation_ticks`. Joining ticks to `mcp_call_logs` by (workspace, user, timestamp) gives a real "how many messages did Claude wait?" count per tool call. |
-| **B — "Delma applied the op slowly"** | Server-side latency from receiving op to applying it | `api_op_logs.duration_ms`, `mcp_call_logs.duration_ms`. Pure Delma. |
+| **A — "Claude was slow to call the tool"** | Messages before Claude acted | `conversation_ticks` joined to `mcp_call_logs` |
+| **B — "Delma applied the op slowly"** | Server-side latency | `api_op_logs.duration_ms` |
 
-Both bucket into `quality_signals` rows and surface on `/logs` with
-percentile distributions.
-
-### The supporting layers (always run nightly)
+### Supporting layers (always run nightly)
 
 | Layer | What it does | Output table |
 |-------|--------------|--------------|
-| Regression evals | Runs the canonical eval suite (`server/quality/eval-cases.js`) — shared with `scripts/eval-router.js` | `quality_eval_runs` |
-| State hygiene | Pure SQL: orphan arch nodes, overdue actions, unowned old decisions, roleless people | `quality_state_checks` |
-| Router signal mining | Clusters last 24h router calls: empty-ops, fan-outs → Sonnet asks "what's missing?" | `quality_signals` |
-| A/B leaderboard *(opt-in)* | Re-runs eval suite against alternate model+prompt combos | `quality_experiments` |
+| Regression evals | Canonical eval suite (`server/quality/eval-cases.js`) | `quality_eval_runs` |
+| State hygiene | SQL checks: orphan nodes, overdue actions, unowned decisions, roleless people | `quality_state_checks` |
+| Router signal mining | Clusters recent router calls, asks Sonnet what's missing | `quality_signals` |
+| A/B leaderboard *(opt-in)* | Re-runs evals against alternate model+prompt combos | `quality_experiments` |
 
 ### Auto-growing eval suite
 
-Every "missed" or "wrong" finding from the overnight critic (replay or
-narrative) is auto-filed as a row in `quality_candidate_evals` with the
-suggested input, best-guess expected op, and source observation. The
-`/logs` page exposes a review queue — you promote strong ones to real
-cases in `server/quality/eval-cases.js`, reject duplicates, and the
-regression suite grows from real failures instead of hand-written edge
-cases. Keeps the eval bar rising with no manual curation overhead.
+Every "missed" or "wrong" finding from the critic is auto-filed as a
+`quality_candidate_evals` row. The /logs page exposes a review queue.
+Promote strong ones to real cases; the regression suite grows from real
+failures.
 
-### Manual triggers
+### CLI runners
 
 ```
-POST /quality/run             # cheap layers only
-POST /quality/run-overnight   # full overnight pipeline (replay or narrative + cheap layers)
+npm run smoke                      # evals + 1 narrative (~40s)
+npm run smoke -- --medium          # evals + 3 narratives (~3 min)
+npm run smoke -- --full            # evals + ALL narratives (~12 min)
+npm run smoke -- --evals           # regression evals only (~7s)
+npm run overnight                  # fires prod server, returns immediately
+npm run overnight -- --watch       # fires + polls until complete
 ```
 
-Both return immediately; jobs run in the background.
+### Keep-alive
 
-### What you see at /logs
-
-Top of the page is **Things to act on** — a sorted, deduplicated table
-that pulls the highest-severity findings from every layer (failed evals,
-suspicious/wrong critique observations, state warnings, sim missed/wrong
-items) into one row-per-issue actionable view. Below that:
-
-- Summary stats + per-layer status (when each last ran, any errors)
-- Overnight simulation (latest 7) with score + summary + drill-down
-- Regression evals (latest run, full per-case table)
-- State hygiene findings
-- Signal patterns (timeliness mode-A and mode-B + router clusters)
-- A/B experiments
-- Recent `/api/op` writes (raw)
-- Recent router calls (raw)
+`.github/workflows/keep-alive-overnight.yml` pings the Render app
+every 3 min around midnight PT to prevent free-tier spin-down before
+the in-app scheduler fires the overnight run.
 
 ### Files
 
@@ -654,10 +621,51 @@ items) into one row-per-issue actionable view. Below that:
 | `server/quality/runner.js` | Master entry: dispatches replay vs narrative + runs cheap layers |
 | `server/quality/replay.js` | Replays real production ops with critic |
 | `server/quality/narratives.js` | Curated full-arc conversation scripts + runner |
+| `server/quality/fidelity.js` | Deterministic entity-level fidelity scoring |
+| `server/quality/run-tracker.js` | Per-run grouping + Sonnet summaries |
 | `server/quality/timeliness.js` | Two-mode latency analysis (no LLM) |
-| `server/quality/eval-cases.js` | Canonical eval cases (shared with `scripts/eval-router.js`) |
-| `server/quality/logs-page.js` | `/logs` HTML renderer (server-side, no JS) |
-| `supabase/migrations/009_quality_lab.sql` | quality_* tables + api_op_logs |
-| `supabase/migrations/010_quality_simulations.sql` | quality_simulations table |
-| `supabase/migrations/011_conversation_ticks.sql` | conversation_ticks table (feeds Mode-A timeliness for real Claude Code sessions) |
-| `supabase/migrations/012_candidate_evals.sql` | quality_candidate_evals — auto-grown eval-case queue from overnight critic findings |
+| `server/quality/eval-cases.js` | Canonical eval cases |
+| `server/quality/logs-page.js` | `/logs` HTML renderer (server-side, no client JS) |
+| `scripts/smoke.js` | Fast local iteration runner |
+| `scripts/overnight.js` | Fire prod overnight pipeline |
+
+---
+
+## 16. Buy-Not-Build Stack
+
+| Need | Solution | Why |
+|------|----------|-----|
+| Auth + DB + Realtime | Supabase | Managed Postgres, RLS, websocket push |
+| LLM observability | Helicone | Latency, tokens, cost, full traces |
+| Embeddings (dedup) | Gemini | Free tier, fast, good enough for short strings |
+| Chat brain | Claude Agent SDK | Same capabilities as Claude Code |
+| SFMC operations | sfmc-sdk (planned) | Typed SDK for Marketing Cloud |
+| Hosting | Render | Free tier, auto-deploy from GitHub |
+
+---
+
+## 17. What's Shipped vs Planned
+
+### Shipped
+
+- In-app chat sidebar (Agent SDK + React island)
+- All typed ops with handler-level dedup + semantic dedup
+- Architecture tab ops (add/remove/merge nodes, edges, layers, cycle detection)
+- merge_nodes and supersede_rule for governance
+- Quality lab with per-run cards, fidelity scoring, post-turn reflection
+- Helicone integration for all LLM calls
+- Gemini embeddings for semantic dedup (with circuit breaker)
+- smoke + overnight CLI runners
+- GitHub Actions keep-alive for Render free tier
+- Chat persistence (conversations + messages tables)
+- SFMC credential schema (pgcrypto-encrypted, migration 017)
+- SFMC audit log table
+
+### Planned (not shipped yet)
+
+- SFMC tool catalog (15+ ops via sfmc-sdk) — next session
+- SFMC OAuth credential flow UI — next session
+- Workspace switcher hidden (auto-create one per org) — decided, not implemented
+- Quality lab migration to /api/chat/stream path — deferred
+- Rate limiting middleware — migration exists, not wired
+- assistant-ui upgrade for polished chat UI — installed (`@assistant-ui/react`), not yet used

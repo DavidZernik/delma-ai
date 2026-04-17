@@ -27,16 +27,24 @@ call `get_workspace_state`.
 
 ## Current Workspace Summary
 
-**Project Name:** Delma Development v1
+**Project Name:** Emory Healthcare Birthday Campaign  
+**Team:** Not specified in workspace.  
+**Current Status:** System designed and documented. Core automation (`Birthday_Daily_Send_Refresh`) is on a **PausedSchedule during testing**.  
 
-**Team:** Not specified.
+**Key Systems/IDs:**
+*   **Source Data:** Salesforce/Health Cloud (`All_Patients_Opted_In` DE)
+*   **Automation:** `Birthday_Daily_Send_Refresh` (runs 5 AM CT)
+*   **SQL:** `Birthday_Daily_Filter`
+*   **Staging DE:** `TEST_Birthday_Daily_Send`
+*   **Journey (Main):** `Birthday Daily Email Journey v2` (AutomationAudience entry)
+*   **Email:** `brand_all_hbd_2026`
+*   **CloudPage:** Birthday Quiz (Page 8085)
+*   **Response DE:** `birthday_quiz_responses`
+*   **Automation (Follow-up):** `Follow-Up Entry Automation` (runOnce, not real-time)
+*   **Journey (Follow-up):** `Birthday Quiz Follow-Up Journey v2` (DEAudience entry)
+*   **Follow-up Paths:** Split by `ResultPath` to `Heart & Vascular`, `Women's Services`, or `General Health` nurture journeys.
 
-**Current Status:** Initial architecture defined. No decisions or actions logged.
-
-**Key Systems & IDs:**
-*   **Endpoints:** Salesforce CRM, SFMC, Delma Memory, Claude Code.
-*   **Core Integration:** Central "Integration Layer" syncs data between CRM, SFMC, and internal systems.
-*   **SFMC Components:** Data Extensions/Objects store data; Journeys/Automations execute workflows.
-*   **Flow:** CRM & SFMC <-> Integration Layer <-> (Journeys/Automations & Data Extensions). Delma Memory <-> Claude Code <-> Integration Layer.
-
-**What's Next:** Populate `environment.md` with specific IDs (e.g., Business Unit, Data Extension names) and `decisions.md` with project choices and action items. Begin technical implementation based on the defined architecture.
+**What Needs to Happen Next:**
+1.  Complete testing.
+2.  Remove the **PausedSchedule** from the `Birthday_Daily_Send_Refresh` automation to activate the daily send.
+3.  Ensure the `Follow-Up Entry Automation` is scheduled to run periodically to process quiz responses.

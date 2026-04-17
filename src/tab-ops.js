@@ -474,8 +474,29 @@ const OPS = {
     if (!key) throw new Error('key required')
     const entries = [...(data.entries || [])]
     const i = entries.findIndex(e => e.key === key)
-    if (i >= 0) entries[i] = { ...entries[i], value, ...(note !== undefined ? { note } : {}) }
-    else entries.push({ key, value, note: note || null })
+    if (i >= 0) {
+      entries[i] = { ...entries[i], value, ...(note !== undefined ? { note } : {}) }
+    } else {
+      // Near-dup KEY check: "org_name" vs "organization_name" with the same
+      // value is noise. Normalize both keys (strip _, lowercase) and check.
+      const normKey = key.toLowerCase().replace(/[_\-\s]+/g, '')
+      const dupByKey = entries.find(e => {
+        const nk = e.key.toLowerCase().replace(/[_\-\s]+/g, '')
+        return nk === normKey
+      })
+      if (dupByKey) {
+        throw new Error(`Near-duplicate environment key: "${dupByKey.key}" already exists (normalized both to "${normKey}"). Update the existing key or use a distinct name.`)
+      }
+      // Same-value check: two different keys storing identical values is
+      // usually accidental — "org_name" and "company" both = "Riverside".
+      if (value) {
+        const dupByVal = entries.find(e => e.value === value && e.key !== key)
+        if (dupByVal) {
+          throw new Error(`Environment key "${dupByVal.key}" already stores the same value "${value}". Reuse that key or pick a meaningfully different one.`)
+        }
+      }
+      entries.push({ key, value, note: note || null })
+    }
     return { ...data, entries }
   },
   remove_environment_key(data, { key }) {

@@ -174,7 +174,12 @@ async function scoreForbidden(forbidden, allCaptured) {
   if (!forbidden?.length || !allCaptured.length) return { count: 0, hits: [] }
   const hits = []
   for (const forbidText of forbidden) {
-    const hit = await findSemanticDupItem(forbidText, allCaptured, { field: 'text', threshold: 0.7 })
+    // High threshold (0.82) — forbidden checks should only fire on clear
+    // matches. "Casey (admin, person)" matching "don't invent collaborators"
+    // at 0.7 was a false positive; capturing the user's own name is fine,
+    // inventing teammates is not. A real forbidden match (e.g. capturing a
+    // team structure the user explicitly said doesn't exist) will score 0.85+.
+    const hit = await findSemanticDupItem(forbidText, allCaptured, { field: 'text', threshold: 0.82 })
     if (hit) hits.push({ forbidden: forbidText, captured: hit.item.text, similarity: hit.similarity })
   }
   return { count: hits.length, hits }
