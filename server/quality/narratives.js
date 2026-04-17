@@ -470,16 +470,24 @@ USER TURN: """${userText}"""
 TOOL CALLS YOU MADE:
 ${opsSummary}
 
-CHECKLIST:
+CHECKLIST — check EACH item individually:
 - Every named person → add_person (+ set_manager/add_reporting_line if reporting stated)
 - Every named SFMC object (Journey, Automation, DE, Email asset, CloudPage, SQL query activity, decision split) → architecture add_node (+ edges to wire it in)
+  IMPORTANT: if the user listed MULTIPLE objects by name (e.g. "Day0, Day3, Day7" or "Sync_Auto and Send_Auto"), EACH ONE needs its own add_node call. Do NOT collapse them into a single node. Count them.
 - Every explicit decision or reversal → add_decision or supersede_decision
 - Every tech ID (sender profile, BU, API, org alias, sandbox name) → set_environment_key
 - Every to-do → add_action with owner and due if stated
 - Every policy rule → add_playbook_rule
 
-If you captured everything: reply "complete" with no tool calls.
-If you MISSED something: call the missing tool(s) now. DO NOT re-capture what you already did (handlers reject near-duplicates anyway).`
+EDGE DIRECTION CHECK: for any edges you added, verify direction matches data flow:
+- Automation queries a DE → edge FROM the DE TO the automation (data flows into the automation)
+- Automation feeds a journey → edge FROM the automation TO the journey
+- Journey sends an email → edge FROM the journey TO the email
+- Source DE replicates to sendable DE → edge FROM source TO sendable (data copies downstream)
+If an edge is backwards, call remove_edge then add_edge with the correct direction.
+
+If you captured everything AND edges are correct: reply "complete" with no tool calls.
+If you MISSED something or an edge is wrong: fix it now.`
 
   try {
     const tools = buildAnthropicTools()
