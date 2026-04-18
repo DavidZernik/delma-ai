@@ -11,6 +11,7 @@
 // underlying filenames.
 
 import { supabase as sb } from '../lib/supabase.js'
+import { SYSTEM_PROMPT_DYNAMIC_BOUNDARY } from '@anthropic-ai/claude-agent-sdk'
 
 const TAB_LABEL = {
   // Project-level
@@ -24,7 +25,36 @@ function tabLabel(filename) {
   return TAB_LABEL[filename] || filename
 }
 
-export async function buildChatSystemPrompt({ projectId, orgId, sfmcAccounts }) {
+// Keep prior turns within a sane budget. Drop oldest first when we exceed.
+// 60K chars of conversation ≈ 15K tokens, leaving room for the project
+// context (~9K) + the user's new message + Claude's reply within a 200K
+// context window.
+const HISTORY_CHAR_BUDGET = 60_000
+
+function priorConversationBlock(messages) {
+  if (!messages?.length) return ''
+  // Newest-first prune: keep adding from the end until we hit the budget,
+  // then reverse for chronological output.
+  const kept = []
+  let used = 0
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]
+    const text = String(m.content || '').trim()
+    if (!text) continue
+    const block = `**${m.role}:** ${text}`
+    if (used + block.length > HISTORY_CHAR_BUDGET) break
+    kept.unshift(block)
+    used += block.length + 2
+  }
+  if (!kept.length) return ''
+  const dropped = messages.length - kept.length
+  const header = dropped > 0
+    ? `## Prior Conversation (last ${kept.length} turns; ${dropped} older turns dropped to fit)`
+    : `## Prior Conversation`
+  return [header, '', ...kept, ''].join('\n')
+}
+
+export async function buildChatSystemPrompt({ projectId, orgId, sfmcAccounts, priorMessages = [] }) {
   const [project, org, views, memoryRows, orgMemoryRows] = await Promise.all([
     sb.from('projects').select('id, name').eq('id', projectId).maybeSingle().then(r => r.data),
     sb.from('organizations').select('id, name').eq('id', orgId).maybeSingle().then(r => r.data),
@@ -61,7 +91,7 @@ export async function buildChatSystemPrompt({ projectId, orgId, sfmcAccounts }) 
       lines.push(`### Child BU (default for sends/journeys)`)
       lines.push(`- Label: ${c.label || '(unnamed)'}`)
       lines.push(`- MID: ${c.account_id || '(unset)'}`)
-      lines.push(`- Subdomain: ${(c.rest_base_url || '').match(/^https?:\\/\\/([^.]+)\\./)?.[1] || '(unknown)'}`)
+      lines.push(`- Subdomain: ${(c.rest_base_url || '').match(/^https?:\/\/([^.]+)\./)?.[1] || '(unknown)'}`)
       lines.push(`- Env vars: \`CLIENT_ID\`, \`CLIENT_SECRET\`, \`SFMC_SUBDOMAIN\`, \`SFMC_MID\`, \`SFMC_AUTH_BASE_URL\`, \`SFMC_REST_BASE_URL\`, \`SFMC_SOAP_BASE_URL\``)
     }
     if (sfmcAccounts.parent) {
@@ -114,5 +144,16 @@ export async function buildChatSystemPrompt({ projectId, orgId, sfmcAccounts }) 
     }
   }
 
-  return lines.join('\n')
+  // Everything above this point is the "static prefix" — same across turns
+  // within a session, eligible for Anthropic prompt caching. The prior
+  // conversation grows every turn, so it goes AFTER the boundary marker.
+  const staticPrefix = lines.join('\n')
+
+  const priorBlock = priorConversationBlock(priorMessages)
+  if (!priorBlock) return staticPrefix // nothing dynamic — return as plain string
+
+  // Returning as string[] with the SDK's boundary marker tells the Agent SDK
+  // to cache everything before it. First request pays full price; subsequent
+  // requests within ~5 min pay 10% on the cached portion.
+  return [staticPrefix, SYSTEM_PROMPT_DYNAMIC_BOUNDARY, priorBlock]
 }

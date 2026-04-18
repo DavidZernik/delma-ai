@@ -443,6 +443,55 @@ app.post('/api/conversation-tick', async (req, res) => {
 // This is the primary chat surface (replaces the need for Claude Desktop).
 app.post('/api/chat/stream', handleChatStream)
 
+// GET /api/chat/history?projectId=… — last N messages for the user's active
+// conversation in this project. Used on UI mount so reload doesn't blank the
+// chat. Filters strictly by (user_id from JWT, project_id, archived=false)
+// so users only ever see their own private conversation.
+app.get('/api/chat/history', async (req, res) => {
+  let user
+  try { user = await requireUser(req) }
+  catch (err) { return res.status(err.status || 401).json({ error: err.message }) }
+
+  const projectId = req.query.projectId
+  if (!projectId) return res.status(400).json({ error: 'projectId required' })
+  const limit = Math.min(parseInt(req.query.limit) || 100, 500)
+
+  const sb = getSb()
+  if (!sb) return res.status(500).json({ error: 'Supabase not configured' })
+
+  // Membership check — user must belong to project or its parent org.
+  try {
+    const { data: ws } = await sb.from('projects').select('org_id').eq('id', projectId).single()
+    if (!ws) return res.status(404).json({ error: 'project not found' })
+    try { await requireProjectMembership(sb, user.id, projectId) }
+    catch { await requireOrgMembership(sb, user.id, ws.org_id) }
+  } catch (err) { return res.status(err.status || 403).json({ error: err.message }) }
+
+  // Active conversation for this (user, project).
+  const { data: conv } = await sb
+    .from('conversations')
+    .select('id, created_at, updated_at')
+    .eq('project_id', projectId)
+    .eq('user_id', user.id)
+    .eq('archived', false)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (!conv) return res.json({ conversationId: null, messages: [] })
+
+  // Pull last N messages, oldest first so the UI renders in order.
+  const { data: rows } = await sb
+    .from('messages')
+    .select('id, role, content, tool_calls, tool_name, created_at')
+    .eq('conversation_id', conv.id)
+    .order('id', { ascending: false })
+    .limit(limit)
+
+  const messages = (rows || []).reverse()
+  res.json({ conversationId: conv.id, messages })
+})
+
 app.post('/quality/run', async (req, res) => {
   res.json({ ok: true, started: true })
   void runAllLayers().catch(err => console.error('[quality] run failed:', err))

@@ -6,7 +6,7 @@
 // library later without touching the streaming logic. The adapter layer
 // is exactly this file.
 
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase.js'
 
 async function authHeader() {
@@ -17,12 +17,50 @@ async function authHeader() {
 
 export function useChatStream({ projectId, userId }) {
   const [messages, setMessages] = useState([])   // normalized for UI
-  const [status, setStatus] = useState('idle')   // 'idle' | 'streaming' | 'error'
+  const [status, setStatus] = useState('idle')   // 'idle' | 'streaming' | 'error' | 'loading'
   const [conversationId, setConversationId] = useState(null)
   const abortRef = useRef(null)
 
+  // Load prior conversation on mount / project switch. Server returns the
+  // user's active (non-archived) conversation for this project — empty array
+  // if none yet. Reload-safe: messages survive page refresh.
+  useEffect(() => {
+    if (!projectId) return
+    let cancelled = false
+    setStatus('loading')
+    setMessages([])
+    setConversationId(null)
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/chat/history?projectId=${encodeURIComponent(projectId)}`, {
+          headers: { ...(await authHeader()) }
+        })
+        if (!res.ok) throw new Error(`history ${res.status}`)
+        const data = await res.json()
+        if (cancelled) return
+        // Server returns DB-shape rows: { id, role, content, tool_calls, tool_name, created_at }.
+        // Map to UI shape. Tool messages come back as role='tool' with content
+        // (we serialized to text on save), so render them as a small bubble.
+        const ui = (data.messages || []).map(m => ({
+          id: 'h' + m.id,
+          role: m.role,
+          content: m.content || '',
+          tools: Array.isArray(m.tool_calls) ? m.tool_calls : []
+        }))
+        setMessages(ui)
+        setConversationId(data.conversationId)
+        setStatus('idle')
+      } catch (err) {
+        if (cancelled) return
+        console.warn('[chat] history load failed:', err.message)
+        setStatus('idle') // still usable; just starts blank
+      }
+    })()
+    return () => { cancelled = true }
+  }, [projectId])
+
   const send = useCallback(async (userText) => {
-    if (status === 'streaming') return
+    if (status === 'streaming' || status === 'loading') return
     setStatus('streaming')
 
     // Optimistic user message.

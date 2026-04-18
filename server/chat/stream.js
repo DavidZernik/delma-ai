@@ -97,12 +97,15 @@ function subdomainFromUrl(url) {
   return m ? m[1] : ''
 }
 
-// Or-create the single long-running conversation for this workspace.
+// Or-create the single active conversation for this (user, project). One
+// per person per project — David's chat about the Birthday Campaign is
+// separate from Keyona's chat about the same project.
 async function getOrCreateConversation(projectId, userId) {
   const { data: existing } = await sb
     .from('conversations')
     .select('id')
     .eq('project_id', projectId)
+    .eq('user_id', userId)
     .eq('archived', false)
     .order('updated_at', { ascending: false })
     .limit(1)
@@ -179,33 +182,46 @@ export async function handleChatStream(req, res) {
   // this turn's MCP subprocess and Bash environment. Never written to disk.
   const sfmcAccounts = await getSfmcAccountsForOrg(projectOrgId)
 
+  // Resolve the user's active conversation FIRST so we can load its prior
+  // turns into the system prompt. Persistence: the chat picks up where the
+  // user left off, even after a reload or device switch.
+  let conversationId
+  try {
+    conversationId = await getOrCreateConversation(projectId, userId)
+  } catch (err) {
+    return res.status(400).json({ error: err.message })
+  }
+
+  // Load prior turns for context. Trimmed to budget inside buildChatSystemPrompt.
+  const { data: priorMessageRows } = await sb
+    .from('messages')
+    .select('role, content')
+    .eq('conversation_id', conversationId)
+    .order('id', { ascending: false })
+    .limit(100)
+  const priorMessages = (priorMessageRows || []).reverse()
+    .filter(m => m.role === 'user' || m.role === 'assistant')
+
   // Compose the per-turn system prompt: project state + org memory + SFMC
-  // connection summary + behavior instructions. Without this the chat has
-  // zero project context and replies generically.
+  // connection summary + prior conversation + behavior instructions.
   const systemPrompt = await buildChatSystemPrompt({
-    projectId, orgId: projectOrgId, sfmcAccounts
+    projectId, orgId: projectOrgId, sfmcAccounts, priorMessages
   })
 
-  // Loud server-side log so we can see exactly what we're shipping. Trims
-  // the prompt body — full version is large but the structure preview is
-  // enough to diagnose "is the chat seeing the project?" questions.
+  const systemPromptChars = Array.isArray(systemPrompt)
+    ? systemPrompt.reduce((n, s) => n + (s?.length || 0), 0)
+    : systemPrompt.length
   console.log('[chat] turn start',
     'user:', userId.slice(0, 8),
     'project:', projectId.slice(0, 8),
     'org:', projectOrgId?.slice(0, 8),
     'sfmc:', Object.keys(sfmcAccounts || {}).join(',') || 'none',
-    'systemPromptChars:', systemPrompt.length,
+    'priorTurns:', priorMessages.length,
+    'systemPromptChars:', systemPromptChars,
+    'cached:', Array.isArray(systemPrompt) ? 'yes' : 'no',
     'messageChars:', message.length
   )
-  console.log('[chat] systemPrompt preview:\n' + systemPrompt.slice(0, 800) + (systemPrompt.length > 800 ? '\n…(truncated)' : ''))
 
-  let conversationId
-  try {
-    const scratchDir = ensureScratchDir(projectId)
-    conversationId = await getOrCreateConversation(projectId, userId)
-  } catch (err) {
-    return res.status(400).json({ error: err.message })
-  }
   const scratchDir = ensureScratchDir(projectId)
 
   // Persist the user message before the turn starts.
