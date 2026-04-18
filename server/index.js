@@ -16,6 +16,7 @@ import { renderLogsPage } from './quality/logs-page.js'
 import { ANTHROPIC_URL, anthropicHeaders } from './lib/llm.js'
 import { handleChatStream } from './chat/stream.js'
 import { makeLimiter } from './lib/rate-limit.js'
+import { encrypt } from './lib/crypto.js'
 
 // Per-user rate limits. Numbers tuned to be invisible to humans but stop
 // a runaway loop or a malicious script from burning credits / spamming
@@ -165,6 +166,114 @@ function getSb() {
   })
   return __sb
 }
+
+// ── SFMC Connections ─────────────────────────────────────────────────────────
+// Per-org SFMC API credentials. Encrypted in Node before insert (AES-256-GCM)
+// and decrypted at runtime when the chat needs to call SFMC. Never returned
+// to the browser in plaintext — GETs return only safe metadata (label, MID,
+// last refresh, has-secret booleans).
+
+function validBuRole(r) { return r === 'parent' || r === 'child' }
+
+// GET /api/sfmc-accounts?orgId=… — returns ALL configured connections for the
+// org as a `{ child: {...}, parent: {...} }` map. Safe metadata only — never
+// returns the encrypted secrets.
+app.get('/api/sfmc-accounts', async (req, res) => {
+  let user
+  try { user = await requireUser(req) }
+  catch (err) { return res.status(err.status || 401).json({ error: err.message }) }
+  const orgId = req.query.orgId
+  if (!orgId) return res.status(400).json({ error: 'orgId required' })
+  try { await requireOrgMembership(getSb(), user.id, orgId) }
+  catch (err) { return res.status(err.status || 403).json({ error: err.message }) }
+
+  const sb = getSb()
+  const { data } = await sb.from('sfmc_accounts')
+    .select('id, bu_role, account_label, auth_base_url, rest_base_url, soap_base_url, account_id, last_refresh_at, last_error, updated_at')
+    .eq('org_id', orgId)
+  const out = {}
+  for (const row of data || []) {
+    const role = row.bu_role || 'child'
+    out[role] = {
+      id: row.id,
+      bu_role: role,
+      label: row.account_label,
+      auth_base_url: row.auth_base_url,
+      rest_base_url: row.rest_base_url,
+      soap_base_url: row.soap_base_url,
+      mid: row.account_id,
+      last_refresh_at: row.last_refresh_at,
+      last_error: row.last_error,
+      updated_at: row.updated_at
+    }
+  }
+  res.json({ accounts: out })
+})
+
+// PUT /api/sfmc-account — upsert one (org, bu_role) row. Body:
+//   orgId, bu_role ('parent' | 'child'), label, auth_base_url, rest_base_url,
+//   soap_base_url, mid, client_id, client_secret
+// Secrets are encrypted before insert.
+app.put('/api/sfmc-account', async (req, res) => {
+  let user
+  try { user = await requireUser(req) }
+  catch (err) { return res.status(err.status || 401).json({ error: err.message }) }
+
+  const {
+    orgId, bu_role, label, auth_base_url, rest_base_url, soap_base_url,
+    mid, client_id, client_secret
+  } = req.body || {}
+  if (!orgId) return res.status(400).json({ error: 'orgId required' })
+  if (!validBuRole(bu_role)) return res.status(400).json({ error: 'bu_role must be "parent" or "child"' })
+  try { await requireOrgMembership(getSb(), user.id, orgId) }
+  catch (err) { return res.status(err.status || 403).json({ error: err.message }) }
+  if (!auth_base_url || !rest_base_url || !soap_base_url) {
+    return res.status(400).json({ error: 'auth_base_url, rest_base_url, soap_base_url all required' })
+  }
+  if (!client_id || !client_secret) {
+    return res.status(400).json({ error: 'client_id and client_secret required' })
+  }
+
+  const sb = getSb()
+  const { data: existing } = await sb.from('sfmc_accounts')
+    .select('id').eq('org_id', orgId).eq('bu_role', bu_role).maybeSingle()
+  const row = {
+    org_id: orgId,
+    bu_role,
+    connected_by: user.id,
+    account_label: label || null,
+    auth_base_url, rest_base_url, soap_base_url,
+    is_sandbox: false,
+    account_id: mid || null,
+    client_id_enc: encrypt(client_id),
+    client_secret_enc: encrypt(client_secret),
+    updated_at: new Date().toISOString()
+  }
+  if (existing) {
+    const { error } = await sb.from('sfmc_accounts').update(row).eq('id', existing.id)
+    if (error) return res.status(500).json({ error: error.message })
+  } else {
+    const { error } = await sb.from('sfmc_accounts').insert(row)
+    if (error) return res.status(500).json({ error: error.message })
+  }
+  res.json({ ok: true })
+})
+
+// DELETE /api/sfmc-account?orgId=…&buRole=parent|child — drop one connection.
+app.delete('/api/sfmc-account', async (req, res) => {
+  let user
+  try { user = await requireUser(req) }
+  catch (err) { return res.status(err.status || 401).json({ error: err.message }) }
+  const orgId = req.query.orgId
+  const buRole = req.query.buRole
+  if (!orgId) return res.status(400).json({ error: 'orgId required' })
+  if (!validBuRole(buRole)) return res.status(400).json({ error: 'buRole must be "parent" or "child"' })
+  try { await requireOrgMembership(getSb(), user.id, orgId) }
+  catch (err) { return res.status(err.status || 403).json({ error: err.message }) }
+  const sb = getSb()
+  await sb.from('sfmc_accounts').delete().eq('org_id', orgId).eq('bu_role', buRole)
+  res.json({ ok: true })
+})
 
 // ── Typed-op endpoint ─────────────────────────────────────────────────────────
 // Body: { tabKey: "org:people.md" | "memory:decisions.md" | ...,

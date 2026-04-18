@@ -153,7 +153,7 @@ mermaid.initialize({
     secondaryColor: '#FFFFFF',
     secondaryTextColor: '#0F0A0A',
     secondaryBorderColor: '#EFE4DE',
-    tertiaryColor: '#FFFEEE',
+    tertiaryColor: '#FFFFFF',
     tertiaryTextColor: '#0F0A0A',
     tertiaryBorderColor: '#EFE4DE',
     lineColor: '#8F0000',          // arrows — red
@@ -164,7 +164,9 @@ mermaid.initialize({
     nodeTextColor: '#0F0A0A',
     mainBkg: '#FFFFFF',
     edgeLabelBackground: '#FFFFFF',
-    clusterBkg: '#FFFEEE',
+    // Subgraph cluster background — white, not cream. Cream is the page;
+    // the diagram itself is a single white surface.
+    clusterBkg: '#FFFFFF',
     clusterBorder: '#EFE4DE'
   }
 })
@@ -758,6 +760,175 @@ function setupHistoryDrawer() {
     if (!drawer.hidden) refreshActivityFeed()
   })
   close?.addEventListener('click', () => { drawer.hidden = true })
+}
+
+// ── Connections drawer (SFMC API credentials) ───────────────────────────────
+// One SFMC account per (org, BU role). Two cards: Child BU (default for
+// sends/journeys) + Parent BU (for enterprise data, account API). Secrets
+// are encrypted server-side with AES-256-GCM and never returned to the UI.
+
+const BU_DEFINITIONS = [
+  {
+    role: 'child',
+    title: 'Child BU',
+    sub: 'Default for sends, journeys, CloudPages. Most projects use this.'
+  },
+  {
+    role: 'parent',
+    title: 'Parent BU',
+    sub: 'Used for enterprise data (ENT.* DEs), account API, cross-BU access.'
+  }
+]
+
+function setupConnectionsDrawer() {
+  const toggle = document.getElementById('connections-toggle-btn')
+  const drawer = document.getElementById('connections-drawer')
+  const close = document.getElementById('connections-close-btn')
+  const status = document.getElementById('connections-status')
+  const cardsEl = document.getElementById('connections-cards')
+  if (!toggle || !drawer || !cardsEl) return
+
+  function renderCard(def, account) {
+    const connected = !!account
+    const subdomain = connected ? (account.rest_base_url || '').match(/^https?:\/\/([^.]+)\./)?.[1] || '' : ''
+    return `
+      <div class="conn-card" data-role="${def.role}">
+        <h4>${def.title}</h4>
+        <div class="conn-card-sub">${def.sub}</div>
+        <div class="conn-status ${connected ? 'connected' : ''}">
+          ${connected
+            ? `Connected: ${escapeHtml(account.label || account.mid || 'configured')} · saved ${new Date(account.updated_at).toLocaleString()}`
+            : 'Not connected.'}
+        </div>
+        <form class="conn-form" data-role="${def.role}">
+          <label class="conn-field">
+            <span>Account label</span>
+            <input class="conn-label" type="text" value="${escapeHtml(account?.label || '')}" placeholder="e.g. Emory ${def.title}" />
+          </label>
+          <label class="conn-field">
+            <span>Subdomain (mcXXXXXXXX)</span>
+            <input class="conn-subdomain" type="text" value="${escapeHtml(subdomain)}" placeholder="mcvxtx2z6j0zm8sr3052pf8bh508" />
+          </label>
+          <label class="conn-field">
+            <span>MID</span>
+            <input class="conn-mid" type="text" value="${escapeHtml(account?.mid || '')}" placeholder="e.g. 514018310" />
+          </label>
+          <label class="conn-field">
+            <span>Client ID</span>
+            <input class="conn-client-id" type="text" autocomplete="off" placeholder="${connected ? '(stored — re-enter to change)' : ''}" />
+          </label>
+          <label class="conn-field">
+            <span>Client Secret</span>
+            <input class="conn-client-secret" type="password" autocomplete="off" placeholder="${connected ? '(stored — re-enter to change)' : ''}" />
+          </label>
+          <div class="conn-actions">
+            <button class="primary-btn conn-save" type="submit">Save</button>
+            ${connected ? '<button class="secondary-btn conn-disconnect" type="button">Disconnect</button>' : ''}
+          </div>
+          <div class="conn-message"></div>
+        </form>
+      </div>
+    `
+  }
+
+  async function load() {
+    if (!state.org?.id) {
+      status.textContent = 'Sign in and open a project to manage SFMC connections.'
+      cardsEl.innerHTML = ''
+      return
+    }
+    status.textContent = 'Loading…'
+    cardsEl.innerHTML = ''
+    try {
+      const res = await fetch(`/api/sfmc-accounts?orgId=${encodeURIComponent(state.org.id)}`, {
+        headers: { ...(await authHeaders()) }
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      const accounts = data.accounts || {}
+      status.textContent = ''
+      cardsEl.innerHTML = BU_DEFINITIONS.map(def => renderCard(def, accounts[def.role])).join('')
+      wireCards()
+    } catch (err) {
+      status.textContent = 'Failed to load: ' + err.message
+    }
+  }
+
+  function wireCards() {
+    cardsEl.querySelectorAll('form.conn-form').forEach(form => {
+      const role = form.dataset.role
+      const message = form.querySelector('.conn-message')
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault()
+        if (!state.org?.id) return
+        const subdomain = form.querySelector('.conn-subdomain').value.trim()
+        const clientId = form.querySelector('.conn-client-id').value.trim()
+        const clientSecret = form.querySelector('.conn-client-secret').value
+        if (!subdomain) {
+          message.textContent = 'Subdomain required (e.g. mcvxtx2z6j0zm8sr3052pf8bh508).'
+          message.className = 'conn-message error'
+          return
+        }
+        if (!clientId || !clientSecret) {
+          message.textContent = 'Client ID and Client Secret required (re-enter both to update).'
+          message.className = 'conn-message error'
+          return
+        }
+        message.textContent = 'Saving…'
+        message.className = 'conn-message'
+        const body = {
+          orgId: state.org.id,
+          bu_role: role,
+          label: form.querySelector('.conn-label').value.trim() || null,
+          auth_base_url: `https://${subdomain}.auth.marketingcloudapis.com`,
+          rest_base_url: `https://${subdomain}.rest.marketingcloudapis.com`,
+          soap_base_url: `https://${subdomain}.soap.marketingcloudapis.com`,
+          mid: form.querySelector('.conn-mid').value.trim() || null,
+          client_id: clientId,
+          client_secret: clientSecret
+        }
+        try {
+          const res = await fetch('/api/sfmc-account', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+            body: JSON.stringify(body)
+          })
+          const data = await res.json().catch(() => ({}))
+          if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+          message.textContent = 'Saved. Next chat message will use this connection.'
+          message.className = 'conn-message success'
+          load()
+        } catch (err) {
+          message.textContent = 'Save failed: ' + err.message
+          message.className = 'conn-message error'
+        }
+      })
+      form.querySelector('.conn-disconnect')?.addEventListener('click', async () => {
+        if (!state.org?.id) return
+        if (!confirm(`Disconnect ${role.charAt(0).toUpperCase() + role.slice(1)} BU? Chat will lose access until you reconnect.`)) return
+        message.textContent = 'Disconnecting…'
+        try {
+          const res = await fetch(`/api/sfmc-account?orgId=${encodeURIComponent(state.org.id)}&buRole=${role}`, {
+            method: 'DELETE',
+            headers: { ...(await authHeaders()) }
+          })
+          if (!res.ok) throw new Error(`HTTP ${res.status}`)
+          message.textContent = 'Disconnected.'
+          message.className = 'conn-message success'
+          load()
+        } catch (err) {
+          message.textContent = 'Disconnect failed: ' + err.message
+          message.className = 'conn-message error'
+        }
+      })
+    })
+  }
+
+  toggle.addEventListener('click', () => {
+    drawer.hidden = !drawer.hidden
+    if (!drawer.hidden) load()
+  })
+  close.addEventListener('click', () => { drawer.hidden = true })
 }
 
 // ── Presence ────────────────────────────────────────────────────────────────
@@ -2584,6 +2755,7 @@ void init().then(() => {
   console.log('[delma] init done')
   setupChatToggle()
   setupHistoryDrawer()
+  setupConnectionsDrawer()
   wireLayoutDebug()
   delmaDebugLayout('post-init')
 }).catch(err => console.error('[delma] INIT CRASHED:', err))

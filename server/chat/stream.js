@@ -17,6 +17,7 @@ import { join } from 'node:path'
 import { supabase as sb } from '../lib/supabase.js'
 import { requireUser, requireOrgMembership, requireProjectMembership } from '../lib/auth.js'
 import { makeLimiter } from '../lib/rate-limit.js'
+import { getSfmcAccountsForOrg } from '../lib/sfmc-account.js'
 
 // Shared with /api/chat conceptually but separate bucket: the streaming
 // endpoint is where the real LLM spend happens, so its budget is its own.
@@ -38,7 +39,7 @@ function ensureScratchDir(projectId) {
 // The Delma MCP server is started as a subprocess by Agent SDK. It exposes
 // all of Delma's typed ops (add_person, add_decision, add_node, ...) as
 // MCP tools, scoped to this user+workspace via env vars.
-function delmaMcpConfig({ userId, projectId }) {
+function delmaMcpConfig({ userId, projectId, sfmcAccounts }) {
   return {
     delma: {
       type: 'stdio',
@@ -47,10 +48,52 @@ function delmaMcpConfig({ userId, projectId }) {
       env: {
         ...process.env,
         DELMA_USER_ID: userId,
-        DELMA_PROJECT_ID: projectId
+        DELMA_PROJECT_ID: projectId,
+        ...sfmcEnvVars(sfmcAccounts)
       }
     }
   }
+}
+
+// Translate the decrypted SFMC accounts map ({ child, parent }) into the
+// env vars every all-salesforce-projects script expects:
+//   - Child BU is the default (CLIENT_ID, CLIENT_SECRET, SFMC_SUBDOMAIN, MID)
+//     because most projects send/build journeys via the child.
+//   - Parent BU is exposed under PARENT_BU_* names (matches calendar-project).
+// Per-turn injection — never written to disk.
+function sfmcEnvVars(accounts) {
+  if (!accounts) return {}
+  const out = {}
+  const child = accounts.child
+  const parent = accounts.parent
+
+  if (child) {
+    Object.assign(out, {
+      CLIENT_ID: child.client_id || '',
+      CLIENT_SECRET: child.client_secret || '',
+      SFMC_SUBDOMAIN: subdomainFromUrl(child.rest_base_url) || '',
+      SFMC_MID: child.account_id || '',
+      SFMC_AUTH_BASE_URL: child.auth_base_url || '',
+      SFMC_REST_BASE_URL: child.rest_base_url || '',
+      SFMC_SOAP_BASE_URL: child.soap_base_url || ''
+    })
+  }
+  if (parent) {
+    Object.assign(out, {
+      PARENT_BU_CLIENT_ID: parent.client_id || '',
+      PARENT_BU_CLIENT_SECRET: parent.client_secret || '',
+      PARENT_BU_MID: parent.account_id || '',
+      PARENT_BU_AUTH_BASE_URL: parent.auth_base_url || '',
+      PARENT_BU_REST_BASE_URL: parent.rest_base_url || '',
+      PARENT_BU_SOAP_BASE_URL: parent.soap_base_url || ''
+    })
+  }
+  return out
+}
+
+function subdomainFromUrl(url) {
+  const m = (url || '').match(/^https?:\/\/([^.]+)\./)
+  return m ? m[1] : ''
 }
 
 // Or-create the single long-running conversation for this workspace.
@@ -121,12 +164,19 @@ export async function handleChatStream(req, res) {
 
   // Verify this user actually has access to this workspace before we spin up
   // the Agent SDK and hand it write tools.
+  let projectOrgId = null
   try {
     const { data: ws } = await sb.from('projects').select('org_id').eq('id', projectId).single()
     if (!ws) return res.status(404).json({ error: 'workspace not found' })
+    projectOrgId = ws.org_id
     try { await requireProjectMembership(sb, userId, projectId) }
     catch { await requireOrgMembership(sb, userId, ws.org_id) }
   } catch (err) { return res.status(err.status || 403).json({ error: err.message }) }
+
+  // Pull SFMC creds for this project's org (both parent + child BU if
+  // configured). Decrypted in memory; passed through as env vars only for
+  // this turn's MCP subprocess and Bash environment. Never written to disk.
+  const sfmcAccounts = await getSfmcAccountsForOrg(projectOrgId)
 
   let conversationId
   try {
@@ -158,7 +208,10 @@ export async function handleChatStream(req, res) {
       options: {
         model: DEFAULT_MODEL,
         cwd: scratchDir,
-        mcpServers: delmaMcpConfig({ userId, projectId }),
+        // Bash + tool subprocesses inherit this env. SFMC creds are scoped
+        // to this single turn and never written to disk.
+        env: { ...process.env, ...sfmcEnvVars(sfmcAccounts) },
+        mcpServers: delmaMcpConfig({ userId, projectId, sfmcAccounts }),
         // Default to Claude Code's full toolset. Later we can scope per-tier.
         allowedTools: [
           'Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch',
