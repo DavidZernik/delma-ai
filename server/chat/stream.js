@@ -18,6 +18,7 @@ import { supabase as sb } from '../lib/supabase.js'
 import { requireUser, requireOrgMembership, requireProjectMembership } from '../lib/auth.js'
 import { makeLimiter } from '../lib/rate-limit.js'
 import { getSfmcAccountsForOrg } from '../lib/sfmc-account.js'
+import { buildChatSystemPrompt } from './context.js'
 
 // Shared with /api/chat conceptually but separate bucket: the streaming
 // endpoint is where the real LLM spend happens, so its budget is its own.
@@ -178,6 +179,26 @@ export async function handleChatStream(req, res) {
   // this turn's MCP subprocess and Bash environment. Never written to disk.
   const sfmcAccounts = await getSfmcAccountsForOrg(projectOrgId)
 
+  // Compose the per-turn system prompt: project state + org memory + SFMC
+  // connection summary + behavior instructions. Without this the chat has
+  // zero project context and replies generically.
+  const systemPrompt = await buildChatSystemPrompt({
+    projectId, orgId: projectOrgId, sfmcAccounts
+  })
+
+  // Loud server-side log so we can see exactly what we're shipping. Trims
+  // the prompt body — full version is large but the structure preview is
+  // enough to diagnose "is the chat seeing the project?" questions.
+  console.log('[chat] turn start',
+    'user:', userId.slice(0, 8),
+    'project:', projectId.slice(0, 8),
+    'org:', projectOrgId?.slice(0, 8),
+    'sfmc:', Object.keys(sfmcAccounts || {}).join(',') || 'none',
+    'systemPromptChars:', systemPrompt.length,
+    'messageChars:', message.length
+  )
+  console.log('[chat] systemPrompt preview:\n' + systemPrompt.slice(0, 800) + (systemPrompt.length > 800 ? '\n…(truncated)' : ''))
+
   let conversationId
   try {
     const scratchDir = ensureScratchDir(projectId)
@@ -208,6 +229,10 @@ export async function handleChatStream(req, res) {
       options: {
         model: DEFAULT_MODEL,
         cwd: scratchDir,
+        // System prompt is the project context + behavior instructions.
+        // Built fresh every turn from Supabase so the chat is always seeing
+        // the latest workspace state.
+        systemPrompt,
         // Bash + tool subprocesses inherit this env. SFMC creds are scoped
         // to this single turn and never written to disk.
         env: { ...process.env, ...sfmcEnvVars(sfmcAccounts) },
