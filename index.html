@@ -128,7 +128,12 @@
     @media (max-width: 960px) {
       .chat-sidebar {
         border-left: none;
-        border-top: 1px solid var(--line);
+        border-top: none;
+        /* Chat stacks above the workspace on narrow viewports, so the visible
+           boundary between the two is the chat's BOTTOM edge. Make it strong
+           enough to read as a section break on a shared cream background. */
+        border-bottom: 2px solid rgba(143, 0, 0, 0.28);
+        box-shadow: 0 4px 10px -8px rgba(0, 0, 0, 0.25);
         height: 60vh;
         min-height: 420px;
       }
@@ -719,7 +724,7 @@
       width: 100%;
       max-width: 780px;       /* match diagram-card width so Edit aligns with card right edge */
       margin: 0 auto;
-      padding: 8px 0 4px;
+      padding: 18px 20px 12px;
       box-sizing: border-box;
     }
 
@@ -898,9 +903,6 @@
     .diagram-shell .node.node-hover path {
       stroke-width: 3.5px !important;
       filter: drop-shadow(0 3px 10px rgba(143, 0, 0, 0.35)) !important;
-    }
-    .diagram-shell .node.node-hover .nodeLabel {
-      font-weight: 700 !important;
     }
 
     /* Project Details — click a box in the diagram to open a modal with
@@ -1388,6 +1390,18 @@
       100% { background-color: var(--panel); }
     }
     .view-tab.delma-tab-pulse { animation: delma-tab-pulse 3.2s ease-in-out; }
+
+    /* Small inline spinner used by in-progress buttons (e.g. chat Clear). */
+    @keyframes delma-spin { to { transform: rotate(360deg); } }
+    .delma-spinner {
+      display: inline-block;
+      width: 12px; height: 12px;
+      border: 2px solid rgba(143, 0, 0, 0.25);
+      border-top-color: var(--brand, #8F0000);
+      border-radius: 50%;
+      animation: delma-spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
 
     /* ── Change highlight in editor ───────────────────────────────── */
     /* Warm rose tint on changed lines, fades out after a moment.     */

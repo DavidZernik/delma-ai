@@ -60,7 +60,19 @@ export function ChatSidebar({ projectId, userId }) {
           {status === 'streaming' && (
             <button onClick={abort} style={styles.stopBtn}>Stop</button>
           )}
-          <button onClick={clear} style={styles.clearBtn}>Clear</button>
+          <button
+            onClick={clear}
+            disabled={status === 'clearing'}
+            style={{
+              ...styles.clearBtn,
+              opacity: status === 'clearing' ? 0.6 : 1,
+              cursor: status === 'clearing' ? 'wait' : 'pointer',
+              display: 'inline-flex', alignItems: 'center', gap: 6
+            }}
+          >
+            {status === 'clearing' && <span className="delma-spinner" />}
+            {status === 'clearing' ? 'Clearing…' : 'Clear'}
+          </button>
         </div>
       </div>
 

@@ -54,7 +54,7 @@ function priorConversationBlock(messages) {
   return [header, '', ...kept, ''].join('\n')
 }
 
-export async function buildChatSystemPrompt({ projectId, orgId, sfmcAccounts, priorMessages = [] }) {
+export async function buildChatSystemPrompt({ projectId, orgId, sfmcAccounts, priorMessages = [], projectDir = null, sharedDir = null }) {
   const [project, org, views, memoryRows, orgMemoryRows, appPerms] = await Promise.all([
     sb.from('projects').select('id, name').eq('id', projectId).maybeSingle().then(r => r.data),
     sb.from('organizations').select('id, name').eq('id', orgId).maybeSingle().then(r => r.data),
@@ -80,6 +80,25 @@ export async function buildChatSystemPrompt({ projectId, orgId, sfmcAccounts, pr
   lines.push(`- For SFMC API calls, use Bash + curl with the env vars below (CLIENT_ID, CLIENT_SECRET, SFMC_SUBDOMAIN, etc.). Cache the OAuth token across calls in the same turn.`)
   lines.push(`- Be concise. The user is non-technical and works in marketing operations. Lead with the answer, then the detail.`)
   lines.push(``)
+
+  // ── Scratch directory layout ──────────────────────────────────────────────
+  // Two-tier on-disk workspace: project dir (default cwd) + org-shared dir
+  // for reusable scripts. Same SFMC creds work in both, so a fetch script
+  // written for one project is reusable by any project in this org.
+  if (projectDir) {
+    lines.push(`## Working Directories`)
+    lines.push(`- **Current working dir (project-specific):** \`${projectDir}\``)
+    lines.push(`  - Use for: fetched JSON snapshots, project-specific scripts, SQL drafts, anything tied to THIS campaign. Not visible to other projects.`)
+    if (sharedDir) {
+      lines.push(`- **Shared org dir (reusable across projects in this org):** \`${sharedDir}\` — also available via env var \`$DELMA_SHARED_DIR\`.`)
+      lines.push(`  - Use for: SFMC helper scripts (OAuth token fetcher, email asset fetcher, DE query runner, etc.) that would work for any project in this org. Same CLIENT_ID/CLIENT_SECRET/SFMC_* env vars reach both dirs, so a script written once can be reused.`)
+      lines.push(`  - **Rule:** when you're about to write a Bash/Python/Node script, ask yourself "would this work for any project in this org?" If yes, save it in \`$DELMA_SHARED_DIR/\`. If it's tied to this campaign's specific IDs/names, keep it in the project dir.`)
+      lines.push(`  - **Before writing a new script, check \`$DELMA_SHARED_DIR/\` first** — there may already be a reusable one you can run or extend.`)
+    } else {
+      lines.push(`- No shared org dir (this project isn't attached to an org yet).`)
+    }
+    lines.push(``)
+  }
 
   // ── Project + Org identity ────────────────────────────────────────────────
   lines.push(`## Active Project`)

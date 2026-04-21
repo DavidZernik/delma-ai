@@ -163,6 +163,7 @@ export function useChatStream({ projectId, userId }) {
     // Stop any in-flight stream first so we don't race with new messages
     // landing into the wiped UI.
     abortRef.current?.abort()
+    setStatus('clearing')
     try {
       const res = await fetch('/api/chat/clear', {
         method: 'POST',

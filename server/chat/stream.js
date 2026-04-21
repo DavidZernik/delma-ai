@@ -25,16 +25,29 @@ import { buildChatSystemPrompt } from './context.js'
 const streamLimiter = makeLimiter({ windowMs: 60_000, max: 15 })
 const MAX_MESSAGE_BYTES = 50_000
 
-const SCRATCH_ROOT = process.env.DELMA_SCRATCH_ROOT || '/tmp/delma-projects'
+const SCRATCH_ROOT = process.env.DELMA_SCRATCH_ROOT || '/tmp/delma'
 const DEFAULT_MODEL = process.env.DELMA_CHAT_MODEL || 'claude-sonnet-4-5'
 
-// Per-workspace scratch directory. Agent SDK runs with cwd set here, so
-// anything Claude writes lands in a workspace-scoped space. Survives
-// across chat turns; cleaned manually (later: quotas + auto-cleanup).
-function ensureScratchDir(projectId) {
-  const dir = join(SCRATCH_ROOT, projectId)
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-  return dir
+// Two-tier scratch layout:
+//   /tmp/delma/orgs/{orgId}/shared/              ← reusable across projects
+//   /tmp/delma/orgs/{orgId}/projects/{pid}/      ← project-specific
+//   /tmp/delma/no-org/projects/{pid}/            ← orgless fallback, no shared
+//
+// Agent SDK cwd = project dir (primary workspace), and we pass the shared
+// dir as an additional allowed directory so Claude can read/write reusable
+// scripts there. Same-org API creds work in either dir, so a fetch script
+// written once can be grabbed and reused by any project in the org.
+function ensureScratchDirs(projectId, orgId) {
+  if (orgId) {
+    const orgRoot = join(SCRATCH_ROOT, 'orgs', orgId)
+    const shared = join(orgRoot, 'shared')
+    const project = join(orgRoot, 'projects', projectId)
+    for (const d of [shared, project]) if (!existsSync(d)) mkdirSync(d, { recursive: true })
+    return { projectDir: project, sharedDir: shared }
+  }
+  const project = join(SCRATCH_ROOT, 'no-org', 'projects', projectId)
+  if (!existsSync(project)) mkdirSync(project, { recursive: true })
+  return { projectDir: project, sharedDir: null }
 }
 
 // The Delma MCP server is started as a subprocess by Agent SDK. It exposes
@@ -263,10 +276,12 @@ export async function handleChatStream(req, res) {
   // Wrapped so a failure here returns 500 cleanly instead of taking the
   // Node process down — buildChatSystemPrompt runs before the SSE headers
   // are flushed, so a throw would bypass the main try/catch below.
+  const { projectDir, sharedDir } = ensureScratchDirs(projectId, projectOrgId)
+
   let systemPrompt
   try {
     systemPrompt = await buildChatSystemPrompt({
-      projectId, orgId: projectOrgId, sfmcAccounts, priorMessages
+      projectId, orgId: projectOrgId, sfmcAccounts, priorMessages, projectDir, sharedDir
     })
   } catch (err) {
     console.error('[chat] buildChatSystemPrompt failed:', err)
@@ -286,8 +301,6 @@ export async function handleChatStream(req, res) {
     'cached:', Array.isArray(systemPrompt) ? 'yes' : 'no',
     'messageChars:', message.length
   )
-
-  const scratchDir = ensureScratchDir(projectId)
 
   // Persist the user message before the turn starts.
   await saveMessage(conversationId, { role: 'user', content: message })
@@ -319,9 +332,15 @@ export async function handleChatStream(req, res) {
       prompt: message,
       options: {
         model: DEFAULT_MODEL,
-        cwd: scratchDir,
+        cwd: projectDir,
+        ...(sharedDir ? { additionalDirectories: [sharedDir] } : {}),
         systemPrompt,
-        env: { ...process.env, ...sfmcEnvVars(sfmcAccounts) },
+        env: {
+          ...process.env,
+          ...sfmcEnvVars(sfmcAccounts),
+          DELMA_SHARED_DIR: sharedDir || '',
+          DELMA_PROJECT_DIR: projectDir
+        },
         mcpServers: delmaMcpConfig({ userId, projectId, sfmcAccounts }),
         abortController,
         allowedTools: [

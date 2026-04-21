@@ -1908,6 +1908,16 @@ function renderViewTabs() {
     els.viewTabs.appendChild(btn)
   }
 
+  // ── Separator after Project Details ──
+  // Project Details is the only tab that gets fresh-seeded per project;
+  // everything to the right (Integrations, org tabs, My Notes) persists
+  // across projects, so the divider marks that boundary.
+  if (hasProject) {
+    const sep = document.createElement('span')
+    sep.style.cssText = 'width:1px;height:20px;background:rgba(0,0,0,0.12);flex-shrink:0;'
+    els.viewTabs.appendChild(sep)
+  }
+
   // ── Integrations — credentials + permissions per connected app ────
   if (hasProject) {
     const isActive = state.activeTopTab === 'integrations'
@@ -1923,14 +1933,8 @@ function renderViewTabs() {
     els.viewTabs.appendChild(btn)
   }
 
-  // ── Org-level tabs (shared across projects — less project-specific,
-  // so they sit on the right side before My Notes) ──────────────────────
+  // ── Org-level tabs (shared across projects) ────────────────────────
   const orgFiles = Object.keys(state.orgMemory).length ? Object.keys(state.orgMemory) : []
-  if (orgFiles.length) {
-    const sep = document.createElement('span')
-    sep.style.cssText = 'width:1px;height:20px;background:rgba(0,0,0,0.12);flex-shrink:0;'
-    els.viewTabs.appendChild(sep)
-  }
   for (const filename of orgFiles) {
     const label = ORG_TAB_LABELS[filename] || { title: filename, desc: '' }
     const row = state.orgMemoryRows.find(r => r.filename === filename)
@@ -2030,15 +2034,18 @@ async function renderGlobalMyNotes() {
 // One tab to rule them all: replaces both the old Connected Apps tab and the
 // SFMC Connections drawer. Currently shows the SFMC integration.
 async function renderIntegrations() {
-  els.viewTitle.textContent = 'Integrations'
-  els.viewDescription.textContent = 'Apps connected to this project. Set credentials and access level per integration.'
+  // Leave the header blank while loading — we set title + description only
+  // once the cards below are ready to render, so the page doesn't flash
+  // "Integrations / Apps connected..." above an empty/"Loading..." area.
+  els.viewTitle.textContent = ''
+  els.viewDescription.textContent = ''
   els.viewProvenance.textContent = ''
   els.resetExampleBtn.hidden = true
   els.modeToggle.hidden = true
   els.diagramEditor.classList.remove('visible')
   els.diagramOutput.hidden = false
   els.diagramOutput.className = ''
-  els.diagramOutput.innerHTML = `<div class="diagram-card"><div class="integrations-host">Loading…</div></div>`
+  els.diagramOutput.innerHTML = `<div class="diagram-card"><div class="integrations-host"></div></div>`
   const host = els.diagramOutput.querySelector('.integrations-host')
 
   let apps = []
@@ -2054,9 +2061,14 @@ async function renderIntegrations() {
     apps = (await permRes.json()).apps || []
     accounts = (await acctRes.json()).accounts || {}
   } catch (err) {
+    els.viewTitle.textContent = 'Integrations'
     host.innerHTML = `<div style="color:#8F0000;padding:12px;">Failed to load: ${escapeHtml(err.message)}</div>`
     return
   }
+
+  // Cards ready — now show the header.
+  els.viewTitle.textContent = 'Integrations'
+  els.viewDescription.textContent = 'Apps connected to this project. Set credentials and access level per integration.'
 
   host.innerHTML = ''
   host.style.cssText = 'display:flex;flex-direction:column;gap:18px;padding:4px 0;'
