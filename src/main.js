@@ -1654,12 +1654,18 @@ async function renderDiagram(mermaidCode) {
       requestAnimationFrame(() => {
         dlog('[delma render] rAF 1 done')
         requestAnimationFrame(() => {
-          // Fit-to-width on first render so narrow (tablet/mobile) viewports
-          // don't show a scrolled-away corner. Never zoom IN past 100% — only
-          // shrink to fit. User can zoom in manually with +.
+          // Initial zoom: 100%. Wider-than-viewport diagrams deliberately
+          // overflow horizontally so the horizontal scrollbar shows up as a
+          // pan affordance (matching the vertical scrollbar). Users can zoom
+          // out with - if they want to fit everything. On very narrow
+          // viewports (mobile, < 600px) we still shrink-to-fit so the diagram
+          // isn't a tiny sliver off-screen.
           const baseW = Number(svgEl.dataset.baseWidth || svgEl.viewBox.baseVal?.width || 0)
           const wrapW = wrapper.clientWidth || 0
-          const fit = baseW && wrapW ? Math.min(1, (wrapW - 24) / baseW) : 1
+          const isNarrowViewport = window.innerWidth < 600
+          const fit = (isNarrowViewport && baseW && wrapW)
+            ? Math.min(1, (wrapW - 24) / baseW)
+            : 1
           setZoom(fit)
           // Reset scroll to top-left so we start with a clean view.
           wrapper.scrollLeft = 0
