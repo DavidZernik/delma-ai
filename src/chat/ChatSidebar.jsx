@@ -19,9 +19,10 @@ function renderChatMarkdown(text) {
 }
 
 export function ChatSidebar({ projectId, userId }) {
-  const { messages, status, send, abort, clear } = useChatStream({ projectId, userId })
+  const { messages, status, send, abort, clear, currentTool } = useChatStream({ projectId, userId })
   const [input, setInput] = useState('')
   const [composerHeight, setComposerHeight] = useState(120)
+  const thinkingLabel = useThinkingLabel()
   const scrollRef = useRef(null)
 
   useEffect(() => {
@@ -95,7 +96,9 @@ export function ChatSidebar({ projectId, userId }) {
             />
           )
         })}
-        {status === 'streaming' && <div style={styles.thinking}>⟳ thinking…</div>}
+        {status === 'streaming' && (
+          <div style={styles.thinking}>⟳ {currentTool ? formatToolStatus(currentTool) : thinkingLabel}</div>
+        )}
       </div>
 
       <div style={styles.resizeHandle} onMouseDown={onResizeStart} title="Drag to resize" />
@@ -174,14 +177,100 @@ function ToolResultChip({ results }) {
   )
 }
 
+// Rotating fallback labels for the gap moments (Claude reasoning with no
+// active tool call). Cycles every 2.5s so "thinking…" doesn't feel frozen
+// when a response takes a while. Pool kept varied but short.
+const THINKING_LABELS = [
+  'thinking…',
+  'working through the request…',
+  'reasoning…',
+  'pulling context together…',
+  'planning next step…',
+  'reviewing project details…',
+  'almost there…'
+]
+function useThinkingLabel() {
+  const [i, setI] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => setI(n => (n + 1) % THINKING_LABELS.length), 2500)
+    return () => clearInterval(id)
+  }, [])
+  return THINKING_LABELS[i]
+}
+
+// Human-readable one-liner for the live "⟳ …" status while a tool is
+// in flight. Falls back to the raw tool name if we don't have a nicer
+// label. Tool inputs are trimmed aggressively — this is a single line.
+function formatToolStatus({ name, input }) {
+  const short = (s, n = 60) => {
+    const str = String(s || '').replace(/\s+/g, ' ').trim()
+    return str.length > n ? str.slice(0, n) + '…' : str
+  }
+  if (!name) return 'working…'
+
+  if (name === 'Bash') {
+    const cmd = short(input?.command, 70)
+    // Recognize the common case: curl to SFMC. Makes the progress feel alive.
+    if (/curl/i.test(cmd)) {
+      if (/token/i.test(cmd)) return 'getting SFMC OAuth token…'
+      if (/asset/i.test(cmd)) return 'fetching SFMC asset…'
+      if (/dataextension/i.test(cmd)) return 'querying Data Extension…'
+      if (/journey/i.test(cmd)) return 'reading journey from SFMC…'
+      return `calling SFMC: ${cmd}`
+    }
+    return `running: ${cmd}`
+  }
+  if (name === 'Read')     return `reading ${short(input?.file_path, 50)}`
+  if (name === 'Write')    return `writing ${short(input?.file_path, 50)}`
+  if (name === 'Edit')     return `editing ${short(input?.file_path, 50)}`
+  if (name === 'Glob')     return `searching files (${short(input?.pattern, 40)})`
+  if (name === 'Grep')     return `searching "${short(input?.pattern, 40)}"`
+  if (name === 'WebFetch') return `fetching ${short(input?.url, 60)}`
+
+  // Delma MCP tools surface as mcp__delma__<op>. Strip the prefix and
+  // convert snake_case → friendly English.
+  if (name.startsWith('mcp__delma__')) {
+    const op = name.slice('mcp__delma__'.length)
+    const labels = {
+      delma_add_playbook_rule: 'saving to General Patterns',
+      delma_arch_set_node_note: 'updating a diagram node note',
+      delma_arch_set_node_label: 'renaming a diagram node',
+      delma_arch_add_node: 'adding a diagram node',
+      delma_arch_remove_node: 'removing a diagram node',
+      delma_append_my_note: 'saving to My Notes',
+      delma_add_decision: 'saving to Project Details',
+      delma_set_environment_key: 'updating Files Locations & Keys',
+      delma_add_person: 'adding someone to People',
+      delma_add_action: 'adding an action item',
+      delma_complete_action: 'completing an action',
+      append_memory_note: 'saving a note',
+      sync_conversation_summary: 'summarizing the conversation',
+      save_diagram_view: 'saving the diagram'
+    }
+    return labels[op] || `Delma: ${op.replace(/_/g, ' ')}`
+  }
+
+  return `${name}…`
+}
+
 // Pattern-match the agent's closing question to decide whether to offer
-// Yes/No buttons. Conservative: we want them on clear proposals, not on
-// every "?" in the message (e.g. "How should I proceed?").
+// Yes/No buttons. Conservative: only on first-person-action proposals
+// ("Should I …?", "Want me to …?", "Add this to X?") — never on open-ended
+// "What would you like to do?" / "How should I proceed?" questions.
 function isYesNoQuestion(text) {
   if (!text) return false
   const last = text.trim().split(/\n\s*\n/).pop() || ''
-  if (!last.trim().endsWith('?')) return false
-  return /(want me to|should i|shall i|do you want|would you like|ok to|go ahead)/i.test(last)
+  const tail = last.trim()
+  if (!tail.endsWith('?')) return false
+  // First-person proposal verbs (Claude proposing an action it'd take).
+  // Narrowed "do you want" / "would you like" to require "me to" so they
+  // don't match "what would you like me to do?"-style open questions.
+  const proposalVerbs = /(want me to|should i|shall i|do you want me to|would you like me to|ok (?:to|if i)|go ahead)/i
+  // Save-location proposals: "Add this to General Patterns?", "Save it
+  // under the EMAIL node?" — the explicit-destination variant we see when
+  // the user dumps knowledge and Claude offers to file it.
+  const saveLocation = /\b(?:add|save|put|write|file|stash) (?:this|it|that) (?:to|in|under|on|as)\b/i
+  return proposalVerbs.test(tail) || saveLocation.test(tail)
 }
 
 function YesNoButtons({ onAnswer }) {

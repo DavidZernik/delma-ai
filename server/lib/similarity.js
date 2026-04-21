@@ -23,13 +23,16 @@
 const EMBED_MODEL = 'gemini-embedding-001'
 const EMBED_URL = `https://generativelanguage.googleapis.com/v1beta/models/${EMBED_MODEL}:embedContent`
 
-// Thresholds chosen to be slightly tighter than the cheap heuristic — we
-// want embeddings to catch ONLY the dupes the heuristic missed, not replay
-// everything it already blocked.
+// Thresholds: only block things that are almost-exact restatements. Distinct
+// rules in the same domain (e.g. five separate rules about SFMC assetType 207
+// — structure, safe workflow, NEVER PATCH, recovery, PATCH-safe-types) share
+// heavy domain vocabulary and land at sim ~0.83–0.88 even though they carry
+// different information. 0.92+ keeps "same rule reworded" but lets "related
+// but distinct" through.
 const SIM_THRESHOLD = {
-  playbook: 0.82,      // rules — conservative; different policies can share vocab
-  decision: 0.82,      // same
-  node_label: 0.85     // labels — tighter still because short strings embed noisily
+  playbook: 0.92,      // rules — tight; related policies in same domain share vocab
+  decision: 0.90,      // decisions — slightly looser; full sentences overlap less
+  node_label: 0.88     // labels — short strings embed noisily, need room
 }
 
 const cache = new Map()

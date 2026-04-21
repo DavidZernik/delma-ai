@@ -17,6 +17,10 @@ import { ANTHROPIC_URL, anthropicHeaders } from './lib/llm.js'
 import { handleChatStream } from './chat/stream.js'
 import { makeLimiter } from './lib/rate-limit.js'
 import { encrypt } from './lib/crypto.js'
+import { initLogStream, isLogStreamEnabled, attachSseClient } from './lib/log-stream.js'
+
+// Install before anything else logs, so startup traces land in the ring buffer.
+if (isLogStreamEnabled()) initLogStream()
 
 // Per-user rate limits. Numbers tuned to be invisible to humans but stop
 // a runaway loop or a malicious script from burning credits / spamming
@@ -39,6 +43,16 @@ app.use(express.json({ limit: '4mb' }))
 
 app.get('/api/health', (req, res) => {
   res.json({ ok: true, version: '2.0.0' })
+})
+
+// ── Debug log stream ─────────────────────────────────────────────────────────
+// SSE endpoint that mirrors server console output to any connected browser.
+// Dev-only (gated by isLogStreamEnabled) + auth-required (don't leak internals).
+app.get('/api/debug/logs', async (req, res) => {
+  if (!isLogStreamEnabled()) return res.status(404).json({ error: 'disabled' })
+  try { await requireUser(req) }
+  catch (err) { return res.status(err.status || 401).json({ error: err.message }) }
+  attachSseClient(res)
 })
 
 // ── Chat Proxy ───────────────────────────────────────────────────────────────

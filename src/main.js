@@ -639,12 +639,60 @@ function handleRealtimeChange(table, payload) {
       console.error('[delma realtime] refresh failed:', err)
     })
   } else {
-    // Different tab — slow bg pulse on the tab button itself.
+    // Different tab — update ONLY the changed tab's state in-place, then
+    // pulse the tab pill. Do NOT call refreshWorkspace(), which would tear
+    // down and re-render the currently active tab (e.g. re-rendering the
+    // whole mermaid diagram every time the playbook gets a new rule).
     tabsWithUpdates.add(tabKey)
-    refreshWorkspace()
-      .then(() => { renderViewTabs(); pulseTabBg(tabKey) })
-      .catch(err => console.error('[delma realtime] bg refresh failed:', err))
+    void refreshChangedTabOnly(table, record).then(() => {
+      renderViewTabs()
+      pulseTabBg(tabKey)
+    }).catch(err => console.error('[delma realtime] targeted refresh failed:', err))
     console.log('[delma realtime] inactive tab pulsed:', tabKey)
+  }
+}
+
+// Fetch just the row that changed and patch it into local state, without
+// touching the diagram or the currently-visible tab. Keeps realtime updates
+// from flashing the active view when the change happened elsewhere.
+async function refreshChangedTabOnly(table, record) {
+  if (table === 'diagram_views') {
+    const { data } = await supabase
+      .from('diagram_views').select('*')
+      .eq('project_id', state.projectId).eq('view_key', record.view_key).maybeSingle()
+    if (data) {
+      const idx = state.views.findIndex(v => v.view_key === data.view_key)
+      if (idx >= 0) state.views[idx] = data
+      else state.views.push(data)
+    } else {
+      state.views = state.views.filter(v => v.view_key !== record.view_key)
+    }
+    return
+  }
+  if (table === 'memory_notes') {
+    const { data } = await supabase
+      .from('memory_notes').select('*')
+      .eq('project_id', state.projectId).eq('filename', record.filename).maybeSingle()
+    if (data) {
+      state.memory[data.filename] = data.content
+      const idx = state.memoryRows.findIndex(r => r.filename === data.filename)
+      if (idx >= 0) state.memoryRows[idx] = data
+      else state.memoryRows.push(data)
+    }
+    return
+  }
+  if (table === 'org_memory_notes') {
+    if (!state.org?.id) return
+    const { data } = await supabase
+      .from('org_memory_notes').select('*')
+      .eq('org_id', state.org.id).eq('filename', record.filename).maybeSingle()
+    if (data) {
+      state.orgMemory[data.filename] = data.content
+      const idx = state.orgMemoryRows.findIndex(r => r.filename === data.filename)
+      if (idx >= 0) state.orgMemoryRows[idx] = data
+      else state.orgMemoryRows.push(data)
+    }
+    return
   }
 }
 
@@ -2074,7 +2122,7 @@ async function renderIntegrations() {
 
   // Cards ready — now show the header.
   els.viewTitle.textContent = 'Integrations'
-  els.viewDescription.textContent = 'Apps connected to this project. Set credentials and access level per integration.'
+  els.viewDescription.textContent = 'Apps connected to this project. Delma will confirm with you before any write.'
 
   host.innerHTML = ''
   host.style.cssText = 'display:flex;flex-direction:column;gap:18px;padding:4px 0;'
@@ -2086,10 +2134,10 @@ async function renderIntegrations() {
       background:#FFFFFF;overflow:hidden;
     `
 
-    // ── Header row: name + status + permission toggle ──
+    // ── Header row: name + connection status ──
     const header = document.createElement('div')
     header.style.cssText = `
-      display:flex;align-items:center;justify-content:space-between;gap:16px;
+      display:flex;align-items:center;gap:16px;
       padding:16px 20px;border-bottom:1px solid var(--line);background:#FFFFFF;
     `
     const headerLeft = document.createElement('div')
@@ -2105,10 +2153,6 @@ async function renderIntegrations() {
       ${app.last_sync_at ? `<div style="font-size:11px;color:var(--muted);margin-top:6px;">Last synced ${escapeHtml(timeAgo(app.last_sync_at))}</div>` : ''}
     `
     header.appendChild(headerLeft)
-    const headerRight = document.createElement('div')
-    headerRight.style.cssText = 'flex-shrink:0;'
-    if (app.connected) headerRight.appendChild(buildPermissionToggle(app))
-    header.appendChild(headerRight)
     card.appendChild(header)
 
     // ── Body: credentials form (SFMC only for now) ──
@@ -2231,58 +2275,6 @@ function wireSfmcForms(hostEl, onReload) {
       }
     })
   })
-}
-
-function buildPermissionToggle(app) {
-  const wrap = document.createElement('div')
-  wrap.style.cssText = `
-    display:inline-flex;padding:3px;border:1px solid var(--line);border-radius:999px;
-    background:#FFFFFF;gap:2px;
-  `
-  const mkBtn = (value, label, disabled) => {
-    const b = document.createElement('button')
-    b.textContent = label
-    b.dataset.value = value
-    const isActive = app.permission === value
-    b.style.cssText = `
-      padding:7px 14px;font-size:12px;font-weight:600;border-radius:999px;
-      border:none;cursor:${disabled ? 'not-allowed' : 'pointer'};
-      background:${isActive ? 'var(--accent)' : 'transparent'};
-      color:${isActive ? '#fff' : disabled ? '#B9ADA8' : 'var(--ink)'};
-      ${disabled ? 'opacity:0.55;' : ''}
-      transition:background 120ms ease, color 120ms ease;
-    `
-    if (!disabled) {
-      b.addEventListener('click', async () => {
-        if (app.permission === value) return
-        const prev = app.permission
-        app.permission = value
-        // Re-render just this toggle inline for snappy feedback
-        const parent = wrap.parentElement
-        const fresh = buildPermissionToggle(app)
-        parent.replaceChild(fresh, wrap)
-        try {
-          const headers = { ...(await authHeaders()), 'Content-Type': 'application/json' }
-          const res = await fetch(`/api/projects/${state.projectId}/app-permissions/${app.id}`, {
-            method: 'PUT',
-            headers,
-            body: JSON.stringify({ permission: value })
-          })
-          if (!res.ok) throw new Error(`${res.status}`)
-        } catch (err) {
-          app.permission = prev
-          parent.replaceChild(buildPermissionToggle(app), fresh)
-          alert(`Failed to update permission: ${err.message}`)
-        }
-      })
-    } else {
-      b.title = `${app.name} does not support write operations`
-    }
-    return b
-  }
-  wrap.appendChild(mkBtn('read_only', 'Read only', false))
-  wrap.appendChild(mkBtn('read_write', 'Read + write', !app.supports_write))
-  return wrap
 }
 
 async function renderMemoryDocument(filename, isOrg = false) {
@@ -3355,4 +3347,49 @@ void init().then(() => {
   setupConnectionsDrawer()
   wireLayoutDebug()
   delmaDebugLayout('post-init')
+  // Always tail the server log into DevTools — no flag needed.
+  void streamServerLogs()
 }).catch(err => console.error('[delma] INIT CRASHED:', err))
+
+// Tail the server's console output into DevTools when the URL has ?debug=1.
+// Requires DELMA_LOG_STREAM=1 (or non-prod NODE_ENV) on the server + a valid
+// session. Reconnects after a brief delay if the stream drops.
+async function streamServerLogs() {
+  const headers = await authHeaders()
+  if (!headers.Authorization) {
+    console.warn('[delma debug] no auth token — skipping log stream')
+    return
+  }
+  console.log('%c[delma debug] streaming server logs…', 'color:#8F0000;font-weight:600')
+  try {
+    const res = await fetch('/api/debug/logs', { headers })
+    if (!res.ok || !res.body) {
+      console.warn('[delma debug] log stream unavailable:', res.status)
+      return
+    }
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buf = ''
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buf += decoder.decode(value, { stream: true })
+      let idx
+      while ((idx = buf.indexOf('\n\n')) !== -1) {
+        const frame = buf.slice(0, idx)
+        buf = buf.slice(idx + 2)
+        const dataLine = frame.split('\n').find(l => l.startsWith('data: '))
+        if (!dataLine) continue
+        try {
+          const { level, line } = JSON.parse(dataLine.slice(6))
+          const fn = level === 'error' ? console.error : level === 'warn' ? console.warn : console.log
+          fn.call(console, '%c[server]', 'color:#8F0000', line)
+        } catch { /* skip malformed frame */ }
+      }
+    }
+  } catch (err) {
+    console.warn('[delma debug] log stream error:', err.message)
+  }
+  // If we fall through, try to reconnect after 3s.
+  setTimeout(() => streamServerLogs(), 3000)
+}

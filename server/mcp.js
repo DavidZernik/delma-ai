@@ -423,7 +423,11 @@ server.registerTool('delma_set_manager', {
 
 server.registerTool('delma_add_playbook_rule', {
   title: 'Add Playbook Rule',
-  description: 'Add a business process rule, unwritten norm, or timing gotcha to the Playbook.',
+  description: `Add a business process rule, unwritten norm, or timing gotcha to the org-wide Playbook (General Patterns and Docs tab).
+
+Write ONE focused rule per call — a single operational principle, not a bundle. If the user shares knowledge that decomposes into several distinct rules, call this tool once per rule.
+
+**Before calling**, skim the "General Patterns and Docs" section already in your prompt: if the candidate rule is a restatement of an existing one, skip the add (or call \`supersede_rule\` if it genuinely replaces one). Related-but-distinct rules in the same domain ARE welcome — don't conflate "how to do X safely" and "how to recover when X breaks" into one.`,
   inputSchema: {
     text: z.string().describe('The rule, one sentence, e.g. "No launches on Fridays"'),
     section: z.string().optional().describe('Optional section heading to group under')
@@ -515,7 +519,19 @@ server.registerTool('delma_arch_set_node_label', {
 
 server.registerTool('delma_arch_set_node_note', {
   title: 'Architecture: Set Node Note',
-  description: 'Change the floating italic annotation next to a node. Pass empty string to remove.',
+  description: `Set the paragraph that appears under this node's heading in the Project Details node-by-node guide (the expanded explanation users see when they click a node in the diagram).
+
+Write 2-3 concise, layman-English sentences: what this step is, how it works, and the specific SFMC assets involved. Audience is non-technical marketing ops.
+
+**Always use full SFMC paths with \`>\` separators, never bare asset names.** Examples:
+- \`Content Builder > Journeys > Brand > brand_all_hbd_2026-final\`
+- \`Automation Studio > Birthday_Daily_Send_Refresh\`
+- \`Data Extensions > Shared > ENT.All_Patients_Opted_In\`
+- \`Journey Builder > Birthday Daily Email Journey v2\`
+
+If you don't know the path, fetch it from SFMC first (asset \`category.name\` for Content Builder assets, category tree for DEs, etc.) before writing the note.
+
+Pass empty string for \`note\` to remove.`,
   inputSchema: { id: z.string(), note: z.string() }
 }, withLogging('delma_arch_set_node_note', (args) => runOp('diagram:architecture', 'set_node_note', args)))
 

@@ -3,7 +3,11 @@
 // (source of truth) and `content` (rendered view).
 
 import { applyOps, render, emptyData, isStructuredTab, OPS_BY_TAB } from '../../src/tab-ops.js'
-import { embeddingDupPreCheck } from './similarity.js'
+// Semantic/embedding-based dedup is deliberately OFF — we rely on Claude's
+// own judgment ("skim existing rules before adding a new one") plus the cheap
+// exact-match normalized-text check in src/tab-ops.js. The semantic layer
+// required constant threshold tuning and rejected legitimately distinct rules
+// that shared domain vocabulary. Kept the cheap exact check for correctness.
 
 // Scope can be:
 //   { kind: 'org', orgId, filename }
@@ -29,24 +33,8 @@ export async function applyOpsToTab(sb, scope, ops) {
 
   const currentData = row?.structured || emptyData(scope.filename)
 
-  // Semantic dedup pre-check: if OPENAI_API_KEY is set, embed-match each op's
-  // candidate text against the current state. Throws the same error shape
-  // handlers do, so the LLM sees a consistent "this already exists" signal.
-  // No-op when OPENAI_API_KEY is absent (heuristic dedup in applyOps runs anyway).
-  const dupErrors = []
-  for (const o of ops) {
-    try { await embeddingDupPreCheck(scope.filename, currentData, o) }
-    catch (err) { dupErrors.push({ op: o.op, msg: err.message }) }
-  }
-
-  const { data: newData, applied, errors } = applyOps(
-    scope.filename,
-    currentData,
-    // Skip ops the semantic check already rejected — they'd re-error with
-    // confusing messages from the sync handler.
-    dupErrors.length ? ops.filter(o => !dupErrors.find(e => e.op === o.op)) : ops
-  )
-  const allErrors = [...dupErrors, ...errors]
+  const { data: newData, applied, errors } = applyOps(scope.filename, currentData, ops)
+  const allErrors = [...errors]
   const content = render(scope.filename, newData)
   const updatePayload = { structured: newData, [contentColumn]: content }
 

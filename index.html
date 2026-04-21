@@ -1375,21 +1375,25 @@
 
     /* Slow bg fade for the diagram card when the current tab is the one
        being updated. Subtle accent wash that rises and settles. */
+    /* Fade-OUT only: jump straight to the red tint on trigger, then fade
+       back to white over ~2.5s. If another change arrives mid-fade, the
+       JS force-restarts the animation, which snaps the bg back to red
+       instead of regressing to white first. Keeps the update cue coherent
+       across rapid-fire writes. */
     @keyframes delma-bg-pulse {
-      0%   { background-color: #FFFFFF; }
-      35%  { background-color: rgba(143, 0, 0, 0.08); }
+      0%   { background-color: rgba(143, 0, 0, 0.10); }
       100% { background-color: #FFFFFF; }
     }
-    .delma-bg-pulse { animation: delma-bg-pulse 3.2s ease-in-out; }
+    .delma-bg-pulse { animation: delma-bg-pulse 2.5s ease-out; }
 
-    /* Slow bg fade for an inactive tab button — signals "this tab just
-       got updated, take a look when you're ready." */
+    /* Same fade-OUT-only pattern for inactive tab pills — signals "this
+       tab just got updated" without the glitchy white → red → white cycle
+       when multiple updates land in quick succession. */
     @keyframes delma-tab-pulse {
-      0%   { background-color: var(--panel); }
-      35%  { background-color: rgba(143, 0, 0, 0.18); }
+      0%   { background-color: rgba(143, 0, 0, 0.22); }
       100% { background-color: var(--panel); }
     }
-    .view-tab.delma-tab-pulse { animation: delma-tab-pulse 3.2s ease-in-out; }
+    .view-tab.delma-tab-pulse { animation: delma-tab-pulse 2.5s ease-out; }
 
     /* Small inline spinner used by in-progress buttons (e.g. chat Clear). */
     @keyframes delma-spin { to { transform: rotate(360deg); } }

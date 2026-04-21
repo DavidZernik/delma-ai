@@ -214,6 +214,38 @@ function sseEvent(res, event, data) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
 }
 
+// Per-message log line so the browser console (via /api/debug/logs) gets a
+// turn-by-turn play-by-play: assistant text, tool_use, tool_result, final.
+function logStreamMessage(msg) {
+  const t = msg?.type
+  if (t === 'assistant' && Array.isArray(msg?.message?.content)) {
+    for (const c of msg.message.content) {
+      if (c.type === 'text' && c.text) {
+        console.log('[chat msg] assistant-text:', String(c.text).slice(0, 180))
+      } else if (c.type === 'tool_use') {
+        const inputStr = (() => { try { return JSON.stringify(c.input) } catch { return '(unserializable)' } })()
+        console.log('[chat msg] tool_use:', c.name, inputStr.slice(0, 300))
+      }
+    }
+    return
+  }
+  if (t === 'user' && Array.isArray(msg?.message?.content)) {
+    for (const c of msg.message.content) {
+      if (c.type === 'tool_result') {
+        const out = typeof c.content === 'string'
+          ? c.content
+          : (() => { try { return JSON.stringify(c.content) } catch { return '(unserializable)' } })()
+        console.log('[chat msg] tool_result:', String(out).slice(0, 300))
+      }
+    }
+    return
+  }
+  if (t === 'result' || t === 'system' || msg?.subtype === 'final') {
+    console.log('[chat msg]', t || 'final', msg?.subtype || '')
+    return
+  }
+}
+
 // POST /api/chat/stream handler — wired up from server/index.js.
 export async function handleChatStream(req, res) {
   // Authenticate before anything else. The chat can spawn the Agent SDK with
@@ -262,14 +294,16 @@ export async function handleChatStream(req, res) {
   }
 
   // Load prior turns for context. Trimmed to budget inside buildChatSystemPrompt.
+  // Include tool_calls + tool rows so Claude sees evidence of its prior actions
+  // (which tools it invoked, what came back) instead of just its own prose
+  // summary — that was the self-doubt-and-re-verify failure mode.
   const { data: priorMessageRows } = await sb
     .from('messages')
-    .select('role, content')
+    .select('role, content, tool_calls, tool_name, tool_call_id')
     .eq('conversation_id', conversationId)
     .order('id', { ascending: false })
     .limit(100)
   const priorMessages = (priorMessageRows || []).reverse()
-    .filter(m => m.role === 'user' || m.role === 'assistant')
 
   // Compose the per-turn system prompt: project state + org memory + SFMC
   // connection summary + prior conversation + behavior instructions.
@@ -343,6 +377,13 @@ export async function handleChatStream(req, res) {
         },
         mcpServers: delmaMcpConfig({ userId, projectId, sfmcAccounts }),
         abortController,
+        // Surface the Agent SDK's subprocess stderr (includes MCP write/read
+        // traces that'd otherwise be invisible) through our logs so the debug
+        // stream can relay them to the browser.
+        stderr: (data) => {
+          const text = String(data || '').trimEnd()
+          if (text) console.log('[agent-sdk]', text)
+        },
         allowedTools: [
           'Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch',
           'mcp__delma'
@@ -352,10 +393,14 @@ export async function handleChatStream(req, res) {
 
     for await (const msg of result) {
       sseEvent(res, 'message', msg)
+      // Structured per-message trace so the browser log stream shows turn
+      // progress in real time. Tool uses, results, and final wrap all land.
+      try { logStreamMessage(msg) } catch { /* best-effort tracing */ }
       try { await saveMessage(conversationId, msg) }
       catch (err) { console.warn('[chat] save message failed (non-fatal):', err.message) }
     }
     sseEvent(res, 'done', {})
+    console.log('[chat] turn done user:', userId.slice(0, 8), 'project:', projectId.slice(0, 8))
   } catch (err) {
     if (clientClosed || err.name === 'AbortError' || abortController.signal.aborted) {
       console.log('[chat] turn aborted by client')

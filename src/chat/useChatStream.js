@@ -19,7 +19,9 @@ export function useChatStream({ projectId, userId }) {
   const [messages, setMessages] = useState([])   // normalized for UI
   const [status, setStatus] = useState('idle')   // 'idle' | 'streaming' | 'error' | 'loading'
   const [conversationId, setConversationId] = useState(null)
+  const [currentTool, setCurrentTool] = useState(null)  // { name, input } while a tool is mid-flight
   const abortRef = useRef(null)
+  const toolClearTimerRef = useRef(null)
 
   // Load prior conversation on mount / project switch. Server returns the
   // user's active (non-archived) conversation for this project — empty array
@@ -122,6 +124,17 @@ export function useChatStream({ projectId, userId }) {
             if (m.type === 'assistant' || m.role === 'assistant') {
               const text = extractText(m)
               const toolUse = extractToolUses(m)
+              if (toolUse.length) {
+                // Latest tool_use becomes the live status — user sees what
+                // Claude is doing right now instead of a static "thinking".
+                // Cancel any pending clear from a previous tool_result.
+                if (toolClearTimerRef.current) {
+                  clearTimeout(toolClearTimerRef.current)
+                  toolClearTimerRef.current = null
+                }
+                const latest = toolUse[toolUse.length - 1]
+                setCurrentTool({ name: latest.name, input: latest.input })
+              }
               if (currentAssistant) {
                 setMessages(prev => prev.map(x =>
                   x.id === currentAssistant ? { ...x, content: (x.content || '') + text, tools: [...(x.tools || []), ...toolUse] } : x
@@ -135,17 +148,35 @@ export function useChatStream({ projectId, userId }) {
               // Tool results come through as user-role messages from Agent SDK.
               const toolResults = extractToolResults(m)
               if (toolResults.length) {
+                // Tool finished — keep the label visible for a moment so the
+                // status doesn't flicker to "thinking…" in the sub-second gap
+                // before the next tool_use / text chunk. Cleared if a new
+                // tool_use arrives, or after 1.6s if Claude is just writing.
+                if (toolClearTimerRef.current) clearTimeout(toolClearTimerRef.current)
+                toolClearTimerRef.current = setTimeout(() => {
+                  setCurrentTool(null)
+                  toolClearTimerRef.current = null
+                }, 1600)
                 setMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'tool', results: toolResults }])
               }
             } else if (m.type === 'result' || m.subtype === 'final') {
               // Final wrap message — end of turn.
               currentAssistant = null
+              if (toolClearTimerRef.current) {
+                clearTimeout(toolClearTimerRef.current)
+                toolClearTimerRef.current = null
+              }
+              setCurrentTool(null)
             }
           }
         }
       }
       setStatus('idle')
+      if (toolClearTimerRef.current) { clearTimeout(toolClearTimerRef.current); toolClearTimerRef.current = null }
+      setCurrentTool(null)
     } catch (err) {
+      if (toolClearTimerRef.current) { clearTimeout(toolClearTimerRef.current); toolClearTimerRef.current = null }
+      setCurrentTool(null)
       if (err.name === 'AbortError') { setStatus('idle'); return }
       console.error('[chat] stream error:', err)
       setStatus('error')
@@ -179,7 +210,7 @@ export function useChatStream({ projectId, userId }) {
     setStatus('idle')
   }, [projectId])
 
-  return { messages, status, conversationId, send, abort, clear }
+  return { messages, status, conversationId, send, abort, clear, currentTool }
 }
 
 function parseFrame(frame) {

@@ -99,24 +99,12 @@ function distinctiveStems(s) {
     .map(stemWord)
 }
 
-// True if `a` and `b` share enough distinctive content to be considered the
-// same concept. Uses coverage of the SHORTER term: if ≥ 2 distinctive stems
-// match AND those matches cover ≥ 60% of the shorter term, it's a dup. This
-// catches the patterns today's critic flagged ("nothing ships on fridays"
-// vs "no shipping on friday"; "7 Friday rules") without over-matching rules
-// that merely share filler words.
-function textsAreNearDup(a, b) {
-  const aw = distinctiveStems(a)
-  const bw = distinctiveStems(b)
-  if (aw.length === 0 || bw.length === 0) return false
-  const aset = new Set(aw), bset = new Set(bw)
-  let matches = 0
-  for (const w of aset) if (bset.has(w)) matches++
-  const shorter = Math.min(aset.size, bset.size)
-  // Short terms (≤2 distinctive stems): require ALL to match.
-  if (shorter <= 2) return matches === shorter
-  return matches >= 2 && matches / shorter >= 0.6
-}
+// Fuzzy/stem-based near-dup detection has been REMOVED. It kept rejecting
+// legitimately distinct rules that share domain vocabulary (e.g. five separate
+// rules about SFMC asset type 207). We rely on:
+//   1. Exact normalized-text equality (kept below — cheap, deterministic)
+//   2. Claude's own judgment, nudged by a prompt line telling it to skim
+//      existing rules before adding a new one.
 
 // True if one normalized string is a character-subsequence of the other
 // (with ≥ 80% coverage of the shorter). Designed for id/label dedup where
@@ -134,18 +122,15 @@ function labelsAreSubseq(a, b) {
   return si / shorter.length >= 0.8
 }
 
-// Find the FIRST item whose text/label is a near-duplicate of the candidate.
+// Find an item with normalized-text EQUAL to the candidate — the cheap,
+// deterministic protection against Claude retrying the same write twice in
+// a turn. Everything softer (paraphrase detection, semantic similarity) has
+// been handed back to Claude.
 function findNearDupText(list, candidate, field = 'text') {
   if (!candidate) return null
   const nc = normalizeText(candidate)
   if (!nc) return null
-  // Normalized equality is the strong signal (cheapest, always fires first).
-  const exact = list.find(item => normalizeText(item[field] || '') === nc)
-  if (exact) return exact
-  for (const item of list) {
-    if (textsAreNearDup(item[field] || '', candidate)) return item
-  }
-  return null
+  return list.find(item => normalizeText(item[field] || '') === nc) || null
 }
 
 // Group an array of items by their optional `project` field. Returns an
