@@ -1624,6 +1624,18 @@ async function renderDiagram(mermaidCode) {
           console.log('[delma node click]', nodeId, '→ opening modal')
           openModal(nodeId)
         })
+        // JS-driven hover (more reliable than CSS :hover on SVG <g> across
+        // browsers, and easier to debug). Adds `node-hover` class that CSS
+        // styles; logs the first hover so we can see events firing.
+        let loggedHoverForThisNode = false
+        g.addEventListener('mouseenter', () => {
+          g.classList.add('node-hover')
+          if (!loggedHoverForThisNode) {
+            console.log('[delma node hover]', nodeId)
+            loggedHoverForThisNode = true
+          }
+        })
+        g.addEventListener('mouseleave', () => g.classList.remove('node-hover'))
       })
       console.log('[delma click-wire] wired', wired, 'of', allNodes.length, 'nodes')
 

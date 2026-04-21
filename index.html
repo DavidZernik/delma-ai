@@ -887,18 +887,20 @@
       font-style: italic;
     }
 
-    /* Hover state on clickable diagram nodes. Tiny scale-up + brighter
-       accent-colored stroke signals "you can click this." Combined with the
-       existing `cursor: pointer` on nodes. */
-    .diagram-card-clickable .node { transition: transform 140ms ease, filter 140ms ease; transform-box: fill-box; transform-origin: center; }
-    .diagram-card-clickable .node:hover { transform: scale(1.04); }
-    .diagram-card-clickable .node:hover rect,
-    .diagram-card-clickable .node:hover polygon,
-    .diagram-card-clickable .node:hover circle,
-    .diagram-card-clickable .node:hover ellipse,
-    .diagram-card-clickable .node:hover path {
-      stroke-width: 3px !important;
-      filter: drop-shadow(0 2px 6px rgba(143, 0, 0, 0.25));
+    /* Hover state on clickable diagram nodes. Driven by JS (mouseenter/leave
+       adds the `.node-hover` class) rather than `:hover` because SVG <g>
+       hover is unreliable across browsers, especially with transform-box.
+       Tiny scale-up + brighter stroke signals "you can click this." */
+    .diagram-shell .node.node-hover rect,
+    .diagram-shell .node.node-hover polygon,
+    .diagram-shell .node.node-hover circle,
+    .diagram-shell .node.node-hover ellipse,
+    .diagram-shell .node.node-hover path {
+      stroke-width: 3.5px !important;
+      filter: drop-shadow(0 3px 10px rgba(143, 0, 0, 0.35)) !important;
+    }
+    .diagram-shell .node.node-hover .nodeLabel {
+      font-weight: 700 !important;
     }
 
     /* Project Details — click a box in the diagram to open a modal with
