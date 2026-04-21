@@ -335,9 +335,13 @@ async function loadOrgs() {
   if (!state.user) return
   const { data, error } = await supabase
     .from('org_members')
-    .select('org_id, role, organizations(id, name, slug)')
+    .select('org_id, role, active_project_id, organizations(id, name, slug)')
     .eq('user_id', state.user.id)
-  state.orgs = (data || []).map(r => ({ ...r.organizations, orgRole: r.role }))
+  state.orgs = (data || []).map(r => ({
+    ...r.organizations,
+    orgRole: r.role,
+    activeProjectId: r.active_project_id || null
+  }))
   if (state.orgs.length && !state.org) {
     state.org = state.orgs[0]
   }
@@ -365,17 +369,25 @@ async function createProject(name) {
     .select()
     .single()
   if (error) throw new Error(error.message)
+  console.log('[delma create] project row inserted:', ws.id, ws.name)
 
-  await supabase.from('project_members').insert({
+  // Owner membership MUST commit before we try to seed anything — the RLS
+  // policies on diagram_views / memory_notes require the inserting user
+  // to already be a project_member.
+  const { error: memErr } = await supabase.from('project_members').insert({
     project_id: ws.id, user_id: state.user.id, role: 'owner'
   })
+  if (memErr) throw new Error(`membership seed failed: ${memErr.message}`)
+  console.log('[delma create] owner membership inserted')
 
   // Seed default views
   const defaults = defaultViewTemplates()
   for (const view of defaults) {
-    await supabase.from('diagram_views').insert({
+    const { error: viewErr } = await supabase.from('diagram_views').insert({
       project_id: ws.id, owner_id: state.user.id, ...view
     })
+    if (viewErr) console.error('[delma create] diagram_view seed failed:', viewErr.message, 'view:', view.view_key)
+    else console.log('[delma create] seeded diagram view:', view.view_key)
   }
 
   // Seed default memory tabs with the SFMC project template. Every new
@@ -397,9 +409,11 @@ async function createProject(name) {
     }
   }
   for (const [filename, { content, visibility, permission }] of Object.entries(memDefaults)) {
-    await supabase.from('memory_notes').insert({
+    const { error: noteErr } = await supabase.from('memory_notes').insert({
       project_id: ws.id, filename, content, visibility, permission, owner_id: state.user.id
     })
+    if (noteErr) console.error('[delma create] memory_note seed failed:', noteErr.message, 'file:', filename)
+    else console.log('[delma create] seeded memory note:', filename)
   }
 
   return ws
@@ -408,6 +422,9 @@ async function createProject(name) {
 async function openProject(projectId) {
   console.log('[delma workspace] opening:', projectId)
   state.projectId = projectId
+  // Re-render the dropdown trigger so its label reflects the new project
+  // (the brand-dropdown bakes its label at build time, not live).
+  renderProjectSelector()
   await refreshWorkspace()
   setupRealtimeSubscription()
   console.log('[delma workspace] open complete, views:', state.views.length, 'realtime subscribed')
@@ -549,6 +566,7 @@ async function saveGlobalNotes(content) {
 //   - If the changed tab is inactive → show a notification dot on the tab pill
 
 let realtimeChannel = null
+let orgRealtimeChannel = null
 const tabsWithUpdates = new Set()
 
 function getTabKeyForChange(table, record) {
@@ -717,9 +735,16 @@ function setupRealtimeSubscription() {
     }, (payload) => handleRealtimeChange('memory_notes', payload))
     .subscribe()
 
-  // Also watch org-level notes if we have an org
+  // Also watch org-level notes if we have an org. Track the channel so we
+  // can tear it down before re-adding callbacks — otherwise Supabase throws
+  // "cannot add postgres_changes callbacks after subscribe()" when the user
+  // switches projects within the same org and we re-enter this function.
+  if (orgRealtimeChannel) {
+    supabase.removeChannel(orgRealtimeChannel)
+    orgRealtimeChannel = null
+  }
   if (state.org?.id) {
-    supabase
+    orgRealtimeChannel = supabase
       .channel(`org-${state.org.id}`)
       .on('postgres_changes', {
         event: '*',
@@ -1076,6 +1101,9 @@ function broadcastPresence() {
   if (!presenceChannel) return
   if (presenceUpdateTimer) clearTimeout(presenceUpdateTimer)
   presenceUpdateTimer = setTimeout(() => {
+    // Re-check — a project switch between scheduling and firing can null
+    // the channel out from under us.
+    if (!presenceChannel) return
     presenceChannel.track(currentPresencePayload()).catch(() => {})
   }, 120)
 }
@@ -1498,7 +1526,9 @@ function getProjectDetailsNodeData() {
 }
 
 async function renderDiagram(mermaidCode) {
+  console.log('[delma render] called, code length:', mermaidCode?.length || 0, 'first40:', (mermaidCode || '').substring(0, 40).replace(/\n/g, '\\n'))
   if (!mermaidCode?.trim()) {
+    console.log('[delma render] empty code — rendering empty placeholder')
     els.diagramOutput.className = 'diagram-empty'
     els.diagramOutput.textContent = 'This view does not have Mermaid content yet.'
     return true
@@ -1519,10 +1549,10 @@ async function renderDiagram(mermaidCode) {
     proseAbove = fenceMatch[1].trim()
     mermaidOnly = fenceMatch[2]
     proseBelow = fenceMatch[3].trim()
-    dlog('[delma render] split: proseAbove len=' + proseAbove.length + ', mermaid len=' + mermaidOnly.length + ', proseBelow len=' + proseBelow.length)
+    console.log('[delma render] path: fenced (prose + mermaid fence)', { proseAboveLen: proseAbove.length, mermaidLen: mermaidOnly.length, proseBelowLen: proseBelow.length })
   } else if (isMarkdownFormat) {
     // Markdown with no mermaid fence — prose only, still in a card
-    dlog('[delma render] markdown prose only, no diagram')
+    console.log('[delma render] path: markdown-only (no mermaid fence)')
     els.diagramOutput.className = ''
     els.diagramOutput.style.opacity = '1'
     els.diagramOutput.innerHTML = `<div class="diagram-card markdown-body"></div>`
@@ -1530,7 +1560,7 @@ async function renderDiagram(mermaidCode) {
     await renderMarkdownWithMermaid(card, mermaidCode)
     return true
   } else {
-    dlog('[delma render] pure Mermaid (legacy), no prose')
+    console.log('[delma render] path: pure mermaid (no prose)')
   }
 
   // Render the Mermaid with full zoom/drag experience.
@@ -1540,10 +1570,10 @@ async function renderDiagram(mermaidCode) {
   try {
     const renderId = `delma-diagram-${Date.now()}`
     const normalizedCode = normalizeMermaidForRender(mermaidOnly)
-    dlog('[delma render] preparing diagram (hidden), code len:', normalizedCode.length)
+    console.log('[delma render] preparing mermaid render, normalized length:', normalizedCode.length)
     const t0 = performance.now()
     const { svg } = await mermaid.render(renderId, normalizedCode)
-    dlog('[delma render] mermaid.render done in', Math.round(performance.now() - t0), 'ms')
+    console.log('[delma render] mermaid.render SUCCESS in', Math.round(performance.now() - t0), 'ms, svg chars:', svg.length)
 
     // Hide the container BEFORE replacing content. Keep its dimensions
     // (visibility:hidden, not display:none) so layout doesn't jump.
@@ -2683,8 +2713,10 @@ document.addEventListener('click', (e) => {
 })
 
 // Render a branded dropdown into `container`. Items: [{id, label}], plus
-// optional "+ New" handler that opens an inline input.
-function renderBrandDropdown(container, { items, activeId, placeholder, onSelect, newLabel, onCreate }) {
+// optional "+ New" handler that opens an inline input. Optional onDelete
+// handler adds a trash button on each item (skipped on the active one so
+// the user has to switch before deleting — avoids awkward mid-switch state).
+function renderBrandDropdown(container, { items, activeId, placeholder, onSelect, newLabel, onCreate, onDelete }) {
   if (!container) return  // org/project selectors removed from UI — one workspace per user
   container.innerHTML = ''
   const active = items.find(i => i.id === activeId) || items[0]
@@ -2701,6 +2733,9 @@ function renderBrandDropdown(container, { items, activeId, placeholder, onSelect
   container.appendChild(panel)
 
   for (const item of items) {
+    const row = document.createElement('div')
+    row.className = `brand-dropdown-row${item.id === activeId ? ' active' : ''}`
+
     const opt = document.createElement('button')
     opt.type = 'button'
     opt.className = `brand-dropdown-item${item.id === activeId ? ' active' : ''}`
@@ -2711,7 +2746,32 @@ function renderBrandDropdown(container, { items, activeId, placeholder, onSelect
       __openDropdown = null
       onSelect(item.id)
     })
-    panel.appendChild(opt)
+    row.appendChild(opt)
+
+    if (onDelete) {
+      const del = document.createElement('button')
+      del.type = 'button'
+      del.className = 'brand-dropdown-delete'
+      del.title = `Delete "${item.label}"`
+      del.setAttribute('aria-label', `Delete ${item.label}`)
+      del.innerHTML = '🗑'
+      del.addEventListener('click', async (e) => {
+        e.stopPropagation()
+        if (!window.confirm(`Delete "${item.label}"? This permanently removes its diagrams, chat, and notes. Cannot be undone.`)) return
+        del.disabled = true
+        del.textContent = '…'
+        try {
+          await onDelete(item.id)
+        } catch (err) {
+          alert(`Delete failed: ${err.message}`)
+          del.disabled = false
+          del.innerHTML = '🗑'
+        }
+      })
+      row.appendChild(del)
+    }
+
+    panel.appendChild(row)
   }
 
   if (onCreate) {
@@ -2771,8 +2831,58 @@ function renderProjectSelector() {
     placeholder: 'No projects',
     newLabel: '+ New project…',
     onSelect: async (wsId) => { await openProject(wsId) },
-    onCreate: createProjectFromName
+    onCreate: createProjectFromName,
+    onDelete: deleteProjectAndRefresh
   })
+}
+
+// Delete a project (cascades to members, diagrams, memory, chat). Removes
+// from local state + re-renders the dropdown. Guarded by the confirm() in
+// the dropdown — no extra prompt here.
+async function deleteProjectAndRefresh(projectId) {
+  const project = state.projects.find(p => p.id === projectId)
+  if (!project) return
+  const wasActive = state.projectId === projectId
+
+  const { error } = await supabase.from('projects').delete().eq('id', projectId)
+  if (error) throw new Error(error.message)
+
+  // Scrub local state.
+  state.projects = state.projects.filter(p => p.id !== projectId)
+  // If org_members.active_project_id pointed here, clear it so next reload
+  // doesn't try to open a deleted project.
+  if (state.org?.id && state.org.activeProjectId === projectId) {
+    state.org.activeProjectId = null
+    try {
+      await supabase.from('org_members')
+        .update({ active_project_id: null })
+        .eq('org_id', state.org.id).eq('user_id', state.user.id)
+    } catch (err) {
+      console.warn('[delma delete] clearing active_project_id failed:', err.message)
+    }
+  }
+
+  // If the deleted project was the one on screen, jump into another one so
+  // the UI doesn't sit pointing at a now-orphan project. Falls back to the
+  // empty state if none remain.
+  if (wasActive) {
+    state.projectId = null
+    if (state.projects.length > 0) {
+      await openProject(state.projects[0].id)
+    } else {
+      // No projects left — tear down realtime + render empty state.
+      if (realtimeChannel) { supabase.removeChannel(realtimeChannel); realtimeChannel = null }
+      if (orgRealtimeChannel) { supabase.removeChannel(orgRealtimeChannel); orgRealtimeChannel = null }
+      state.views = []
+      state.memory = {}
+      state.memoryRows = []
+      state.previewMermaid = ''
+      renderWorkspace()
+    }
+  }
+
+  renderProjectSelector()
+  setWorkspaceStatus(`Deleted "${project.name}".`)
 }
 
 // Reusable project creation — used by the dropdown AND the empty-state CTA.
@@ -3036,11 +3146,15 @@ function defaultViewTemplates() {
   return [
     {
       view_key: 'architecture',
-      title: 'Project High Level',
+      title: 'Project Details',
       kind: 'architecture',
       description: 'System flow and business rules for this SFMC project.',
       summary: 'Technical architecture.',
       visibility: 'shared',
+      // New projects start with a single placeholder node. The user (or
+      // Claude via chat) fills in the real architecture as they document
+      // the project. Keeps new projects from looking identical to each
+      // other or carrying over a domain template that may not apply.
       mermaid: `---
 config:
   look: neo
@@ -3048,41 +3162,7 @@ config:
   layout: elk
 ---
 flowchart TD
-  subgraph source["Patient / Contact Source"]
-    CRM["Salesforce Health Cloud / CRM"]
-    OptIn["Opt-in DE (ENT.All_Patients_Opted_In)"]
-    CRM --> OptIn
-  end
-
-  subgraph filter["Daily Filter"]
-    SQL["Birthday / Trigger SQL"]
-    Staging["Staging DE"]
-    SQL --> Staging
-  end
-
-  subgraph journey["Main Journey"]
-    Entry["Journey Entry"]
-    Email["Email Send (brand template)"]
-    Wait["Wait step"]
-    Entry --> Email --> Wait
-  end
-
-  subgraph cloudpage["CloudPage / Quiz"]
-    Page["CloudPage"]
-    Responses["Response DE (birthday_quiz_responses)"]
-    Page --> Responses
-  end
-
-  subgraph followup["Follow-Up"]
-    Poll["Follow-Up Entry Automation"]
-    FJourney["Follow-Up Journey"]
-    Poll --> FJourney
-  end
-
-  OptIn --> SQL
-  Staging --> Entry
-  Email --> Page
-  Responses --> Poll
+  Start["New project — describe your architecture here"]
 `
     }
   ]
@@ -3116,8 +3196,16 @@ async function init() {
     renderProjectSelector()
 
     if (state.projects.length) {
-      console.log('[delma init] opening first workspace:', state.projects[0].name)
-      await openProject(state.projects[0].id)
+      // Restore the last project the user worked on (persisted in
+      // org_members.active_project_id). Falls back to the first project
+      // if that ID is stale or missing.
+      const lastActiveId = state.org?.activeProjectId
+      const restore = lastActiveId && state.projects.some(p => p.id === lastActiveId)
+        ? lastActiveId
+        : state.projects[0].id
+      const project = state.projects.find(p => p.id === restore) || state.projects[0]
+      console.log('[delma init] opening workspace:', project.name, '(restored:', restore === lastActiveId, ')')
+      await openProject(project.id)
     } else {
       console.log('[delma init] no projects found')
       setWorkspaceStatus('Create a project to get started.')

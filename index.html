@@ -456,6 +456,37 @@
       padding-top: 11px;
       border-radius: 0 0 8px 8px;
     }
+    /* Row wrapper that holds both the project item and its delete button.
+       The item takes up all space; the delete button sits on the right and
+       only shows on hover so it doesn't visually compete with selection. */
+    .brand-dropdown-row {
+      display: flex;
+      align-items: stretch;
+    }
+    .brand-dropdown-row .brand-dropdown-item {
+      flex: 1;
+      min-width: 0;
+    }
+    .brand-dropdown-delete {
+      flex-shrink: 0;
+      width: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 14px;
+      opacity: 0.55;
+      transition: opacity 120ms ease, color 120ms ease, background 120ms ease;
+    }
+    .brand-dropdown-row:hover .brand-dropdown-delete { opacity: 1; }
+    .brand-dropdown-delete:hover {
+      color: #8F0000;
+      background: rgba(143, 0, 0, 0.08);
+    }
+    .brand-dropdown-delete:disabled { cursor: wait; }
     .brand-dropdown-input {
       width: 280px;
       max-width: 90vw;
