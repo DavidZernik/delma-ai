@@ -428,7 +428,7 @@ async function openProject(projectId) {
     }
   }
 
-  setWorkspaceStatus('Project ready.')
+  setWorkspaceStatus('')
   appendLog('Workspace Open', `Connected to workspace. Diagrams and memory are live.`)
 
   // Mount the in-app chat. Agent SDK runs server-side; sidebar streams its
@@ -594,6 +594,28 @@ function flashContentUpdate() {
   }, 4100)
 }
 
+function pulseDiagramBg() {
+  // Find the diagram card on the current view (architecture or folded Project
+  // Details). Apply + remove the pulse class so repeated updates retrigger.
+  const card = els.diagramOutput?.querySelector('.diagram-card')
+  if (!card) return
+  card.classList.remove('delma-bg-pulse')
+  // Force reflow so the animation restarts even if it's still running.
+  // eslint-disable-next-line no-unused-expressions
+  void card.offsetWidth
+  card.classList.add('delma-bg-pulse')
+  setTimeout(() => card.classList.remove('delma-bg-pulse'), 3300)
+}
+
+function pulseTabBg(tabKey) {
+  const btn = els.viewTabs?.querySelector(`[data-tab-key="${tabKey}"]`)
+  if (!btn) return
+  btn.classList.remove('delma-tab-pulse')
+  void btn.offsetWidth
+  btn.classList.add('delma-tab-pulse')
+  setTimeout(() => btn.classList.remove('delma-tab-pulse'), 3300)
+}
+
 function handleRealtimeChange(table, payload) {
   const record = payload.new || payload.old || {}
   const tabKey = getTabKeyForChange(table, record)
@@ -607,26 +629,22 @@ function handleRealtimeChange(table, payload) {
       return
     }
 
-    // View mode — fade and re-render
-    els.diagramOutput.style.transition = 'opacity 150ms ease'
-    els.diagramOutput.style.opacity = '0.3'
+    // View mode — re-render, then slow-fade the diagram bg to draw the eye.
     refreshWorkspace().then(() => {
       requestAnimationFrame(() => {
-        els.diagramOutput.style.transition = 'opacity 400ms ease'
-        els.diagramOutput.style.opacity = '1'
-        flashContentUpdate()
-        console.log('[delma realtime] view refreshed with flash')
+        pulseDiagramBg()
+        console.log('[delma realtime] view refreshed + bg pulse')
       })
     }).catch(err => {
       console.error('[delma realtime] refresh failed:', err)
-      els.diagramOutput.style.opacity = '1'
     })
   } else {
-    // Different tab — mark it with a dot
+    // Different tab — slow bg pulse on the tab button itself.
     tabsWithUpdates.add(tabKey)
-    renderViewTabs()
-    refreshWorkspace().catch(err => console.error('[delma realtime] bg refresh failed:', err))
-    console.log('[delma realtime] inactive tab dotted:', tabKey)
+    refreshWorkspace()
+      .then(() => { renderViewTabs(); pulseTabBg(tabKey) })
+      .catch(err => console.error('[delma realtime] bg refresh failed:', err))
+    console.log('[delma realtime] inactive tab pulsed:', tabKey)
   }
 }
 
@@ -1302,30 +1320,61 @@ function enableDiagramDragging(wrapper) {
   if (!wrapper) return
 
   let isDragging = false
+  let pendingDrag = false           // pointer is down on a node, may become a drag
   let startX = 0
   let startY = 0
   let startScrollLeft = 0
   let startScrollTop = 0
+  let activePointerId = null
+  const DRAG_THRESHOLD_PX = 5
 
   const stopDragging = () => {
     isDragging = false
+    pendingDrag = false
     wrapper.classList.remove('dragging')
+    activePointerId = null
   }
 
   wrapper.addEventListener('pointerdown', (event) => {
     if (event.pointerType === 'mouse' && event.button !== 0) return
     if (event.target.closest('.diagram-zoom-controls')) return
 
-    isDragging = true
     startX = event.clientX
     startY = event.clientY
     startScrollLeft = wrapper.scrollLeft
     startScrollTop = wrapper.scrollTop
-    wrapper.classList.add('dragging')
-    wrapper.setPointerCapture?.(event.pointerId)
+    activePointerId = event.pointerId
+
+    const onNode = !!event.target.closest('g.node')
+    if (onNode) {
+      // Defer dragging so the node's click handler can fire on pointerup.
+      // Only promote to drag if the pointer moves more than 5px.
+      isDragging = false
+      pendingDrag = true
+      dlog('[delma diagram] pointerdown on node — deferring drag')
+    } else {
+      isDragging = true
+      pendingDrag = false
+      wrapper.classList.add('dragging')
+      wrapper.setPointerCapture?.(event.pointerId)
+    }
   })
 
   wrapper.addEventListener('pointermove', (event) => {
+    if (pendingDrag) {
+      const dx = event.clientX - startX
+      const dy = event.clientY - startY
+      if (Math.hypot(dx, dy) > DRAG_THRESHOLD_PX) {
+        // User moved — this was a drag, not a click. Promote.
+        pendingDrag = false
+        isDragging = true
+        wrapper.classList.add('dragging')
+        wrapper.setPointerCapture?.(activePointerId)
+        dlog('[delma diagram] deferred drag promoted after movement')
+      } else {
+        return
+      }
+    }
     if (!isDragging) return
     event.preventDefault()
     wrapper.scrollLeft = startScrollLeft - (event.clientX - startX)
@@ -1335,6 +1384,69 @@ function enableDiagramDragging(wrapper) {
   wrapper.addEventListener('pointerup', stopDragging)
   wrapper.addEventListener('pointercancel', stopDragging)
   wrapper.addEventListener('lostpointercapture', stopDragging)
+}
+
+// Project Details view shows the architecture diagram at the top, then inline
+// prose for Decisions & Actions and Operational IDs (DEs, journeys, folder
+// IDs, SQL keys). Content comes from the decisions.md + environment.md
+// memory notes — those tabs are hidden in the UI but still stored so Claude's
+// injected system prompt sees them AND so we can render them here.
+// Kind-to-color palette. Warm, varied, outside the brand red/cream — user
+// asked for boxes to feel more colorful. Fill is soft pastel, stroke is a
+// deeper saturated version of the same hue, text is a very dark version.
+const ARCH_NODE_COLORS = {
+  deSource:   { fill: '#DDE5F5', stroke: '#4A6FB0', text: '#1E3A5F' },
+  de:         { fill: '#D4E9D4', stroke: '#5A9A5A', text: '#2A5A2A' },
+  sql:        { fill: '#F5E4B5', stroke: '#B58A2A', text: '#5C4500' },
+  automation: { fill: '#F8D6B3', stroke: '#C77B2E', text: '#5E3700' },
+  journey:    { fill: '#E3D4F0', stroke: '#7F5BAF', text: '#3D2863' },
+  email:      { fill: '#F9D1D9', stroke: '#C94E6A', text: '#5F1F32' },
+  cloudpage:  { fill: '#C8E6E0', stroke: '#3D8A7F', text: '#1B3E3A' },
+  decision:   { fill: '#FFE8A8', stroke: '#C9A044', text: '#5E4800' },
+  system:     { fill: '#E8E8E8', stroke: '#777777', text: '#2B2B2B' }
+}
+
+// Enrich the Project Details mermaid with color-per-kind (classDef + class
+// assignments). The click-to-reveal paragraph panel is rendered separately
+// by the caller; no prose is appended here.
+function enrichProjectDetailsMermaid(viewKey, mermaidCode) {
+  if (viewKey !== 'architecture') return mermaidCode
+  const archView = state.views?.find(v => v.view_key === 'architecture')
+  const nodes = archView?.structured?.nodes || []
+  if (nodes.length === 0) return mermaidCode
+
+  const kindsUsed = new Set()
+  const classLines = []
+  for (const n of nodes) {
+    const kind = ARCH_NODE_COLORS[n.kind] ? n.kind : 'system'
+    kindsUsed.add(kind)
+    classLines.push(`class ${n.id} ${kind}`)
+  }
+  const defLines = []
+  for (const k of kindsUsed) {
+    const c = ARCH_NODE_COLORS[k]
+    defLines.push(`classDef ${k} fill:${c.fill},stroke:${c.stroke},color:${c.text},stroke-width:2px`)
+  }
+
+  return `${mermaidCode.trim()}\n\n${classLines.join('\n')}\n${defLines.join('\n')}\n`
+}
+
+// Map of { nodeId -> note } for the Project Details click-to-reveal panel.
+// Computed from structured.nodes so the panel content stays in sync with
+// whatever Delma has written as node notes.
+function getProjectDetailsNodeData() {
+  const archView = state.views?.find(v => v.view_key === 'architecture')
+  const nodes = archView?.structured?.nodes || []
+  const map = {}
+  for (const n of nodes) {
+    map[n.id] = {
+      id: n.id,
+      label: n.label || n.id,
+      kind: n.kind || 'system',
+      note: n.note || ''
+    }
+  }
+  return map
 }
 
 async function renderDiagram(mermaidCode) {
@@ -1396,9 +1508,30 @@ async function renderDiagram(mermaidCode) {
     const aboveHtml = proseAbove ? `<div class="diagram-prose markdown-body above">${marked.parse(proseAbove)}</div>` : ''
     const belowHtml = proseBelow ? `<div class="diagram-prose markdown-body below">${marked.parse(proseBelow)}</div>` : ''
 
+    // Project Details gets click-to-reveal node explanations. A modal
+    // overlays the card when the user clicks a box, so the diagram stays
+    // uncramped and the text has room to breathe.
+    const nodeData = getProjectDetailsNodeData()
+    const hasNodeModal = Object.keys(nodeData).length > 0
+    const hintHtml = hasNodeModal
+      ? `<div class="diagram-hint">Click any box to see how it works.</div>`
+      : ''
+    const modalHtml = hasNodeModal ? `
+      <div class="diagram-node-modal" hidden>
+        <div class="diagram-node-modal-backdrop"></div>
+        <div class="diagram-node-modal-content">
+          <button class="diagram-node-modal-close" type="button" aria-label="Close">×</button>
+          <div class="side-panel-kind"></div>
+          <div class="side-panel-label"></div>
+          <div class="side-panel-note"></div>
+        </div>
+      </div>
+    ` : ''
+
     els.diagramOutput.innerHTML = `
-      <div class="diagram-card">
+      <div class="diagram-card${hasNodeModal ? ' diagram-card-clickable' : ''}">
         ${aboveHtml}
+        ${hintHtml}
         <div class="diagram-zoom-wrapper">
           <div class="diagram-zoom-canvas">${svg}</div>
         </div>
@@ -1408,6 +1541,7 @@ async function renderDiagram(mermaidCode) {
           <button class="zoom-btn" data-zoom="out" title="Zoom out">&minus;</button>
         </div>
         ${belowHtml}
+        ${modalHtml}
       </div>
     `
 
@@ -1419,7 +1553,86 @@ async function renderDiagram(mermaidCode) {
     const svgEl = wrapper.querySelector('svg')
     applyDiagramBranding(svgEl)
     prepareFittedSvg(svgEl, wrapper)
-    enableDiagramDragging(wrapper)
+    // Drag-to-pan removed on purpose. The wrapper has native overflow:scroll
+    // (see .diagram-zoom-wrapper CSS), so users scroll the diagram with
+    // trackpad / scrollbars. Clicks on nodes are unambiguous — always a
+    // click, never a drag attempt — which makes the click-to-reveal modal
+    // reliable. If drag-to-pan is ever wanted back, add enableDiagramDragging
+    // here, but it needs to coexist with node click handlers (see prior
+    // version for the pendingDrag/DRAG_THRESHOLD_PX approach).
+
+    // Wire click-to-reveal for Project Details nodes. Mermaid's flowchart
+    // renderer IDs nodes like `flowchart-<ORIGINAL_ID>-<N>` — but with
+    // `layout: elk` the format can vary, so we extract the ID with a looser
+    // regex and also fall back to matching the node's visible label.
+    if (hasNodeModal) {
+      // Portal the modal out of the diagram-card tree to document.body so its
+      // position:fixed can't be broken by any ancestor transform / filter /
+      // overflow. Also: tear down any previous copies from prior renders.
+      document.querySelectorAll('body > .diagram-node-modal').forEach(m => m.remove())
+      const inlineModal = els.diagramOutput.querySelector('.diagram-node-modal')
+      document.body.appendChild(inlineModal)
+      const modal = inlineModal
+      const backdrop = modal.querySelector('.diagram-node-modal-backdrop')
+      const closeBtn = modal.querySelector('.diagram-node-modal-close')
+      const kindEl = modal.querySelector('.side-panel-kind')
+      const labelEl = modal.querySelector('.side-panel-label')
+      const noteEl = modal.querySelector('.side-panel-note')
+
+      const resolveNodeId = (g) => {
+        // Mermaid IDs look like `<renderId>-flowchart-<NODE_ID>-<N>`, e.g.
+        // `delma-diagram-1776727608639-flowchart-SEND_DE-6`. Pull out the
+        // NODE_ID segment between the last `flowchart-` and the trailing
+        // numeric suffix.
+        const m = (g.id || '').match(/flowchart-(.+?)-\d+$/)
+        if (m && nodeData[m[1]]) return m[1]
+        // Fallback: text contains the node's label as a substring.
+        const txt = (g.textContent || '').replace(/\s+/g, ' ').trim()
+        for (const [id, n] of Object.entries(nodeData)) {
+          if (n.label && txt.startsWith(n.label)) return id
+        }
+        return null
+      }
+
+      const openModal = (nodeId) => {
+        const data = nodeData[nodeId]
+        if (!data) return
+        kindEl.textContent = data.kind
+        kindEl.dataset.kind = data.kind
+        labelEl.textContent = data.label
+        noteEl.textContent = data.note || '(no description yet — ask Delma about this step)'
+        modal.hidden = false
+        const cs = getComputedStyle(modal)
+        console.log('[delma modal open]', nodeId, '| hidden:', modal.hidden, '| display:', cs.display, '| z:', cs.zIndex, '| parent:', modal.parentElement?.tagName)
+      }
+      const closeModal = () => { modal.hidden = true }
+
+      const allNodes = svgEl.querySelectorAll('g.node')
+      console.log('[delma click-wire] found', allNodes.length, 'g.node elements, known IDs:', Object.keys(nodeData))
+      let wired = 0
+      allNodes.forEach(g => {
+        const nodeId = resolveNodeId(g)
+        const txt = (g.textContent || '').trim().slice(0, 40).replace(/\s+/g, ' ')
+        if (!nodeId) {
+          console.log('[delma click-wire] UNMATCHED node, id:', g.id, 'classes:', Array.from(g.classList).join(','), 'text:', txt)
+          return
+        }
+        wired++
+        g.style.cursor = 'pointer'
+        g.addEventListener('click', (ev) => {
+          ev.stopPropagation()
+          console.log('[delma node click]', nodeId, '→ opening modal')
+          openModal(nodeId)
+        })
+      })
+      console.log('[delma click-wire] wired', wired, 'of', allNodes.length, 'nodes')
+
+      backdrop.addEventListener('click', closeModal)
+      closeBtn.addEventListener('click', closeModal)
+      document.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Escape' && !modal.hidden) closeModal()
+      })
+    }
 
     // Wait for layout to settle BEFORE resolving the promise. This way the
     // outer renderWorkspace().then(reveal) fires only after the diagram is
@@ -1429,8 +1642,17 @@ async function renderDiagram(mermaidCode) {
       requestAnimationFrame(() => {
         dlog('[delma render] rAF 1 done')
         requestAnimationFrame(() => {
-          setZoom(1)
-          dlog('[delma render] rAF 2 done — setZoom applied, total prep ms:', Math.round(performance.now() - t0))
+          // Fit-to-width on first render so narrow (tablet/mobile) viewports
+          // don't show a scrolled-away corner. Never zoom IN past 100% — only
+          // shrink to fit. User can zoom in manually with +.
+          const baseW = Number(svgEl.dataset.baseWidth || svgEl.viewBox.baseVal?.width || 0)
+          const wrapW = wrapper.clientWidth || 0
+          const fit = baseW && wrapW ? Math.min(1, (wrapW - 24) / baseW) : 1
+          setZoom(fit)
+          // Reset scroll to top-left so we start with a clean view.
+          wrapper.scrollLeft = 0
+          wrapper.scrollTop = 0
+          dlog('[delma render] rAF 2 done — setZoom', fit.toFixed(2), '(base', baseW, 'wrap', wrapW, '), total prep ms:', Math.round(performance.now() - t0))
           resolve()
         })
       })
@@ -1592,13 +1814,16 @@ function stripMermaidConfig(code) {
 
 // ── Tab Labels for Memory Files ──────────────────────────────────────────────
 
-// Project-level tab labels (workspace-scoped)
+// Project-level tab labels (workspace-scoped).
+// Current design: Project Details is ONE tab (the diagram view) that pulls in
+// decisions + environment content inline below the diagram. Those files stay
+// in memory_notes for Claude's injected prompt but don't render as tabs.
 const MEMORY_TAB_LABELS = {
-  // Order here = order in the tab bar (right of Project High Level diagram tab)
-  'decisions.md': { title: 'Project Details', desc: 'Decisions made + actions needed. Outline form.' },
-  'environment.md': { title: 'Files Locations and Keys', desc: 'IDs, credentials, DEs, journeys, automations — everything in one place.' }
-  // my-notes.md removed — now lives in user_notes table (global per user, not per project)
+  // Empty — no standalone memory-note tabs in the current layout.
 }
+// Files present in memory_notes but deliberately not rendered as tabs.
+// decisions.md and environment.md are folded into the Project Details view.
+const HIDDEN_MEMORY_FILES = new Set(['my-notes.md', 'decisions.md', 'environment.md'])
 
 // Org-level tab labels (shared across all projects)
 const ORG_TAB_LABELS = {
@@ -1616,36 +1841,7 @@ function dotHtml(tabKey) {
 function renderViewTabs() {
   els.viewTabs.textContent = ''
 
-  // ── Org-level tabs (shared across all projects) ────────────────────────
-  const orgFiles = Object.keys(state.orgMemory).length ? Object.keys(state.orgMemory) : []
-  for (const filename of orgFiles) {
-    const label = ORG_TAB_LABELS[filename] || { title: filename, desc: '' }
-    const row = state.orgMemoryRows.find(r => r.filename === filename)
-    const editable = row ? canEditItem(row) : true
-    const orgTabKey = `org:${filename}`
-    const isActive = state.activeTopTab === 'orgMemory' && state.activeMemoryFile === filename
-    const btn = document.createElement('button')
-    btn.className = `view-tab${isActive ? ' active' : ''}`
-    btn.dataset.tabKey = orgTabKey
-    btn.innerHTML = `<div class="view-tab-title">${editable ? '' : '<span style="opacity:0.4;margin-right:3px;">&#128274;</span>'}${escapeHtml(label.title)}${dotHtml(orgTabKey)}</div>`
-    btn.addEventListener('click', () => {
-      saveCurrentEditState()
-      tabsWithUpdates.delete(orgTabKey)
-      state.activeTopTab = 'orgMemory'
-      state.activeMemoryFile = filename
-      renderWorkspace()
-    })
-    els.viewTabs.appendChild(btn)
-  }
-
-  // Separator between org and project tabs
-  if (orgFiles.length) {
-    const sep = document.createElement('span')
-    sep.style.cssText = 'width:1px;height:20px;background:rgba(0,0,0,0.12);flex-shrink:0;'
-    els.viewTabs.appendChild(sep)
-  }
-
-  // ── Project-level tabs ─────────────────────────────────────────────────
+  // ── Project-level tabs (most important, leftmost) ──────────────────────
 
   // Diagram tabs — only when a workspace is loaded (skip in empty org)
   const views = state.projectId
@@ -1675,7 +1871,7 @@ function renderViewTabs() {
   // Iterate in MEMORY_TAB_LABELS order (decisions → environment).
   // Filter out my-notes.md (now lives globally in user_notes table).
   const knownOrder = Object.keys(MEMORY_TAB_LABELS)
-  const presentFiles = Object.keys(state.memory).filter(f => f !== 'my-notes.md')
+  const presentFiles = Object.keys(state.memory).filter(f => !HIDDEN_MEMORY_FILES.has(f))
   const hasProject = !!state.projectId
   const orderedKnown = hasProject ? knownOrder.filter(f => presentFiles.includes(f) || presentFiles.length === 0) : []
   const extras = presentFiles.filter(f => !knownOrder.includes(f))
@@ -1694,6 +1890,49 @@ function renderViewTabs() {
       saveCurrentEditState()
       tabsWithUpdates.delete(memTabKey)
       state.activeTopTab = 'memory'
+      state.activeMemoryFile = filename
+      renderWorkspace()
+    })
+    els.viewTabs.appendChild(btn)
+  }
+
+  // ── Integrations — credentials + permissions per connected app ────
+  if (hasProject) {
+    const isActive = state.activeTopTab === 'integrations'
+    const btn = document.createElement('button')
+    btn.className = `view-tab${isActive ? ' active' : ''}`
+    btn.innerHTML = `<div class="view-tab-title">Integrations</div>`
+    btn.dataset.tabKey = 'top:integrations'
+    btn.addEventListener('click', () => {
+      saveCurrentEditState()
+      state.activeTopTab = 'integrations'
+      renderWorkspace()
+    })
+    els.viewTabs.appendChild(btn)
+  }
+
+  // ── Org-level tabs (shared across projects — less project-specific,
+  // so they sit on the right side before My Notes) ──────────────────────
+  const orgFiles = Object.keys(state.orgMemory).length ? Object.keys(state.orgMemory) : []
+  if (orgFiles.length) {
+    const sep = document.createElement('span')
+    sep.style.cssText = 'width:1px;height:20px;background:rgba(0,0,0,0.12);flex-shrink:0;'
+    els.viewTabs.appendChild(sep)
+  }
+  for (const filename of orgFiles) {
+    const label = ORG_TAB_LABELS[filename] || { title: filename, desc: '' }
+    const row = state.orgMemoryRows.find(r => r.filename === filename)
+    const editable = row ? canEditItem(row) : true
+    const orgTabKey = `org:${filename}`
+    const isActive = state.activeTopTab === 'orgMemory' && state.activeMemoryFile === filename
+    const btn = document.createElement('button')
+    btn.className = `view-tab${isActive ? ' active' : ''}`
+    btn.dataset.tabKey = orgTabKey
+    btn.innerHTML = `<div class="view-tab-title">${editable ? '' : '<span style="opacity:0.4;margin-right:3px;">&#128274;</span>'}${escapeHtml(label.title)}${dotHtml(orgTabKey)}</div>`
+    btn.addEventListener('click', () => {
+      saveCurrentEditState()
+      tabsWithUpdates.delete(orgTabKey)
+      state.activeTopTab = 'orgMemory'
       state.activeMemoryFile = filename
       renderWorkspace()
     })
@@ -1773,6 +2012,247 @@ async function renderGlobalMyNotes() {
     await renderMarkdownWithMermaid(contentEl, content.trim() || '_(empty — click Edit to add notes)_')
     setDiagramMode('view')
   }
+}
+
+// Integrations tab — per-project credentials form + permission toggle.
+// One tab to rule them all: replaces both the old Connected Apps tab and the
+// SFMC Connections drawer. Currently shows the SFMC integration.
+async function renderIntegrations() {
+  els.viewTitle.textContent = 'Integrations'
+  els.viewDescription.textContent = 'Apps connected to this project. Set credentials and access level per integration.'
+  els.viewProvenance.textContent = ''
+  els.resetExampleBtn.hidden = true
+  els.modeToggle.hidden = true
+  els.diagramEditor.classList.remove('visible')
+  els.diagramOutput.hidden = false
+  els.diagramOutput.className = ''
+  els.diagramOutput.innerHTML = `<div class="diagram-card"><div class="integrations-host">Loading…</div></div>`
+  const host = els.diagramOutput.querySelector('.integrations-host')
+
+  let apps = []
+  let accounts = {}
+  try {
+    const headers = await authHeaders()
+    const [permRes, acctRes] = await Promise.all([
+      fetch(`/api/projects/${state.projectId}/app-permissions`, { headers }),
+      fetch(`/api/sfmc-accounts?orgId=${encodeURIComponent(state.org.id)}`, { headers })
+    ])
+    if (!permRes.ok) throw new Error(`perm ${permRes.status}`)
+    if (!acctRes.ok) throw new Error(`acct ${acctRes.status}`)
+    apps = (await permRes.json()).apps || []
+    accounts = (await acctRes.json()).accounts || {}
+  } catch (err) {
+    host.innerHTML = `<div style="color:#8F0000;padding:12px;">Failed to load: ${escapeHtml(err.message)}</div>`
+    return
+  }
+
+  host.innerHTML = ''
+  host.style.cssText = 'display:flex;flex-direction:column;gap:18px;padding:4px 0;'
+
+  for (const app of apps) {
+    const card = document.createElement('div')
+    card.style.cssText = `
+      border:1px solid var(--line);border-radius:12px;
+      background:#FFFFFF;overflow:hidden;
+    `
+
+    // ── Header row: name + status + permission toggle ──
+    const header = document.createElement('div')
+    header.style.cssText = `
+      display:flex;align-items:center;justify-content:space-between;gap:16px;
+      padding:16px 20px;border-bottom:1px solid var(--line);background:#FFFFFF;
+    `
+    const headerLeft = document.createElement('div')
+    headerLeft.style.cssText = 'flex:1;min-width:0;'
+    headerLeft.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
+        <div style="font-size:16px;font-weight:700;color:var(--ink);">${escapeHtml(app.name)}</div>
+        <span style="font-size:10px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;padding:2px 8px;border-radius:999px;background:${app.connected ? '#E8F3E8' : '#F0E8E5'};color:${app.connected ? '#2F6B5A' : '#8F0000'};">
+          ${app.connected ? 'Connected' : 'Not connected'}
+        </span>
+      </div>
+      <div style="font-size:13px;color:var(--ink-secondary);line-height:1.45;">${escapeHtml(app.description)}</div>
+      ${app.last_sync_at ? `<div style="font-size:11px;color:var(--muted);margin-top:6px;">Last synced ${escapeHtml(timeAgo(app.last_sync_at))}</div>` : ''}
+    `
+    header.appendChild(headerLeft)
+    const headerRight = document.createElement('div')
+    headerRight.style.cssText = 'flex-shrink:0;'
+    if (app.connected) headerRight.appendChild(buildPermissionToggle(app))
+    header.appendChild(headerRight)
+    card.appendChild(header)
+
+    // ── Body: credentials form (SFMC only for now) ──
+    if (app.id === 'sfmc') {
+      const body = document.createElement('div')
+      body.style.cssText = 'padding:16px 20px;'
+      body.innerHTML = BU_DEFINITIONS.map(def => sfmcCardHtml(def, accounts[def.role])).join('')
+      card.appendChild(body)
+      wireSfmcForms(body, () => renderIntegrations())
+    }
+
+    host.appendChild(card)
+  }
+}
+
+function sfmcCardHtml(def, account) {
+  const connected = !!account
+  const subdomain = connected ? (account.rest_base_url || '').match(/^https?:\/\/([^.]+)\./)?.[1] || '' : ''
+  return `
+    <div class="conn-card" data-role="${def.role}">
+      <h4>${def.title}</h4>
+      <div class="conn-card-sub">${def.sub}</div>
+      <div class="conn-status ${connected ? 'connected' : ''}">
+        ${connected
+          ? `Connected: ${escapeHtml(account.label || account.mid || 'configured')} · saved ${new Date(account.updated_at).toLocaleString()}`
+          : 'Not connected.'}
+      </div>
+      <form class="conn-form" data-role="${def.role}">
+        <label class="conn-field">
+          <span>Account label</span>
+          <input class="conn-label" type="text" value="${escapeHtml(account?.label || '')}" placeholder="e.g. Emory ${def.title}" />
+        </label>
+        <label class="conn-field">
+          <span>Subdomain (mcXXXXXXXX)</span>
+          <input class="conn-subdomain" type="text" value="${escapeHtml(subdomain)}" placeholder="mcvxtx2z6j0zm8sr3052pf8bh508" />
+        </label>
+        <label class="conn-field">
+          <span>MID</span>
+          <input class="conn-mid" type="text" value="${escapeHtml(account?.mid || '')}" placeholder="e.g. 514018310" />
+        </label>
+        <label class="conn-field">
+          <span>Client ID</span>
+          <input class="conn-client-id" type="text" autocomplete="off" placeholder="${connected ? '(stored — re-enter to change)' : ''}" />
+        </label>
+        <label class="conn-field">
+          <span>Client Secret</span>
+          <input class="conn-client-secret" type="password" autocomplete="off" placeholder="${connected ? '(stored — re-enter to change)' : ''}" />
+        </label>
+        <div class="conn-actions">
+          <button class="primary-btn conn-save" type="submit">Save</button>
+          ${connected ? '<button class="secondary-btn conn-disconnect" type="button">Disconnect</button>' : ''}
+        </div>
+        <div class="conn-message"></div>
+      </form>
+    </div>
+  `
+}
+
+function wireSfmcForms(hostEl, onReload) {
+  hostEl.querySelectorAll('form.conn-form').forEach(form => {
+    const role = form.dataset.role
+    const message = form.querySelector('.conn-message')
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault()
+      if (!state.org?.id) return
+      const subdomain = form.querySelector('.conn-subdomain').value.trim()
+      const clientId = form.querySelector('.conn-client-id').value.trim()
+      const clientSecret = form.querySelector('.conn-client-secret').value
+      if (!subdomain) {
+        message.textContent = 'Subdomain required (e.g. mcvxtx2z6j0zm8sr3052pf8bh508).'
+        message.className = 'conn-message error'; return
+      }
+      if (!clientId || !clientSecret) {
+        message.textContent = 'Client ID and Client Secret required (re-enter both to update).'
+        message.className = 'conn-message error'; return
+      }
+      message.textContent = 'Saving…'; message.className = 'conn-message'
+      const body = {
+        orgId: state.org.id,
+        bu_role: role,
+        label: form.querySelector('.conn-label').value.trim() || null,
+        auth_base_url: `https://${subdomain}.auth.marketingcloudapis.com`,
+        rest_base_url: `https://${subdomain}.rest.marketingcloudapis.com`,
+        soap_base_url: `https://${subdomain}.soap.marketingcloudapis.com`,
+        mid: form.querySelector('.conn-mid').value.trim() || null,
+        client_id: clientId,
+        client_secret: clientSecret
+      }
+      try {
+        const res = await fetch('/api/sfmc-account', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+          body: JSON.stringify(body)
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+        message.textContent = 'Saved. Next chat message will use this connection.'
+        message.className = 'conn-message success'
+        onReload?.()
+      } catch (err) {
+        message.textContent = 'Save failed: ' + err.message
+        message.className = 'conn-message error'
+      }
+    })
+    form.querySelector('.conn-disconnect')?.addEventListener('click', async () => {
+      if (!state.org?.id) return
+      if (!confirm(`Disconnect ${role.charAt(0).toUpperCase() + role.slice(1)} BU? Chat will lose access until you reconnect.`)) return
+      message.textContent = 'Disconnecting…'
+      try {
+        const res = await fetch(`/api/sfmc-account?orgId=${encodeURIComponent(state.org.id)}&buRole=${role}`, {
+          method: 'DELETE',
+          headers: { ...(await authHeaders()) }
+        })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        message.textContent = 'Disconnected.'; message.className = 'conn-message success'
+        onReload?.()
+      } catch (err) {
+        message.textContent = 'Disconnect failed: ' + err.message
+        message.className = 'conn-message error'
+      }
+    })
+  })
+}
+
+function buildPermissionToggle(app) {
+  const wrap = document.createElement('div')
+  wrap.style.cssText = `
+    display:inline-flex;padding:3px;border:1px solid var(--line);border-radius:999px;
+    background:#FFFFFF;gap:2px;
+  `
+  const mkBtn = (value, label, disabled) => {
+    const b = document.createElement('button')
+    b.textContent = label
+    b.dataset.value = value
+    const isActive = app.permission === value
+    b.style.cssText = `
+      padding:7px 14px;font-size:12px;font-weight:600;border-radius:999px;
+      border:none;cursor:${disabled ? 'not-allowed' : 'pointer'};
+      background:${isActive ? 'var(--accent)' : 'transparent'};
+      color:${isActive ? '#fff' : disabled ? '#B9ADA8' : 'var(--ink)'};
+      ${disabled ? 'opacity:0.55;' : ''}
+      transition:background 120ms ease, color 120ms ease;
+    `
+    if (!disabled) {
+      b.addEventListener('click', async () => {
+        if (app.permission === value) return
+        const prev = app.permission
+        app.permission = value
+        // Re-render just this toggle inline for snappy feedback
+        const parent = wrap.parentElement
+        const fresh = buildPermissionToggle(app)
+        parent.replaceChild(fresh, wrap)
+        try {
+          const headers = { ...(await authHeaders()), 'Content-Type': 'application/json' }
+          const res = await fetch(`/api/projects/${state.projectId}/app-permissions/${app.id}`, {
+            method: 'PUT',
+            headers,
+            body: JSON.stringify({ permission: value })
+          })
+          if (!res.ok) throw new Error(`${res.status}`)
+        } catch (err) {
+          app.permission = prev
+          parent.replaceChild(buildPermissionToggle(app), fresh)
+          alert(`Failed to update permission: ${err.message}`)
+        }
+      })
+    } else {
+      b.title = `${app.name} does not support write operations`
+    }
+    return b
+  }
+  wrap.appendChild(mkBtn('read_only', 'Read only', false))
+  wrap.appendChild(mkBtn('read_write', 'Read + write', !app.supports_write))
+  return wrap
 }
 
 async function renderMemoryDocument(filename, isOrg = false) {
@@ -1950,6 +2430,12 @@ function renderWorkspace() {
     return
   }
 
+  // Integrations — credentials form + per-project permission toggle
+  if (state.activeTopTab === 'integrations') {
+    void renderIntegrations().then(revealDiagramOutput)
+    return
+  }
+
   // Org memory tab (People, Playbook)
   if (state.activeTopTab === 'orgMemory') {
     void renderMemoryDocument(state.activeMemoryFile, true).then(revealDiagramOutput)
@@ -2007,10 +2493,15 @@ function renderWorkspace() {
 
   if (state.diagramMode !== 'edit') {
     const mermaidCode = state.previewMermaid || view.mermaid || ''
-    dlog('[delma render] view mode render, mermaidLen:', mermaidCode.length, 'first60:', mermaidCode.substring(0, 60))
+    // Project Details view folds in operational content from decisions.md +
+    // environment.md so users see diagram + context + IDs in one place.
+    // Append below the existing mermaid fence — renderDiagram picks this up
+    // as prose-below automatically.
+    const enriched = enrichProjectDetailsMermaid(view.view_key, mermaidCode)
+    dlog('[delma render] view mode render, mermaidLen:', enriched.length, 'first60:', enriched.substring(0, 60))
     els.diagramOutput.className = ''
     // renderDiagram handles its own internal hide/reveal cycle.
-    void renderDiagram(mermaidCode).then(revealDiagramOutput)
+    void renderDiagram(enriched).then(revealDiagramOutput)
   } else {
     // Edit mode — show the textarea immediately
     revealDiagramOutput()
@@ -2654,6 +3145,81 @@ function setupChatToggle() {
   })
 }
 
+// Drag-to-resize the chat / diagram split. Handle lives on the left edge
+// of the chat sidebar; mousedown → track horizontal drag → update
+// grid-template-columns inline on the shell. Persists to localStorage so
+// the width survives reloads. No-op on mobile (grid stacks).
+function setupChatResize() {
+  const shell = document.querySelector('.app-shell')
+  const handle = document.getElementById('chat-resizer')
+  if (!shell || !handle) return
+
+  const KEY = 'delma.chat.width'
+  const MIN = 280
+  const STACK_BREAKPOINT = 960        // matches the media query — below this the shell stacks
+  const isNarrow = () => window.innerWidth < STACK_BREAKPOINT
+
+  // Clear any inline grid override so the media query's `1fr` rule wins on
+  // narrow viewports. Safe to call whenever we detect we've crossed below
+  // the breakpoint.
+  const clearInline = () => { shell.style.gridTemplateColumns = '' }
+
+  const applyWidth = (px) => {
+    if (isNarrow()) { clearInline(); return px }
+    const clamped = Math.max(MIN, Math.min(window.innerWidth - 320, px))
+    if (!shell.classList.contains('chat-collapsed')) {
+      shell.style.gridTemplateColumns = `minmax(0, 1fr) ${clamped}px`
+    }
+    try { localStorage.setItem(KEY, String(clamped)) } catch {}
+    return clamped
+  }
+
+  // Restore width only on wide viewports. Narrow viewports must stay stacked,
+  // regardless of whatever saved width is in localStorage.
+  try {
+    const saved = parseInt(localStorage.getItem(KEY) || '', 10)
+    if (saved && Number.isFinite(saved)) applyWidth(saved)
+  } catch {}
+
+  // If the viewport crosses below the stack breakpoint (user resized window),
+  // drop the inline style so CSS stacking takes over. If it crosses above,
+  // re-apply the saved width.
+  window.addEventListener('resize', () => {
+    if (isNarrow()) {
+      clearInline()
+    } else {
+      try {
+        const saved = parseInt(localStorage.getItem(KEY) || '', 10)
+        if (saved && Number.isFinite(saved)) applyWidth(saved)
+      } catch {}
+    }
+  })
+
+  handle.addEventListener('mousedown', (e) => {
+    if (isNarrow()) return          // no horizontal resize when stacked
+    e.preventDefault()
+    handle.classList.add('dragging')
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    const onMove = (ev) => {
+      const next = window.innerWidth - ev.clientX
+      applyWidth(next)
+    }
+    const onUp = () => {
+      handle.classList.remove('dragging')
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  })
+
+  // Double-click handle resets to the default 360px.
+  handle.addEventListener('dblclick', () => applyWidth(360))
+}
+
 // ── Layout debug ───────────────────────────────────────────────────────────
 //
 // Dumps the current layout measurements to the console. Call window.delmaDebug()
@@ -2754,6 +3320,7 @@ function wireLayoutDebug() {
 void init().then(() => {
   console.log('[delma] init done')
   setupChatToggle()
+  setupChatResize()
   setupHistoryDrawer()
   setupConnectionsDrawer()
   wireLayoutDebug()

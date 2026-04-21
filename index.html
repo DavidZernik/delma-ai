@@ -89,8 +89,11 @@
     .app-shell.chat-collapsed {
       grid-template-columns: minmax(0, 1fr) 40px;
     }
-    /* Mobile: stack diagram above chat, both full width. */
-    @media (max-width: 900px) {
+    /* Mobile/tablet: stack chat above diagram, both full width.
+       Chat-first gives the conversation top billing on small screens,
+       where the diagram is usually reference material not the primary
+       working surface. */
+    @media (max-width: 960px) {
       html, body {
         height: auto;
         overflow: auto;
@@ -102,6 +105,8 @@
         height: auto;
         min-height: 100vh;
       }
+      .app-shell .chat-sidebar { order: 1; }
+      .app-shell .workspace-panel { order: 2; }
       /* Let the diagram grow to its natural height and rely on page scroll,
          instead of trapping scroll inside a 70vh wrapper that the user can
          overshoot on touch. */
@@ -120,7 +125,7 @@
       flex-direction: column;
       position: relative;
     }
-    @media (max-width: 900px) {
+    @media (max-width: 960px) {
       .chat-sidebar {
         border-left: none;
         border-top: 1px solid var(--line);
@@ -203,6 +208,74 @@
     .chat-toggle:hover { background: var(--bg); }
     .app-shell.chat-collapsed .chat-sidebar #chat-sidebar-root { display: none; }
     .app-shell.chat-collapsed .chat-toggle { left: 50%; transform: translateX(-50%); }
+
+    /* Drag handle to resize the chat / diagram split. Sits on the left
+       edge of the chat sidebar; 4px wide hit area, invisible until hover. */
+    .chat-resizer {
+      position: absolute;
+      top: 0;
+      left: -2px;
+      width: 6px;
+      height: 100%;
+      cursor: col-resize;
+      z-index: 11;
+      background: transparent;
+      transition: background 120ms ease;
+    }
+    .chat-resizer:hover,
+    .chat-resizer.dragging {
+      background: var(--accent);
+      opacity: 0.35;
+    }
+
+    /* Markdown rendering inside chat bubbles — compact, readable, never blows
+       out the sidebar width. No borders/background on elements (bubble already
+       has styling). */
+    .delma-chat-md { font-size: 13px; line-height: 1.55; }
+    .delma-chat-md p { margin: 0 0 8px; }
+    .delma-chat-md p:last-child { margin-bottom: 0; }
+    .delma-chat-md h1, .delma-chat-md h2, .delma-chat-md h3 {
+      margin: 10px 0 4px; font-weight: 700; letter-spacing: -0.01em;
+    }
+    .delma-chat-md h1 { font-size: 15px; }
+    .delma-chat-md h2 { font-size: 14px; }
+    .delma-chat-md h3 { font-size: 13px; color: var(--ink-secondary); }
+    .delma-chat-md ul, .delma-chat-md ol { margin: 4px 0 8px; padding-left: 20px; }
+    .delma-chat-md li { margin: 2px 0; }
+    .delma-chat-md strong { font-weight: 700; }
+    .delma-chat-md em { font-style: italic; }
+    .delma-chat-md code {
+      background: #F4F0EA; padding: 1px 5px; border-radius: 3px;
+      font-family: ui-monospace, monospace; font-size: 11px;
+      word-break: break-all;
+    }
+    .delma-chat-md pre {
+      background: #F4F0EA; padding: 8px 10px; border-radius: 5px;
+      font-size: 11px; overflow-x: auto; margin: 6px 0; max-width: 100%;
+    }
+    .delma-chat-md pre code { background: none; padding: 0; word-break: normal; }
+    .delma-chat-md table {
+      border-collapse: collapse; width: 100%; margin: 8px 0;
+      font-size: 12px; display: block; overflow-x: auto;
+    }
+    .delma-chat-md th, .delma-chat-md td {
+      border: 1px solid var(--line); padding: 4px 8px; text-align: left;
+    }
+    .delma-chat-md th { background: #FAFAFA; font-weight: 600; }
+    .delma-chat-md a { color: var(--accent); }
+    .delma-chat-md hr {
+      border: none; border-top: 1px solid var(--line); margin: 10px 0;
+    }
+    .delma-chat-md blockquote {
+      border-left: 3px solid var(--line); margin: 6px 0;
+      padding: 2px 10px; color: var(--muted);
+    }
+    .app-shell.chat-collapsed .chat-resizer { display: none; }
+    /* Mobile: layout stacks, no column resize. */
+    @media (max-width: 960px) {
+      .chat-resizer { display: none; }
+    }
+
     .hidden-helpers { display: none !important; }
 
     .panel {
@@ -803,6 +876,122 @@
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
       transition: box-shadow 200ms ease;
     }
+
+    /* Hint line above the diagram that teaches the click affordance. */
+    .diagram-hint {
+      font-size: 12px;
+      color: var(--muted);
+      text-align: center;
+      margin: 0 0 10px;
+      letter-spacing: 0.02em;
+      font-style: italic;
+    }
+
+    /* Hover state on clickable diagram nodes. Tiny scale-up + brighter
+       accent-colored stroke signals "you can click this." Combined with the
+       existing `cursor: pointer` on nodes. */
+    .diagram-card-clickable .node { transition: transform 140ms ease, filter 140ms ease; transform-box: fill-box; transform-origin: center; }
+    .diagram-card-clickable .node:hover { transform: scale(1.04); }
+    .diagram-card-clickable .node:hover rect,
+    .diagram-card-clickable .node:hover polygon,
+    .diagram-card-clickable .node:hover circle,
+    .diagram-card-clickable .node:hover ellipse,
+    .diagram-card-clickable .node:hover path {
+      stroke-width: 3px !important;
+      filter: drop-shadow(0 2px 6px rgba(143, 0, 0, 0.25));
+    }
+
+    /* Project Details — click a box in the diagram to open a modal with
+       that node's kind pill, label, and 2-3 sentence plain-English note. */
+    .diagram-node-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 400;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .diagram-node-modal[hidden] { display: none; }
+    .diagram-node-modal-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(30, 22, 22, 0.45);
+      backdrop-filter: blur(2px);
+      animation: node-modal-fade 160ms ease-out;
+    }
+    .diagram-node-modal-content {
+      position: relative;
+      background: #FFFFFF;
+      border: 1.5px solid var(--accent);
+      border-radius: 14px;
+      padding: 28px 30px 26px;
+      width: min(520px, 100%);
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.18);
+      animation: node-modal-in 180ms ease-out;
+    }
+    .diagram-node-modal-close {
+      position: absolute;
+      top: 10px;
+      right: 12px;
+      width: 30px;
+      height: 30px;
+      border-radius: 999px;
+      font-size: 20px;
+      line-height: 1;
+      color: var(--muted);
+      background: transparent;
+      border: none;
+      cursor: pointer;
+    }
+    .diagram-node-modal-close:hover { background: var(--bg); color: var(--ink); }
+    @keyframes node-modal-fade { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes node-modal-in {
+      from { opacity: 0; transform: translateY(8px) scale(0.98); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .side-panel-kind {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 3px 8px;
+      border-radius: 999px;
+      margin-bottom: 8px;
+      background: #F0EDE6;
+      color: var(--ink-secondary);
+    }
+    .side-panel-kind[data-kind="journey"]    { background: #E3D4F0; color: #3D2863; }
+    .side-panel-kind[data-kind="email"]      { background: #F9D1D9; color: #5F1F32; }
+    .side-panel-kind[data-kind="automation"] { background: #F8D6B3; color: #5E3700; }
+    .side-panel-kind[data-kind="sql"]        { background: #F5E4B5; color: #5C4500; }
+    .side-panel-kind[data-kind="de"]         { background: #D4E9D4; color: #2A5A2A; }
+    .side-panel-kind[data-kind="deSource"]   { background: #DDE5F5; color: #1E3A5F; }
+    .side-panel-kind[data-kind="cloudpage"]  { background: #C8E6E0; color: #1B3E3A; }
+    .side-panel-kind[data-kind="decision"]   { background: #FFE8A8; color: #5E4800; }
+    .side-panel-label {
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      margin-bottom: 10px;
+      color: var(--ink);
+      word-break: break-word;
+    }
+    .side-panel-note { color: var(--ink-secondary); }
+
+    /* Node active/dimmed states in the SVG when the user has selected one. */
+    .diagram-shell .node.node-dimmed,
+    .mermaid-inline .node.node-dimmed { opacity: 0.35; transition: opacity 140ms ease; }
+    .diagram-shell .node.node-active rect,
+    .diagram-shell .node.node-active polygon,
+    .mermaid-inline .node.node-active rect,
+    .mermaid-inline .node.node-active polygon {
+      filter: drop-shadow(0 2px 8px rgba(143, 0, 0, 0.35));
+      stroke-width: 3px !important;
+    }
+    .diagram-shell .node { transition: opacity 140ms ease; }
+
     .diagram-card:hover {
       box-shadow: 0 4px 14px rgba(143, 0, 0, 0.08);
     }
@@ -817,7 +1006,7 @@
       overflow-y: scroll;
       -webkit-overflow-scrolling: touch;
       position: relative;
-      cursor: grab;
+      cursor: default;
       touch-action: pan-x pan-y;
       user-select: none;
       min-height: 320px;
@@ -853,7 +1042,6 @@
     .diagram-zoom-wrapper::-webkit-scrollbar-thumb:hover { background: rgba(143, 0, 0, 0.8); }
     .diagram-zoom-wrapper::-webkit-scrollbar-corner { background: transparent; }
 
-    .diagram-zoom-wrapper.dragging { cursor: grabbing; }
 
     /* SVG renders at its natural viewBox size. The zoom engine scales via
        transform: scale(). Initial zoom stays at 100% so horizontal/vertical
@@ -1180,6 +1368,24 @@
       25%  { box-shadow: 0 0 0 3px var(--accent), 0 0 14px rgba(143, 0, 0, 0.35); }
       100% { box-shadow: 0 0 0 0 transparent, 0 0 0 transparent; }
     }
+
+    /* Slow bg fade for the diagram card when the current tab is the one
+       being updated. Subtle accent wash that rises and settles. */
+    @keyframes delma-bg-pulse {
+      0%   { background-color: #FFFFFF; }
+      35%  { background-color: rgba(143, 0, 0, 0.08); }
+      100% { background-color: #FFFFFF; }
+    }
+    .delma-bg-pulse { animation: delma-bg-pulse 3.2s ease-in-out; }
+
+    /* Slow bg fade for an inactive tab button — signals "this tab just
+       got updated, take a look when you're ready." */
+    @keyframes delma-tab-pulse {
+      0%   { background-color: var(--panel); }
+      35%  { background-color: rgba(143, 0, 0, 0.18); }
+      100% { background-color: var(--panel); }
+    }
+    .view-tab.delma-tab-pulse { animation: delma-tab-pulse 3.2s ease-in-out; }
 
     /* ── Change highlight in editor ───────────────────────────────── */
     /* Warm rose tint on changed lines, fades out after a moment.     */
@@ -1765,7 +1971,7 @@
           <span id="workspace-status"></span>
         </div>
         <div class="footer-actions">
-          <button id="connections-toggle-btn" class="secondary-btn" type="button" title="SFMC connection">Connections</button>
+          <button id="connections-toggle-btn" class="secondary-btn" type="button" title="SFMC connection" style="display:none;">Connections</button>
           <button id="history-toggle-btn" class="secondary-btn" type="button" title="Recent activity">History</button>
           <button id="reset-example-btn" class="secondary-btn" style="display:none;">Reset</button>
           <button id="save-workspace-btn" class="primary-btn" style="display:none;">Save</button>
@@ -1809,6 +2015,7 @@
       <button id="send-btn" style="display:none;" disabled></button>
     </div>
     <aside class="chat-sidebar" aria-label="Delma chat">
+      <div id="chat-resizer" class="chat-resizer" title="Drag to resize"></div>
       <button id="chat-toggle" class="chat-toggle" type="button" aria-label="Collapse chat" title="Collapse chat (⌘\)">
         <span id="chat-toggle-icon" aria-hidden="true">›</span>
       </button>

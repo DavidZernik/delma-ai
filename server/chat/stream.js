@@ -123,19 +123,75 @@ async function getOrCreateConversation(projectId, userId) {
 
 // Persist a single message to Supabase. Called from the streaming loop as
 // each Agent SDK message lands.
+//
+// SDK message shapes we care about:
+//   { type: 'assistant', message: { role: 'assistant', content: [{type:'text',text}, {type:'tool_use',id,name,input}, ...] } }
+//   { type: 'user',      message: { role: 'user', content: [{type:'tool_result',tool_use_id,content}, ...] } }
+//   { role: 'user', content: string }        — our own saveMessage call on user turn
+// Plus meta types (system, result, partial, etc.) we don't persist.
+//
+// We normalize into two columns: role + content (text extracted), and
+// tool_calls (array of {id,name,input}) when the assistant used tools this turn.
 async function saveMessage(conversationId, message) {
-  const { role, content, tool_calls, tool_call_id, tool_name, model, usage } = message
-  await sb.from('messages').insert({
-    conversation_id: conversationId,
-    role,
-    content: typeof content === 'string' ? content : JSON.stringify(content),
-    tool_calls: tool_calls || null,
-    tool_call_id: tool_call_id || null,
-    tool_name: tool_name || null,
-    tokens_in: usage?.input_tokens || null,
-    tokens_out: usage?.output_tokens || null,
-    model: model || null
-  })
+  // Case A: we manually constructed { role, content } (user's own turn).
+  if (message && typeof message === 'object' && 'role' in message && !('type' in message)) {
+    await sb.from('messages').insert({
+      conversation_id: conversationId,
+      role: message.role,
+      content: typeof message.content === 'string' ? message.content : JSON.stringify(message.content),
+      tool_calls: null, tool_call_id: null, tool_name: null,
+      tokens_in: null, tokens_out: null, model: null
+    })
+    return
+  }
+
+  // Case B: SDK messages — only persist the shapes that carry chat content.
+  if (!message || typeof message !== 'object') return
+  const t = message.type
+
+  if (t === 'assistant' && message.message) {
+    const blocks = Array.isArray(message.message.content) ? message.message.content : []
+    const textParts = blocks.filter(b => b?.type === 'text').map(b => b.text || '')
+    const toolUses = blocks.filter(b => b?.type === 'tool_use').map(b => ({ id: b.id, name: b.name, input: b.input }))
+    const text = textParts.join('')
+    // Skip empty frames — SDK emits many partial/tool-only assistant messages.
+    if (!text.trim() && toolUses.length === 0) return
+    await sb.from('messages').insert({
+      conversation_id: conversationId,
+      role: 'assistant',
+      content: text,
+      tool_calls: toolUses.length ? toolUses : null,
+      tool_call_id: null,
+      tool_name: null,
+      tokens_in: message.message.usage?.input_tokens || null,
+      tokens_out: message.message.usage?.output_tokens || null,
+      model: message.message.model || null
+    })
+    return
+  }
+
+  if (t === 'user' && message.message) {
+    // User messages from the SDK are tool results (role=user in the Anthropic
+    // protocol). We save them as role='tool' for clearer history rendering.
+    const blocks = Array.isArray(message.message.content) ? message.message.content : []
+    const toolResults = blocks.filter(b => b?.type === 'tool_result').map(b => ({
+      tool_use_id: b.tool_use_id,
+      output: typeof b.content === 'string' ? b.content : JSON.stringify(b.content)
+    }))
+    if (!toolResults.length) return
+    await sb.from('messages').insert({
+      conversation_id: conversationId,
+      role: 'tool',
+      content: JSON.stringify(toolResults),
+      tool_calls: null,
+      tool_call_id: toolResults[0].tool_use_id || null,
+      tool_name: null,
+      tokens_in: null, tokens_out: null, model: null
+    })
+    return
+  }
+
+  // Other SDK types (system, result, partial_assistant, etc.): ignore.
 }
 
 // Rough translator from Agent SDK messages to what assistant-ui expects.
@@ -204,9 +260,18 @@ export async function handleChatStream(req, res) {
 
   // Compose the per-turn system prompt: project state + org memory + SFMC
   // connection summary + prior conversation + behavior instructions.
-  const systemPrompt = await buildChatSystemPrompt({
-    projectId, orgId: projectOrgId, sfmcAccounts, priorMessages
-  })
+  // Wrapped so a failure here returns 500 cleanly instead of taking the
+  // Node process down — buildChatSystemPrompt runs before the SSE headers
+  // are flushed, so a throw would bypass the main try/catch below.
+  let systemPrompt
+  try {
+    systemPrompt = await buildChatSystemPrompt({
+      projectId, orgId: projectOrgId, sfmcAccounts, priorMessages
+    })
+  } catch (err) {
+    console.error('[chat] buildChatSystemPrompt failed:', err)
+    return res.status(500).json({ error: 'prompt build failed', detail: err.message })
+  }
 
   const systemPromptChars = Array.isArray(systemPrompt)
     ? systemPrompt.reduce((n, s) => n + (s?.length || 0), 0)
@@ -236,34 +301,36 @@ export async function handleChatStream(req, res) {
   // replay/history after refresh).
   sseEvent(res, 'meta', { conversationId })
 
+  // Abort plumbing: client closes the SSE (user hits Stop, refreshes, or
+  // navigates away) → req emits 'close' → we abort the Agent SDK, which
+  // SIGTERMs its claude subprocess and any in-flight Bash/MCP calls.
+  // Without this, the subprocess keeps running past the client disconnect
+  // and burns tokens on work nobody's watching.
+  const abortController = new AbortController()
+  let clientClosed = false
+  req.on('close', () => {
+    if (res.writableEnded) return
+    clientClosed = true
+    abortController.abort()
+  })
+
   try {
-    // Run the Agent SDK query. This is Claude Code's actual loop: it can
-    // use Bash, read/write files in scratchDir, call Delma MCP tools, and
-    // iterate across multiple tool calls within a single user turn.
     const result = query({
       prompt: message,
       options: {
         model: DEFAULT_MODEL,
         cwd: scratchDir,
-        // System prompt is the project context + behavior instructions.
-        // Built fresh every turn from Supabase so the chat is always seeing
-        // the latest workspace state.
         systemPrompt,
-        // Bash + tool subprocesses inherit this env. SFMC creds are scoped
-        // to this single turn and never written to disk.
         env: { ...process.env, ...sfmcEnvVars(sfmcAccounts) },
         mcpServers: delmaMcpConfig({ userId, projectId, sfmcAccounts }),
-        // Default to Claude Code's full toolset. Later we can scope per-tier.
+        abortController,
         allowedTools: [
           'Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch',
-          // MCP tools from the delma server are auto-allowed when prefixed
-          // 'mcp__delma__*' — Agent SDK matches these via the pattern.
           'mcp__delma'
         ]
       }
     })
 
-    // Stream each SDK message out as SSE + persist to DB.
     for await (const msg of result) {
       sseEvent(res, 'message', msg)
       try { await saveMessage(conversationId, msg) }
@@ -271,8 +338,12 @@ export async function handleChatStream(req, res) {
     }
     sseEvent(res, 'done', {})
   } catch (err) {
-    console.error('[chat] stream error:', err)
-    sseEvent(res, 'error', { message: err.message })
+    if (clientClosed || err.name === 'AbortError' || abortController.signal.aborted) {
+      console.log('[chat] turn aborted by client')
+    } else {
+      console.error('[chat] stream error:', err)
+      sseEvent(res, 'error', { message: err.message })
+    }
   } finally {
     res.end()
   }

@@ -275,6 +275,110 @@ app.delete('/api/sfmc-account', async (req, res) => {
   res.json({ ok: true })
 })
 
+// ── Connected Apps: per-project permissions ─────────────────────────────────
+// Each integration (SFMC, etc.) has a per-project permission level:
+//   - 'read_only'  → Delma can read from the app, never write
+//   - 'read_write' → Delma can call mutating endpoints
+// Connection status itself is derived from the app's own storage (SFMC →
+// sfmc_accounts). The permissions table only carries the access level.
+//
+// SUPPORTED_APPS is the source of truth for which integrations exist today.
+// Adding a new app = add an entry here and render logic picks it up.
+const SUPPORTED_APPS = [
+  {
+    id: 'sfmc',
+    name: 'Salesforce Marketing Cloud',
+    description: 'Email sends, journeys, data extensions, content builder assets. Delma reads or edits your SFMC instance on your behalf.',
+    supports_write: true
+  }
+]
+
+async function getSfmcConnectionForProject(sb, projectId) {
+  const { data: proj } = await sb.from('projects').select('org_id').eq('id', projectId).maybeSingle()
+  if (!proj?.org_id) return { connected: false, last_sync_at: null }
+  const { data: accts } = await sb.from('sfmc_accounts')
+    .select('id, bu_role, last_refresh_at, updated_at')
+    .eq('org_id', proj.org_id)
+  if (!accts?.length) return { connected: false, last_sync_at: null }
+  const latest = accts
+    .map(a => a.last_refresh_at || a.updated_at)
+    .filter(Boolean)
+    .sort()
+    .at(-1) || null
+  return { connected: true, last_sync_at: latest, bu_roles: accts.map(a => a.bu_role) }
+}
+
+app.get('/api/projects/:projectId/app-permissions', async (req, res) => {
+  const sb = getSb()
+  let user
+  try { user = await requireUser(req) }
+  catch (err) { return res.status(err.status || 401).json({ error: err.message }) }
+  const { projectId } = req.params
+  try {
+    try { await requireProjectMembership(sb, user.id, projectId) }
+    catch {
+      const { data: ws } = await sb.from('projects').select('org_id').eq('id', projectId).single()
+      await requireOrgMembership(sb, user.id, ws.org_id)
+    }
+  } catch (err) { return res.status(err.status || 403).json({ error: err.message }) }
+
+  const { data: rows } = await sb.from('project_app_permissions')
+    .select('app_id, permission, updated_at')
+    .eq('project_id', projectId)
+  const permByApp = Object.fromEntries((rows || []).map(r => [r.app_id, r]))
+
+  const apps = []
+  for (const app of SUPPORTED_APPS) {
+    let conn = { connected: false, last_sync_at: null }
+    if (app.id === 'sfmc') conn = await getSfmcConnectionForProject(sb, projectId)
+    apps.push({
+      ...app,
+      connected: conn.connected,
+      last_sync_at: conn.last_sync_at,
+      permission: permByApp[app.id]?.permission || 'read_only',
+      permission_updated_at: permByApp[app.id]?.updated_at || null
+    })
+  }
+  res.json({ apps })
+})
+
+app.put('/api/projects/:projectId/app-permissions/:appId', async (req, res) => {
+  const sb = getSb()
+  let user
+  try { user = await requireUser(req) }
+  catch (err) { return res.status(err.status || 401).json({ error: err.message }) }
+  const { projectId, appId } = req.params
+  const { permission } = req.body || {}
+
+  const appSpec = SUPPORTED_APPS.find(a => a.id === appId)
+  if (!appSpec) return res.status(404).json({ error: 'unknown app' })
+  if (!['read_only', 'read_write'].includes(permission)) {
+    return res.status(400).json({ error: 'permission must be read_only or read_write' })
+  }
+  if (permission === 'read_write' && !appSpec.supports_write) {
+    return res.status(400).json({ error: `${appSpec.name} does not support write operations` })
+  }
+
+  try {
+    try { await requireProjectMembership(sb, user.id, projectId) }
+    catch {
+      const { data: ws } = await sb.from('projects').select('org_id').eq('id', projectId).single()
+      await requireOrgMembership(sb, user.id, ws.org_id)
+    }
+  } catch (err) { return res.status(err.status || 403).json({ error: err.message }) }
+
+  const { error } = await sb.from('project_app_permissions').upsert({
+    project_id: projectId,
+    app_id: appId,
+    permission,
+    updated_at: new Date().toISOString(),
+    updated_by: user.id
+  }, { onConflict: 'project_id,app_id' })
+  if (error) return res.status(500).json({ error: error.message })
+  console.log('[delma WRITE] app_permission', appId, '→', permission, 'project:', projectId.slice(0, 8), 'by:', user.id.slice(0, 8))
+  res.json({ ok: true, permission })
+})
+
 // ── Typed-op endpoint ─────────────────────────────────────────────────────────
 // Body: { tabKey: "org:people.md" | "memory:decisions.md" | ...,
 //         ops: [{ op, args }, ...], projectId, orgId }
@@ -490,6 +594,36 @@ app.get('/api/chat/history', async (req, res) => {
 
   const messages = (rows || []).reverse()
   res.json({ conversationId: conv.id, messages })
+})
+
+// POST /api/chat/clear — archive the current active conversation for the
+// (user, project) pair. Non-destructive: history stays in the DB, future
+// `/api/chat/history` calls just won't find it (archived=true filter), and
+// the next message creates a fresh conversation.
+app.post('/api/chat/clear', async (req, res) => {
+  let user
+  try { user = await requireUser(req) }
+  catch (err) { return res.status(err.status || 401).json({ error: err.message }) }
+
+  const { projectId } = req.body || {}
+  if (!projectId) return res.status(400).json({ error: 'projectId required' })
+
+  const sb = getSb()
+  try {
+    const { data: ws } = await sb.from('projects').select('org_id').eq('id', projectId).single()
+    if (!ws) return res.status(404).json({ error: 'project not found' })
+    try { await requireProjectMembership(sb, user.id, projectId) }
+    catch { await requireOrgMembership(sb, user.id, ws.org_id) }
+  } catch (err) { return res.status(err.status || 403).json({ error: err.message }) }
+
+  const { error } = await sb.from('conversations')
+    .update({ archived: true })
+    .eq('project_id', projectId)
+    .eq('user_id', user.id)
+    .eq('archived', false)
+  if (error) return res.status(500).json({ error: error.message })
+  console.log('[delma WRITE] chat_clear project:', projectId.slice(0, 8), 'user:', user.id.slice(0, 8))
+  res.json({ ok: true })
 })
 
 app.post('/quality/run', async (req, res) => {

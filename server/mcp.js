@@ -86,18 +86,42 @@ let activeUserId = process.env.DELMA_USER_ID || null
 
 // ── Logging wrapper ──────────────────────────────────────────────────────────
 
+// Tools that actually mutate project/org state. Used to tag logs so you can
+// grep for writes vs reads.
+const WRITE_TOOLS = new Set([
+  'append_memory_note', 'compose_claude_md',
+  'delma_add_person', 'delma_remove_person', 'delma_set_role', 'delma_set_manager',
+  'delma_add_reporting_line', 'delma_remove_reporting_line',
+  'delma_add_playbook_rule',
+  'delma_add_decision', 'delma_supersede_decision',
+  'delma_add_action', 'delma_complete_action', 'delma_complete_action_by_text',
+  'delma_append_my_note',
+  'delma_set_environment_key',
+  'delma_arch_add_node', 'delma_arch_move_node', 'delma_arch_remove_node',
+  'delma_arch_set_node_kind', 'delma_arch_set_node_label', 'delma_arch_set_node_note',
+  'delma_arch_add_edge', 'delma_arch_remove_edge',
+  'delma_arch_add_layer', 'delma_arch_remove_layer', 'delma_arch_set_prose',
+  'sync_conversation_summary', 'save_diagram_view'
+])
+
 function withLogging(toolName, handler) {
   return async (args) => {
-    console.log(`[mcp] ${toolName} called`, JSON.stringify(args).substring(0, 200))
+    const tag = WRITE_TOOLS.has(toolName) ? '[delma WRITE]' : '[mcp read]'
+    console.log(`${tag} ${toolName} called`, JSON.stringify(args).substring(0, 200))
     const start = Date.now()
     let caughtError = null
     try {
       const result = await handler(args)
-      console.log(`[mcp] ${toolName} done in ${Date.now() - start}ms`)
+      const resultSummary = typeof result === 'string'
+        ? `${result.length} chars`
+        : result && typeof result === 'object'
+          ? JSON.stringify(result).substring(0, 150)
+          : 'ok'
+      console.log(`${tag} ${toolName} done in ${Date.now() - start}ms →`, resultSummary)
       return result
     } catch (e) {
       caughtError = e
-      console.error(`[mcp] ${toolName} FAILED in ${Date.now() - start}ms:`, e.message)
+      console.error(`${tag} ${toolName} FAILED in ${Date.now() - start}ms:`, e.message)
       throw e
     } finally {
       void logMcpCall({

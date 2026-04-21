@@ -159,7 +159,26 @@ export function useChatStream({ projectId, userId }) {
     abortRef.current?.abort()
   }, [])
 
-  return { messages, status, conversationId, send, abort }
+  const clear = useCallback(async () => {
+    // Stop any in-flight stream first so we don't race with new messages
+    // landing into the wiped UI.
+    abortRef.current?.abort()
+    try {
+      const res = await fetch('/api/chat/clear', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+        body: JSON.stringify({ projectId })
+      })
+      if (!res.ok) throw new Error(`clear ${res.status}`)
+    } catch (err) {
+      console.warn('[chat] clear failed:', err.message)
+    }
+    setMessages([])
+    setConversationId(null)
+    setStatus('idle')
+  }, [projectId])
+
+  return { messages, status, conversationId, send, abort, clear }
 }
 
 function parseFrame(frame) {

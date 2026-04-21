@@ -55,13 +55,15 @@ function priorConversationBlock(messages) {
 }
 
 export async function buildChatSystemPrompt({ projectId, orgId, sfmcAccounts, priorMessages = [] }) {
-  const [project, org, views, memoryRows, orgMemoryRows] = await Promise.all([
+  const [project, org, views, memoryRows, orgMemoryRows, appPerms] = await Promise.all([
     sb.from('projects').select('id, name').eq('id', projectId).maybeSingle().then(r => r.data),
     sb.from('organizations').select('id, name').eq('id', orgId).maybeSingle().then(r => r.data),
-    sb.from('diagram_views').select('view_key, title, description, mermaid').eq('project_id', projectId),
-    sb.from('memory_notes').select('filename, content').eq('project_id', projectId),
-    sb.from('org_memory_notes').select('filename, content').eq('org_id', orgId)
+    sb.from('diagram_views').select('view_key, title, description, mermaid').eq('project_id', projectId).then(r => r.data || []),
+    sb.from('memory_notes').select('filename, content').eq('project_id', projectId).then(r => r.data || []),
+    sb.from('org_memory_notes').select('filename, content').eq('org_id', orgId).then(r => r.data || []),
+    sb.from('project_app_permissions').select('app_id, permission').eq('project_id', projectId).then(r => r.data || [])
   ])
+  const sfmcPermission = appPerms.find(p => p.app_id === 'sfmc')?.permission || 'read_only'
 
   const lines = []
   lines.push(`# Delma — In-app SFMC Operator`)
@@ -70,7 +72,10 @@ export async function buildChatSystemPrompt({ projectId, orgId, sfmcAccounts, pr
   lines.push(``)
   lines.push(`**How to behave:**`)
   lines.push(`- Stay grounded in the project context below. Do not ask questions whose answers are already in front of you.`)
-  lines.push(`- When the user asks about a piece of the campaign (an email, a journey, a DE), pull the specifics from "Files Locations and Keys" first.`)
+  lines.push(`- **When the user references a live SFMC object by ID, customer key, or name, always fetch the live version from the SFMC API FIRST before answering.** The project docs ("Files Locations and Keys", decisions, etc.) are a CACHE, not the source of truth. Pull live, then reconcile: if docs and live agree, say so; if they've drifted, call out the diff explicitly. Only rely on docs alone if SFMC is unreachable.`)
+  lines.push(`- **When you detect drift between docs and live SFMC, do not just mention it — propose the fix as a question and wait for confirmation before writing.** Example: "Your Files Locations and Keys tab still points at asset 264938. SFMC shows the current asset is 267232 (renamed to brand_all_hbd_2026-final). Want me to update the docs?" Only after the user says yes, call the appropriate MCP write tool (\`delma_set_environment_key\`, \`delma_add_decision\`, etc.). Never auto-write — sometimes drift is intentional (a staging copy, a deliberate rename the user isn't ready to canonicalize).`)
+  lines.push(`- **The Project Details view shows the architecture diagram at the top and a node-by-node guide below.** Every node in the architecture diagram has a \`note\` field that appears as a paragraph under the node's heading in that guide. When the user asks about a specific step, automation, data extension, or journey that corresponds to a node, propose writing or updating that node's note — with a concise English explanation of what the node is, how it works, and the related files/SQL/journey IDs. Use \`delma_arch_set_node_note\` (propose the exact text first, then write after user confirms). Goal: over time, every node has a crisp paragraph so Project Details is self-documenting.`)
+  lines.push(`- When the user asks about a piece of the campaign generally (not a specific asset), you may use "Files Locations and Keys" as your starting point, but still verify against live SFMC when it's material to the answer.`)
   lines.push(`- For SFMC API calls, use Bash + curl with the env vars below (CLIENT_ID, CLIENT_SECRET, SFMC_SUBDOMAIN, etc.). Cache the OAuth token across calls in the same turn.`)
   lines.push(`- Be concise. The user is non-technical and works in marketing operations. Lead with the answer, then the detail.`)
   lines.push(``)
@@ -103,6 +108,16 @@ export async function buildChatSystemPrompt({ projectId, orgId, sfmcAccounts, pr
     }
     lines.push(``)
     lines.push(`**OAuth quick-reference:** \`POST $SFMC_AUTH_BASE_URL/v2/token\` with \`{ grant_type: "client_credentials", client_id, client_secret, account_id (MID) }\` returns \`access_token\`. Use as Bearer token on REST/SOAP calls. Tokens last ~20 min.`)
+    lines.push(``)
+    lines.push(`### SFMC access level for this project: **${sfmcPermission === 'read_write' ? 'READ + WRITE' : 'READ ONLY'}**`)
+    if (sfmcPermission === 'read_only') {
+      lines.push(`- You may GET information from SFMC (REST GETs, SOAP Retrieve/Describe).`)
+      lines.push(`- Do NOT call any endpoint that mutates SFMC state: POST, PUT, PATCH, DELETE on REST; Create/Update/Delete/Perform on SOAP. This includes creating drafts or duplicating assets — ANY write is off-limits until the user switches this project to "Read + write" in the Connected Apps tab.`)
+      lines.push(`- Writing local scripts, saving JSON snapshots, and editing Delma docs is fine — those don't touch SFMC.`)
+      lines.push(`- If the user asks for something that requires a write, explain that the project is in Read-only mode and point them to the **Connected Apps** tab to change it.`)
+    } else {
+      lines.push(`- You may read AND write to SFMC. Still confirm destructive actions (DELETE, live-journey edits) with the user before running them.`)
+    }
   }
   lines.push(``)
 
@@ -148,6 +163,22 @@ export async function buildChatSystemPrompt({ projectId, orgId, sfmcAccounts, pr
   // within a session, eligible for Anthropic prompt caching. The prior
   // conversation grows every turn, so it goes AFTER the boundary marker.
   const staticPrefix = lines.join('\n')
+
+  // Per-turn injection trace — what Delma actually fed into Claude this turn.
+  // Split so you can see at a glance which sections were populated vs empty.
+  const memoryTabs = (memoryRows || []).filter(r => r.content?.trim() && r.filename !== 'my-notes.md').map(r => tabLabel(r.filename))
+  const orgTabs = (orgMemoryRows || []).filter(r => r.content?.trim()).map(r => tabLabel(r.filename))
+  console.log('[delma inject]',
+    'project:', project?.name || projectId?.slice(0, 8),
+    'org:', org?.name || orgId?.slice(0, 8),
+    'sfmc:', [sfmcAccounts?.child && 'child', sfmcAccounts?.parent && 'parent'].filter(Boolean).join('+') || 'none',
+    'sfmcPerm:', sfmcPermission,
+    'diagrams:', views?.length || 0,
+    'projectTabs:[' + memoryTabs.join(',') + ']',
+    'orgTabs:[' + orgTabs.join(',') + ']',
+    'priorTurns:', priorMessages.length,
+    'staticChars:', staticPrefix.length
+  )
 
   const priorBlock = priorConversationBlock(priorMessages)
   if (!priorBlock) return staticPrefix // nothing dynamic — return as plain string
