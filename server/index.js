@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
 import { createClient } from '@supabase/supabase-js'
 import { applyOpsToTab, parseTabKey } from './lib/apply-op.js'
+import { cleanMermaid } from './lib/clean-mermaid.js'
 import { requireUser, requireOrgMembership, requireProjectMembership } from './lib/auth.js'
 import { parseStructuredContent } from './lib/parse-tab.js'
 import { render, isStructuredTab } from '../src/tab-ops.js'
@@ -391,6 +392,48 @@ app.put('/api/projects/:projectId/app-permissions/:appId', async (req, res) => {
   if (error) return res.status(500).json({ error: error.message })
   console.log('[delma WRITE] app_permission', appId, '→', permission, 'project:', projectId.slice(0, 8), 'by:', user.id.slice(0, 8))
   res.json({ ok: true, permission })
+})
+
+// ── Clean diagrams ────────────────────────────────────────────────────────────
+// Re-runs the mermaid post-processor over every diagram row in a project.
+// Useful when rows were written before the post-processor existed, or when
+// the model emits duplicate classDef / class statements that slipped through.
+// Non-destructive: only touches rows whose mermaid changes under cleanup.
+
+app.post('/api/projects/:projectId/clean-diagrams', async (req, res) => {
+  const sb = getSb()
+  if (!sb) return res.status(500).json({ error: 'Supabase not configured' })
+  let user
+  try { user = await requireUser(req) }
+  catch (err) { return res.status(err.status || 401).json({ error: err.message }) }
+
+  const { projectId } = req.params
+  try { await requireProjectMembership(sb, user.id, projectId) }
+  catch (err) { return res.status(err.status || 403).json({ error: err.message }) }
+
+  console.log('[server] clean-diagrams start — project:', projectId.slice(0, 8), 'user:', user.id.slice(0, 8))
+  const { data: rows, error } = await sb
+    .from('diagram_views')
+    .select('id, view_key, mermaid')
+    .eq('project_id', projectId)
+  if (error) return res.status(500).json({ error: error.message })
+
+  const touched = []
+  for (const row of rows || []) {
+    if (typeof row.mermaid !== 'string' || !row.mermaid.trim()) continue
+    const cleaned = cleanMermaid(row.mermaid)
+    if (cleaned === row.mermaid) {
+      console.log('[server] clean-diagrams  ·', row.view_key, '— already clean')
+      continue
+    }
+    const { error: updErr } = await sb.from('diagram_views').update({ mermaid: cleaned }).eq('id', row.id)
+    if (updErr) return res.status(500).json({ error: updErr.message, viewKey: row.view_key })
+    console.log('[server] clean-diagrams  ·', row.view_key, '— trimmed', row.mermaid.length - cleaned.length, 'chars (', row.mermaid.length, '→', cleaned.length, ')')
+    touched.push({ viewKey: row.view_key, before: row.mermaid.length, after: cleaned.length })
+  }
+
+  console.log('[server] clean-diagrams done — project:', projectId.slice(0, 8), 'scanned:', rows?.length || 0, 'cleaned:', touched.length)
+  res.json({ ok: true, scanned: rows?.length || 0, cleaned: touched.length, views: touched })
 })
 
 // ── Typed-op endpoint ─────────────────────────────────────────────────────────

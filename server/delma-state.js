@@ -23,6 +23,7 @@
 // ──────────────────────────────────────────────────────────────────────────────
 
 import { supabase } from './lib/supabase.js'
+import { cleanMermaid } from './lib/clean-mermaid.js'
 
 // Project-level memory files. People and Playbook live in org_memory_notes.
 export const MEMORY_FILES = [
@@ -206,6 +207,7 @@ export async function getDiagramView(projectId, viewKey, userId) {
 
 export async function saveDiagramView(projectId, viewKey, updates, userId, reason) {
   console.log('[delma-state] saveDiagramView:', viewKey, 'updates:', Object.keys(updates))
+  if (typeof updates.mermaid === 'string') updates.mermaid = cleanMermaid(updates.mermaid)
   // Find existing view
   const { data: existing, error: findErr } = await supabase
     .from('diagram_views')

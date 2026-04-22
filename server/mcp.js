@@ -43,6 +43,7 @@ import {
 import { generateClaudeMd } from './lib/summarizer.js'
 import { applyOpsToTab, parseTabKey } from './lib/apply-op.js'
 import { supabase as sbRoot } from './lib/supabase.js'
+import { cleanMermaid } from './lib/clean-mermaid.js'
 
 // ── Auto-summarizer ──────────────────────────────────────────────────────────
 // After every write, re-summarize the workspace and write CLAUDE.md locally.
@@ -98,7 +99,7 @@ const WRITE_TOOLS = new Set([
   'delma_append_my_note',
   'delma_set_environment_key',
   'delma_arch_add_node', 'delma_arch_move_node', 'delma_arch_remove_node',
-  'delma_arch_set_node_kind', 'delma_arch_set_node_label', 'delma_arch_set_node_note',
+  'delma_arch_set_node_kind', 'delma_arch_set_node_label', 'delma_arch_set_node_note', 'delma_arch_set_node_description',
   'delma_arch_add_edge', 'delma_arch_remove_edge',
   'delma_arch_add_layer', 'delma_arch_remove_layer', 'delma_arch_set_prose',
   'sync_conversation_summary', 'save_diagram_view'
@@ -519,9 +520,19 @@ server.registerTool('delma_arch_set_node_label', {
 
 server.registerTool('delma_arch_set_node_note', {
   title: 'Architecture: Set Node Note',
-  description: `Set the paragraph that appears under this node's heading in the Project Details node-by-node guide (the expanded explanation users see when they click a node in the diagram).
+  description: `Set the short floating annotation that appears beside this node in the diagram itself — 2-5 words, e.g. "master source DE", "entry source", "email sequence".
 
-Write 2-3 concise, layman-English sentences: what this step is, how it works, and the specific SFMC assets involved. Audience is non-technical marketing ops.
+For the long-form explanation shown in the click-to-reveal modal, use \`delma_arch_set_node_description\` instead.
+
+Pass empty string for \`note\` to remove.`,
+  inputSchema: { id: z.string(), note: z.string() }
+}, withLogging('delma_arch_set_node_note', (args) => runOp('diagram:architecture', 'set_node_note', args)))
+
+server.registerTool('delma_arch_set_node_description', {
+  title: 'Architecture: Set Node Description',
+  description: `Set the long-form explanation users see when they click this node in the Project Details diagram.
+
+Write at least 2 concise, layman-English sentences: what this step is, how it works, and the specific SFMC assets involved. Audience is non-technical marketing ops.
 
 **Always use full SFMC paths with \`>\` separators, never bare asset names.** Examples:
 - \`Content Builder > Journeys > Brand > brand_all_hbd_2026-final\`
@@ -529,11 +540,11 @@ Write 2-3 concise, layman-English sentences: what this step is, how it works, an
 - \`Data Extensions > Shared > ENT.All_Patients_Opted_In\`
 - \`Journey Builder > Birthday Daily Email Journey v2\`
 
-If you don't know the path, fetch it from SFMC first (asset \`category.name\` for Content Builder assets, category tree for DEs, etc.) before writing the note.
+If you don't know the path, fetch it from SFMC first (asset \`category.name\` for Content Builder assets, category tree for DEs, etc.) before writing the description.
 
-Pass empty string for \`note\` to remove.`,
-  inputSchema: { id: z.string(), note: z.string() }
-}, withLogging('delma_arch_set_node_note', (args) => runOp('diagram:architecture', 'set_node_note', args)))
+Pass empty string for \`description\` to remove.`,
+  inputSchema: { id: z.string(), description: z.string() }
+}, withLogging('delma_arch_set_node_description', (args) => runOp('diagram:architecture', 'set_node_description', args)))
 
 server.registerTool('delma_arch_set_node_kind', {
   title: 'Architecture: Set Node Kind',
@@ -715,7 +726,7 @@ Return [] if nothing needs updating. Return ONLY valid JSON, no explanation.`
 
       // Save to Supabase
       if (tab.table === 'diagram_views') {
-        await sb.from('diagram_views').update({ mermaid: content }).eq('id', tab.id)
+        await sb.from('diagram_views').update({ mermaid: cleanMermaid(content) }).eq('id', tab.id)
       } else if (tab.table === 'memory_notes') {
         await sb.from('memory_notes').update({ content }).eq('project_id', projectId).eq('filename', tab.filename)
       } else if (tab.table === 'org_memory_notes') {

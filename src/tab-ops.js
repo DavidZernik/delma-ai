@@ -619,6 +619,10 @@ const OPS = {
     const nodes = (data.nodes || []).map(n => n.id === id ? { ...n, note: note || null } : n)
     return { ...data, nodes }
   },
+  set_node_description(data, { id, description }) {
+    const nodes = (data.nodes || []).map(n => n.id === id ? { ...n, description: description || null } : n)
+    return { ...data, nodes }
+  },
   set_node_kind(data, { id, kind }) {
     if (!ARCH_KINDS.includes(kind)) throw new Error(`invalid kind: ${kind}`)
     const nodes = (data.nodes || []).map(n => n.id === id ? { ...n, kind } : n)
@@ -731,7 +735,7 @@ export const OPS_BY_TAB = {
   'environment.md': ['set_environment_key', 'remove_environment_key'],
   'decisions.md': ['add_decision', 'add_action', 'complete_action', 'complete_action_by_text', 'remove_decision', 'supersede_decision'],
   'my-notes.md': ['append_my_note', 'replace_my_notes'],
-  'architecture': ['set_prose', 'add_node', 'set_node_label', 'set_node_note', 'set_node_kind', 'move_node_to_layer', 'remove_node', 'merge_nodes', 'add_edge', 'remove_edge', 'add_layer', 'remove_layer']
+  'architecture': ['set_prose', 'add_node', 'set_node_label', 'set_node_note', 'set_node_description', 'set_node_kind', 'move_node_to_layer', 'remove_node', 'merge_nodes', 'add_edge', 'remove_edge', 'add_layer', 'remove_layer']
 }
 
 export function listOps() {

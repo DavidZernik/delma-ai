@@ -421,6 +421,7 @@ const SCHEMA_BY_OP = {
   add_node: { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' }, kind: { type: 'string' }, note: { type: 'string' }, layer: { type: 'string' } }, required: ['id', 'label', 'kind'] },
   set_node_label: { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' } }, required: ['id', 'label'] },
   set_node_note: { type: 'object', properties: { id: { type: 'string' }, note: { type: 'string' } }, required: ['id', 'note'] },
+  set_node_description: { type: 'object', properties: { id: { type: 'string' }, description: { type: 'string' } }, required: ['id', 'description'] },
   set_node_kind: { type: 'object', properties: { id: { type: 'string' }, kind: { type: 'string' } }, required: ['id', 'kind'] },
   move_node_to_layer: { type: 'object', properties: { id: { type: 'string' }, layer: { type: 'string' } }, required: ['id', 'layer'] },
   remove_node: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },

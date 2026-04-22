@@ -234,6 +234,7 @@ function formatToolStatus({ name, input }) {
     const labels = {
       delma_add_playbook_rule: 'saving to General Patterns',
       delma_arch_set_node_note: 'updating a diagram node note',
+      delma_arch_set_node_description: 'updating a diagram node description',
       delma_arch_set_node_label: 'renaming a diagram node',
       delma_arch_add_node: 'adding a diagram node',
       delma_arch_remove_node: 'removing a diagram node',

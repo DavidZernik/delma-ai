@@ -58,6 +58,7 @@ TABS AND THEIR OPS:
    add_node              { id, label, kind, note?, layer? }
    set_node_label        { id, label }
    set_node_note         { id, note }                              // floating italic annotation, 2-5 words
+   set_node_description  { id, description }                       // long-form modal body, >= 2 sentences
    set_node_kind         { id, kind }
    move_node_to_layer    { id, layer }                             // use this when user names a layer — DON'T leave nodes layer:null
    merge_nodes           { keep_id, remove_id }                    // collapse a duplicate into a canonical node (rewrites edges)

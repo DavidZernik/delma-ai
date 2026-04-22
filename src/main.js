@@ -278,6 +278,47 @@ function escapeHtml(text) {
   return String(text ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;')
 }
 
+// Branded replacement for window.confirm(). Returns a Promise<boolean>.
+// Use for destructive actions (delete project, clear chat, etc.) so the
+// app keeps its cream-and-red look instead of jumping into the browser
+// system dialog. Escapes user-provided strings.
+function brandConfirm({ title, body, confirmLabel = 'Confirm', cancelLabel = 'Cancel', danger = true }) {
+  return new Promise((resolve) => {
+    const modal = document.createElement('div')
+    modal.className = 'delma-confirm'
+    const cancelBtnHtml = cancelLabel
+      ? `<button type="button" class="delma-confirm-btn" data-act="cancel">${escapeHtml(cancelLabel)}</button>`
+      : ''
+    modal.innerHTML = `
+      <div class="delma-confirm-backdrop"></div>
+      <div class="delma-confirm-panel" role="dialog" aria-modal="true">
+        <div class="delma-confirm-title">${escapeHtml(title || 'Confirm')}</div>
+        <div class="delma-confirm-body">${escapeHtml(body || '')}</div>
+        <div class="delma-confirm-actions">
+          ${cancelBtnHtml}
+          <button type="button" class="delma-confirm-btn ${danger ? 'danger' : 'primary'}" data-act="ok">${escapeHtml(confirmLabel)}</button>
+        </div>
+      </div>
+    `
+    document.body.appendChild(modal)
+
+    const keyHandler = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); close(false) }
+      else if (e.key === 'Enter') { e.preventDefault(); close(true) }
+    }
+    const close = (result) => {
+      document.removeEventListener('keydown', keyHandler)
+      modal.remove()
+      resolve(result)
+    }
+    modal.querySelector('[data-act="ok"]').addEventListener('click', () => close(true))
+    modal.querySelector('[data-act="cancel"]')?.addEventListener('click', () => close(false))
+    modal.querySelector('.delma-confirm-backdrop').addEventListener('click', () => close(false))
+    document.addEventListener('keydown', keyHandler)
+    modal.querySelector('[data-act="ok"]').focus()
+  })
+}
+
 function trimPreview(text) {
   if (!text) return ''
   return text.length > 340 ? `${text.slice(0, 337)}...` : text
@@ -851,6 +892,45 @@ function setupHistoryDrawer() {
     if (!drawer.hidden) refreshActivityFeed()
   })
   close?.addEventListener('click', () => { drawer.hidden = true })
+}
+
+// ── Clean Diagrams button ───────────────────────────────────────────────────
+// Re-runs the mermaid post-processor over every diagram in the current
+// project. Non-destructive — keeps all content, just strips duplicate
+// classDef / class lines that slipped through before the processor existed
+// or from a stubborn model output.
+function setupCleanDiagramsBtn() {
+  const btn = document.getElementById('clean-diagrams-btn')
+  if (!btn) return
+  btn.addEventListener('click', async () => {
+    if (!state.projectId) { setWorkspaceStatus('Open a project first.'); return }
+    console.log('[delma clean-diagrams] click — project:', state.projectId)
+    const original = btn.textContent
+    btn.disabled = true
+    btn.textContent = 'Cleaning…'
+    const t0 = Date.now()
+    try {
+      const headers = { 'Content-Type': 'application/json', ...(await authHeaders()) }
+      const res = await fetch(`/api/projects/${state.projectId}/clean-diagrams`, { method: 'POST', headers })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+      console.log('[delma clean-diagrams] done in', Date.now() - t0, 'ms — scanned:', data.scanned, 'cleaned:', data.cleaned, 'views:', data.views)
+      const msg = data.cleaned === 0
+        ? `Already clean (${data.scanned} diagram${data.scanned === 1 ? '' : 's'} scanned).`
+        : `Cleaned ${data.cleaned} of ${data.scanned} diagram${data.scanned === 1 ? '' : 's'}.`
+      setWorkspaceStatus(msg)
+      if (data.cleaned > 0) {
+        console.log('[delma clean-diagrams] refreshing workspace to pick up cleaned rows')
+        await refreshWorkspace()
+      }
+    } catch (err) {
+      console.error('[delma clean-diagrams] failed after', Date.now() - t0, 'ms:', err.message)
+      setWorkspaceStatus(`Clean failed: ${err.message}`)
+    } finally {
+      btn.disabled = false
+      btn.textContent = original
+    }
+  })
 }
 
 // ── Connections drawer (SFMC API credentials) ───────────────────────────────
@@ -1470,43 +1550,6 @@ function enableDiagramDragging(wrapper) {
 // Kind-to-color palette. Warm, varied, outside the brand red/cream — user
 // asked for boxes to feel more colorful. Fill is soft pastel, stroke is a
 // deeper saturated version of the same hue, text is a very dark version.
-const ARCH_NODE_COLORS = {
-  deSource:   { fill: '#DDE5F5', stroke: '#4A6FB0', text: '#1E3A5F' },
-  de:         { fill: '#D4E9D4', stroke: '#5A9A5A', text: '#2A5A2A' },
-  sql:        { fill: '#F5E4B5', stroke: '#B58A2A', text: '#5C4500' },
-  automation: { fill: '#F8D6B3', stroke: '#C77B2E', text: '#5E3700' },
-  journey:    { fill: '#E3D4F0', stroke: '#7F5BAF', text: '#3D2863' },
-  email:      { fill: '#F9D1D9', stroke: '#C94E6A', text: '#5F1F32' },
-  cloudpage:  { fill: '#C8E6E0', stroke: '#3D8A7F', text: '#1B3E3A' },
-  decision:   { fill: '#FFE8A8', stroke: '#C9A044', text: '#5E4800' },
-  system:     { fill: '#E8E8E8', stroke: '#777777', text: '#2B2B2B' }
-}
-
-// Enrich the Project Details mermaid with color-per-kind (classDef + class
-// assignments). The click-to-reveal paragraph panel is rendered separately
-// by the caller; no prose is appended here.
-function enrichProjectDetailsMermaid(viewKey, mermaidCode) {
-  if (viewKey !== 'architecture') return mermaidCode
-  const archView = state.views?.find(v => v.view_key === 'architecture')
-  const nodes = archView?.structured?.nodes || []
-  if (nodes.length === 0) return mermaidCode
-
-  const kindsUsed = new Set()
-  const classLines = []
-  for (const n of nodes) {
-    const kind = ARCH_NODE_COLORS[n.kind] ? n.kind : 'system'
-    kindsUsed.add(kind)
-    classLines.push(`class ${n.id} ${kind}`)
-  }
-  const defLines = []
-  for (const k of kindsUsed) {
-    const c = ARCH_NODE_COLORS[k]
-    defLines.push(`classDef ${k} fill:${c.fill},stroke:${c.stroke},color:${c.text},stroke-width:2px`)
-  }
-
-  return `${mermaidCode.trim()}\n\n${classLines.join('\n')}\n${defLines.join('\n')}\n`
-}
-
 // Map of { nodeId -> note } for the Project Details click-to-reveal panel.
 // Computed from structured.nodes so the panel content stays in sync with
 // whatever Delma has written as node notes.
@@ -1519,7 +1562,10 @@ function getProjectDetailsNodeData() {
       id: n.id,
       label: n.label || n.id,
       kind: n.kind || 'system',
-      note: n.note || ''
+      // `description` is the long-form modal body (>= 2 sentences).
+      // Fall back to the short floating `note` for nodes that haven't been
+      // described yet, so the modal is never blank.
+      note: n.description || n.note || ''
     }
   }
   return map
@@ -1672,13 +1718,18 @@ async function renderDiagram(mermaidCode) {
         return null
       }
 
+      // Mermaid labels use `<br/>` for line breaks inside the SVG node.
+      // In the modal we show the raw label as text, so swap them for spaces
+      // — displaying the tag literally looks broken.
+      const stripBr = (s) => typeof s === 'string' ? s.replace(/<br\s*\/?>/gi, ' ').replace(/\s{2,}/g, ' ').trim() : s
+
       const openModal = (nodeId) => {
         const data = nodeData[nodeId]
         if (!data) return
         kindEl.textContent = data.kind
         kindEl.dataset.kind = data.kind
-        labelEl.textContent = data.label
-        noteEl.textContent = data.note || '(no description yet — ask Delma about this step)'
+        labelEl.textContent = stripBr(data.label)
+        noteEl.textContent = stripBr(data.note) || '(no description yet — ask Delma about this step)'
         modal.hidden = false
         const cs = getComputedStyle(modal)
         console.log('[delma modal open]', nodeId, '| hidden:', modal.hidden, '| display:', cs.display, '| z:', cs.zIndex, '| parent:', modal.parentElement?.tagName)
@@ -1692,7 +1743,10 @@ async function renderDiagram(mermaidCode) {
         const nodeId = resolveNodeId(g)
         const txt = (g.textContent || '').trim().slice(0, 40).replace(/\s+/g, ' ')
         if (!nodeId) {
-          console.log('[delma click-wire] UNMATCHED node, id:', g.id, 'classes:', Array.from(g.classList).join(','), 'text:', txt)
+          // Note-classed subnodes aren't meant to be clickable — skip quietly.
+          if (!g.classList.contains('note')) {
+            console.log('[delma click-wire] UNMATCHED node, id:', g.id, 'classes:', Array.from(g.classList).join(','), 'text:', txt)
+          }
           return
         }
         wired++
@@ -1715,7 +1769,9 @@ async function renderDiagram(mermaidCode) {
         })
         g.addEventListener('mouseleave', () => g.classList.remove('node-hover'))
       })
-      console.log('[delma click-wire] wired', wired, 'of', allNodes.length, 'nodes')
+      const noteCount = Array.from(allNodes).filter(g => g.classList.contains('note')).length
+      const wireable = allNodes.length - noteCount
+      console.log('[delma click-wire] wired', wired, 'of', wireable, 'clickable nodes (', noteCount, 'notes skipped)')
 
       backdrop.addEventListener('click', closeModal)
       closeBtn.addEventListener('click', closeModal)
@@ -2129,7 +2185,14 @@ async function renderIntegrations() {
   els.diagramEditor.classList.remove('visible')
   els.diagramOutput.hidden = false
   els.diagramOutput.className = ''
-  els.diagramOutput.innerHTML = `<div class="diagram-card"><div class="integrations-host"></div></div>`
+  els.diagramOutput.innerHTML = `
+    <div class="diagram-card">
+      <div class="integrations-host">
+        <div class="boot-loader boot-loader--inline" aria-label="Loading integrations">
+          <div class="boot-spinner" role="status" aria-live="polite"></div>
+        </div>
+      </div>
+    </div>`
   const host = els.diagramOutput.querySelector('.integrations-host')
 
   let apps = []
@@ -2545,15 +2608,10 @@ function renderWorkspace() {
 
   if (state.diagramMode !== 'edit') {
     const mermaidCode = state.previewMermaid || view.mermaid || ''
-    // Project Details view folds in operational content from decisions.md +
-    // environment.md so users see diagram + context + IDs in one place.
-    // Append below the existing mermaid fence — renderDiagram picks this up
-    // as prose-below automatically.
-    const enriched = enrichProjectDetailsMermaid(view.view_key, mermaidCode)
-    dlog('[delma render] view mode render, mermaidLen:', enriched.length, 'first60:', enriched.substring(0, 60))
+    dlog('[delma render] view mode render, mermaidLen:', mermaidCode.length, 'first60:', mermaidCode.substring(0, 60))
     els.diagramOutput.className = ''
     // renderDiagram handles its own internal hide/reveal cycle.
-    void renderDiagram(enriched).then(revealDiagramOutput)
+    void renderDiagram(mermaidCode).then(revealDiagramOutput)
   } else {
     // Edit mode — show the textarea immediately
     revealDiagramOutput()
@@ -2757,13 +2815,26 @@ function renderBrandDropdown(container, { items, activeId, placeholder, onSelect
       del.innerHTML = '🗑'
       del.addEventListener('click', async (e) => {
         e.stopPropagation()
-        if (!window.confirm(`Delete "${item.label}"? This permanently removes its diagrams, chat, and notes. Cannot be undone.`)) return
+        const ok = await brandConfirm({
+          title: `Delete "${item.label}"?`,
+          body: 'This permanently removes its diagrams, chat, and notes. Cannot be undone.',
+          confirmLabel: 'Delete',
+          cancelLabel: 'Cancel',
+          danger: true
+        })
+        if (!ok) return
         del.disabled = true
         del.textContent = '…'
         try {
           await onDelete(item.id)
         } catch (err) {
-          alert(`Delete failed: ${err.message}`)
+          await brandConfirm({
+            title: 'Delete failed',
+            body: err.message,
+            confirmLabel: 'OK',
+            cancelLabel: '',
+            danger: false
+          })
           del.disabled = false
           del.innerHTML = '🗑'
         }
@@ -3216,6 +3287,10 @@ async function init() {
     // Not logged in — render placeholder and reveal so auth UI is visible
     renderWorkspace()
   }
+  const bootLoader = document.getElementById('boot-loader')
+  if (bootLoader) bootLoader.hidden = true
+  const chatLoader = document.querySelector('.boot-loader--chat')
+  if (chatLoader) chatLoader.hidden = true
   console.log('[delma init] complete')
 }
 
@@ -3433,6 +3508,7 @@ void init().then(() => {
   setupChatResize()
   setupHistoryDrawer()
   setupConnectionsDrawer()
+  setupCleanDiagramsBtn()
   wireLayoutDebug()
   delmaDebugLayout('post-init')
   // Always tail the server log into DevTools — no flag needed.
