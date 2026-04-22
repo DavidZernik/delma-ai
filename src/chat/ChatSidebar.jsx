@@ -101,6 +101,18 @@ export function ChatSidebar({ projectId, userId }) {
         )}
       </div>
 
+      <div style={styles.toolbar}>
+        <button
+          type="button"
+          style={styles.newEmailBtn}
+          onClick={() => window.delmaOpenEmailModal?.()}
+          title="Create a new email from your block library"
+        >
+          <span aria-hidden="true" style={{ marginRight: 6 }}>✉</span>
+          New Email
+        </button>
+      </div>
+
       <div style={styles.resizeHandle} onMouseDown={onResizeStart} title="Drag to resize" />
       <form onSubmit={onSubmit} style={{ ...styles.inputRow, height: composerHeight }}>
         <textarea
@@ -353,6 +365,16 @@ const styles = {
   clearBtn: {
     background: 'transparent', color: '#6B5A5A', border: '1px solid #E8D8D2',
     borderRadius: 4, padding: '4px 10px', fontSize: 11, cursor: 'pointer'
+  },
+  toolbar: {
+    padding: '8px 14px', borderTop: '1px solid #E8D8D2',
+    display: 'flex', gap: 8
+  },
+  newEmailBtn: {
+    background: '#8F0000', color: '#fff', border: 'none',
+    borderRadius: 6, padding: '8px 14px', fontSize: 12, fontWeight: 600,
+    cursor: 'pointer', display: 'inline-flex', alignItems: 'center',
+    letterSpacing: '0.02em'
   },
   messages: { flex: 1, overflowY: 'auto', padding: '12px 14px' },
   empty: { color: '#6B5A5A', fontSize: 13, fontStyle: 'italic', padding: '20px 0' },

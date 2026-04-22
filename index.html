@@ -1034,6 +1034,344 @@
       to   { opacity: 1; transform: translateY(0) scale(1); }
     }
 
+    /* ── New Email modal ─────────────────────────────────────────────────
+       Full-screen modal for creating an SFMC 207 email from the block
+       library. Step-by-step UX: pick blocks → fill content → subject →
+       folder → review. Styled consistently with Delma's cream + red
+       palette. Content rendered by src/email-modal.js. */
+    .email-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 450;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .email-modal[hidden] { display: none; }
+    .email-modal-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(30, 22, 22, 0.55);
+      backdrop-filter: blur(3px);
+      animation: email-modal-fade 180ms ease-out;
+    }
+    .email-modal-content {
+      position: relative;
+      background: var(--bg);
+      border: 1.5px solid var(--line);
+      border-radius: 16px;
+      width: min(920px, 100%);
+      max-height: calc(100vh - 48px);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.22);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      animation: email-modal-in 200ms ease-out;
+    }
+    .email-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 18px 22px;
+      border-bottom: 1px solid var(--line);
+      background: #FFFFFF;
+    }
+    .email-modal-eyebrow {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      color: var(--accent);
+      text-transform: uppercase;
+    }
+    .email-modal-step-label {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--ink);
+      margin-top: 4px;
+    }
+    .email-modal-close {
+      width: 32px;
+      height: 32px;
+      border: none;
+      background: transparent;
+      border-radius: 8px;
+      font-size: 22px;
+      color: var(--muted);
+      cursor: pointer;
+    }
+    .email-modal-close:hover { background: var(--bg); color: var(--ink); }
+    .email-modal-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 22px;
+      background: var(--bg);
+    }
+    .email-modal-footer {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 22px;
+      border-top: 1px solid var(--line);
+      background: #FFFFFF;
+    }
+    .email-modal-btn {
+      border: none;
+      border-radius: 8px;
+      padding: 9px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 120ms ease, opacity 120ms ease;
+    }
+    .email-modal-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .email-modal-btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+    .email-modal-btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+    .email-modal-btn-ghost {
+      background: transparent;
+      color: var(--ink-secondary);
+      border: 1px solid var(--line);
+    }
+    .email-modal-btn-ghost:hover:not(:disabled) { background: var(--bg); border-color: var(--muted); }
+    @keyframes email-modal-fade { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes email-modal-in {
+      from { opacity: 0; transform: translateY(10px) scale(0.985); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    /* Block picker grid (Step 1) */
+    .email-block-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 14px;
+    }
+    .email-block-card {
+      background: #FFFFFF;
+      border: 1.5px solid var(--line);
+      border-radius: 12px;
+      padding: 14px;
+      cursor: pointer;
+      transition: border-color 120ms ease, transform 120ms ease;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      position: relative;
+    }
+    .email-block-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+    .email-block-card.selected {
+      border-color: var(--accent);
+      background: #FFFEEE;
+    }
+    .email-block-card-badge {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .email-block-card-id {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+    }
+    .email-block-card-name { font-size: 14px; font-weight: 600; }
+    .email-block-card-desc { font-size: 12px; color: var(--ink-secondary); line-height: 1.5; }
+    .email-block-picked {
+      margin-top: 22px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+    }
+    .email-block-picked-header {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+    .email-block-picked-list { display: flex; flex-direction: column; gap: 6px; }
+    .email-block-picked-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      background: #FFFFFF;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      font-size: 13px;
+    }
+    .email-block-picked-order {
+      font-weight: 700;
+      color: var(--accent);
+      min-width: 20px;
+    }
+    .email-block-picked-name { flex: 1; }
+    .email-block-picked-remove {
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      font-size: 18px;
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .email-block-picked-remove:hover { background: var(--bg); color: var(--accent); }
+
+    /* Content editor (Step 2) */
+    .email-content-block {
+      background: #FFFFFF;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 14px;
+    }
+    .email-content-block-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .email-content-block-badge {
+      font-family: var(--mono);
+      font-size: 11px;
+      background: var(--accent);
+      color: #fff;
+      padding: 3px 7px;
+      border-radius: 4px;
+      letter-spacing: 0.04em;
+    }
+    .email-content-block-title { font-weight: 600; font-size: 14px; }
+    .email-field { margin-bottom: 12px; }
+    .email-field:last-child { margin-bottom: 0; }
+    .email-field label {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .email-field input[type="text"],
+    .email-field input[type="url"],
+    .email-field textarea,
+    .email-field select {
+      width: 100%;
+      padding: 9px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #FFFFFF;
+      font-family: inherit;
+      font-size: 13px;
+      color: var(--ink);
+      box-sizing: border-box;
+    }
+    .email-field input:focus,
+    .email-field textarea:focus,
+    .email-field select:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(143, 0, 0, 0.08);
+    }
+    .email-field textarea { resize: vertical; min-height: 60px; font-family: inherit; }
+    .email-field input[type="color"] {
+      width: 60px;
+      height: 36px;
+      padding: 3px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    /* Folder picker (Step 4) */
+    .email-folder-list {
+      max-height: 420px;
+      overflow-y: auto;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #FFFFFF;
+    }
+    .email-folder-row {
+      display: flex;
+      align-items: center;
+      padding: 10px 14px;
+      cursor: pointer;
+      font-size: 13px;
+      border-bottom: 1px solid var(--line);
+    }
+    .email-folder-row:last-child { border-bottom: none; }
+    .email-folder-row:hover { background: var(--bg); }
+    .email-folder-row.selected { background: #FFFEEE; color: var(--accent); font-weight: 600; }
+    .email-folder-icon { margin-right: 10px; color: var(--muted); }
+
+    /* Review step */
+    .email-review-summary {
+      background: #FFFFFF;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 18px 20px;
+    }
+    .email-review-row {
+      display: flex;
+      align-items: start;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--line);
+      font-size: 13px;
+    }
+    .email-review-row:last-child { border-bottom: none; }
+    .email-review-label {
+      font-weight: 600;
+      color: var(--muted);
+      min-width: 120px;
+      text-transform: uppercase;
+      font-size: 11px;
+      letter-spacing: 0.05em;
+      padding-top: 2px;
+    }
+    .email-review-value { flex: 1; color: var(--ink); word-break: break-word; }
+
+    /* Success state */
+    .email-success {
+      text-align: center;
+      padding: 40px 20px;
+    }
+    .email-success-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 60px;
+      height: 60px;
+      border-radius: 50%;
+      background: #FFFEEE;
+      border: 2px solid var(--accent);
+      color: var(--accent);
+      font-size: 28px;
+      margin-bottom: 16px;
+    }
+    .email-success-title { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
+    .email-success-detail { font-size: 13px; color: var(--ink-secondary); margin-bottom: 18px; }
+    .email-success-actions { display: flex; gap: 10px; justify-content: center; }
+
+    .email-empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
     /* Branded confirm dialog — replaces window.confirm() for destructive
        actions. Reuses the same backdrop / content pattern as the node
        modal so the app keeps a single visual language for overlays. */
@@ -2200,6 +2538,27 @@
         </div>
       </div>
     </aside>
+  </div>
+
+  <!-- New Email modal — step-by-step builder. Rendered by src/email-modal.js -->
+  <div id="email-modal" class="email-modal" hidden>
+    <div class="email-modal-backdrop"></div>
+    <div class="email-modal-content">
+      <div class="email-modal-header">
+        <div>
+          <div class="email-modal-eyebrow">NEW EMAIL</div>
+          <div id="email-modal-step-label" class="email-modal-step-label">Step 1 of 5</div>
+        </div>
+        <button id="email-modal-close" class="email-modal-close" type="button" aria-label="Close">×</button>
+      </div>
+      <div id="email-modal-body" class="email-modal-body"></div>
+      <div class="email-modal-footer">
+        <button id="email-modal-back" class="email-modal-btn email-modal-btn-ghost" type="button">← Back</button>
+        <div style="flex:1;"></div>
+        <button id="email-modal-cancel" class="email-modal-btn email-modal-btn-ghost" type="button">Cancel</button>
+        <button id="email-modal-next" class="email-modal-btn email-modal-btn-primary" type="button">Next →</button>
+      </div>
+    </div>
   </div>
 
   <div id="auth-overlay" class="auth-overlay" aria-hidden="true">

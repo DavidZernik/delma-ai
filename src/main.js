@@ -81,6 +81,7 @@ import { supabase } from './lib/supabase.js'
 import { isStructuredTab } from './tab-ops.js'
 import { renderStructuredEditor } from './structured-editor.js'
 import { mountChat } from './chat/mount.js'
+import { initEmailModal } from './email-modal.js'
 
 // Helper: get the current user's Supabase JWT for authenticated server calls.
 // Server endpoints verify this token and never trust a client-supplied userId.
@@ -463,6 +464,9 @@ async function createProject(name) {
 async function openProject(projectId) {
   console.log('[delma workspace] opening:', projectId)
   state.projectId = projectId
+  // Expose to modal scripts (email-modal reads this when it needs the
+  // active project without coupling to module imports).
+  window.__delmaProjectId = projectId
   // Re-render the dropdown trigger so its label reflects the new project
   // (the brand-dropdown bakes its label at build time, not live).
   renderProjectSelector()
@@ -3509,6 +3513,7 @@ void init().then(() => {
   setupHistoryDrawer()
   setupConnectionsDrawer()
   setupCleanDiagramsBtn()
+  initEmailModal()
   wireLayoutDebug()
   delmaDebugLayout('post-init')
   // Always tail the server log into DevTools — no flag needed.
