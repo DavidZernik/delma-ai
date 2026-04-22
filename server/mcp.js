@@ -44,6 +44,8 @@ import { generateClaudeMd } from './lib/summarizer.js'
 import { applyOpsToTab, parseTabKey } from './lib/apply-op.js'
 import { supabase as sbRoot } from './lib/supabase.js'
 import { cleanMermaid } from './lib/clean-mermaid.js'
+import { getSfmcAccountsForOrg } from './lib/sfmc-account.js'
+import * as sfmcClient from './lib/sfmc-client.js'
 
 // ── Auto-summarizer ──────────────────────────────────────────────────────────
 // After every write, re-summarize the workspace and write CLAUDE.md locally.
@@ -102,7 +104,10 @@ const WRITE_TOOLS = new Set([
   'delma_arch_set_node_kind', 'delma_arch_set_node_label', 'delma_arch_set_node_note', 'delma_arch_set_node_description',
   'delma_arch_add_edge', 'delma_arch_remove_edge',
   'delma_arch_add_layer', 'delma_arch_remove_layer', 'delma_arch_set_prose',
-  'sync_conversation_summary', 'save_diagram_view'
+  'sync_conversation_summary', 'save_diagram_view',
+  'delma_sfmc_create_de', 'delma_sfmc_insert_rows',
+  'delma_sfmc_create_query_activity', 'delma_sfmc_run_query',
+  'delma_sfmc_create_automation', 'delma_sfmc_run_automation'
 ])
 
 function withLogging(toolName, handler) {
@@ -754,6 +759,213 @@ server.registerResource(
     return { contents: [{ uri: uri.href, text: JSON.stringify(view, null, 2) }] }
   }
 )
+
+// ── SFMC tools ───────────────────────────────────────────────────────────────
+// Thin adapters over server/lib/sfmc-client.js. Claude calls these with plain
+// JSON — Delma builds the SOAP envelope / REST payload and speaks to SFMC.
+// The agent never hand-rolls XML. All tools take optional `bu: 'child' | 'parent'`
+// (default: child) and resolve the account from the active project's org.
+
+async function resolveSfmcAccount(bu = 'child') {
+  const { projectId } = requireContext()
+  const { data: ws } = await sbRoot.from('projects').select('org_id').eq('id', projectId).single()
+  if (!ws?.org_id) throw new Error('no org for active project')
+  const accounts = await getSfmcAccountsForOrg(ws.org_id)
+  const acct = accounts[bu] || accounts.child || accounts.parent
+  if (!acct) throw new Error(`no SFMC account connected for this org (asked for "${bu}" BU)`)
+  return acct
+}
+
+const BU_FIELD = z.enum(['child', 'parent']).optional().describe('BU to target (default: child).')
+
+server.registerTool('delma_sfmc_create_de', {
+  title: 'SFMC: Create Data Extension',
+  description: `Create a Data Extension in SFMC. Delma handles OAuth + SOAP envelope — pass plain JSON only.
+
+**Field types:** Text, Number, Date, Boolean, EmailAddress, Phone, Decimal, Locale.
+**Text fields need \`length\`** (default behavior varies). **Decimal needs \`scale\`.**
+**Primary key fields:** set \`isPrimaryKey: true\` and they'll also become non-nillable.
+**Sendable DEs:** set \`sendable: true\` and name the subscriber-key field in \`sendableSubscriberField\` (defaults to "SubscriberKey").
+**Retention:** pass \`retentionDays\` (30 / 90 / 180 / 365 / etc.) — DE is deleted at end of retention. Omit for infinite retention.
+**Folder:** pass \`folderId\` (CategoryID). Omit to drop at root.`,
+  inputSchema: {
+    name: z.string(),
+    customerKey: z.string().optional().describe('External key. Defaults to name.'),
+    description: z.string().optional(),
+    fields: z.array(z.object({
+      name: z.string(),
+      customerKey: z.string().optional(),
+      type: z.enum(['Text', 'Number', 'Date', 'Boolean', 'EmailAddress', 'Phone', 'Decimal', 'Locale']).optional(),
+      length: z.number().int().positive().optional(),
+      scale: z.number().int().nonnegative().optional(),
+      isPrimaryKey: z.boolean().optional(),
+      isRequired: z.boolean().optional(),
+      isNillable: z.boolean().optional(),
+      defaultValue: z.string().optional()
+    })),
+    sendable: z.boolean().optional(),
+    sendableSubscriberField: z.string().optional(),
+    retentionDays: z.number().int().positive().optional(),
+    folderId: z.number().int().optional(),
+    bu: BU_FIELD
+  }
+}, withLogging('delma_sfmc_create_de', async (args) => {
+  const acct = await resolveSfmcAccount(args.bu)
+  const result = await sfmcClient.createDataExtension(acct, args)
+  return text(result)
+}))
+
+server.registerTool('delma_sfmc_list_des', {
+  title: 'SFMC: List Data Extensions',
+  description: `List Data Extensions matching a name pattern (SQL LIKE syntax: % = wildcard) or within a folder. Returns up to \`limit\` items (default 50). Use this BEFORE creating a DE to check if one already exists with the same name/key.`,
+  inputSchema: {
+    namePattern: z.string().optional().describe('SQL LIKE pattern, e.g. "Engagement_%"'),
+    folderId: z.number().int().optional(),
+    limit: z.number().int().positive().optional(),
+    bu: BU_FIELD
+  }
+}, withLogging('delma_sfmc_list_des', async (args) => {
+  const acct = await resolveSfmcAccount(args.bu)
+  const result = await sfmcClient.listDataExtensions(acct, args)
+  return text(result)
+}))
+
+server.registerTool('delma_sfmc_get_de', {
+  title: 'SFMC: Get Data Extension',
+  description: `Fetch full metadata for a Data Extension including its field list. Use to check a DE's schema before referencing it in a query activity or inserting rows.`,
+  inputSchema: {
+    customerKey: z.string(),
+    bu: BU_FIELD
+  }
+}, withLogging('delma_sfmc_get_de', async (args) => {
+  const acct = await resolveSfmcAccount(args.bu)
+  const result = await sfmcClient.getDataExtension(acct, args)
+  return text(result)
+}))
+
+server.registerTool('delma_sfmc_insert_rows', {
+  title: 'SFMC: Insert Rows',
+  description: `Upsert rows into a Data Extension (dedupes on the DE's primary keys).
+
+**Row shape:** each row is \`{ keys: { PK_FIELD: value, ... }, values: { OTHER_FIELD: value, ... } }\`. \`keys\` must contain every primary-key column; \`values\` contains the rest. Do NOT send flat objects.
+
+Example for a DE with PK \`SubscriberKey\`:
+\`\`\`
+rows: [
+  { keys: { SubscriberKey: "abc" }, values: { EmailAddress: "a@b.com", LastEngagementDate: "2026-04-01" } }
+]
+\`\`\``,
+  inputSchema: {
+    customerKey: z.string(),
+    rows: z.array(z.object({
+      keys: z.record(z.any()),
+      values: z.record(z.any()).optional()
+    })),
+    bu: BU_FIELD
+  }
+}, withLogging('delma_sfmc_insert_rows', async (args) => {
+  const acct = await resolveSfmcAccount(args.bu)
+  const result = await sfmcClient.insertRows(acct, args)
+  return text(result)
+}))
+
+server.registerTool('delma_sfmc_create_query_activity', {
+  title: 'SFMC: Create Query Activity',
+  description: `Create a SQL Query Activity that writes the result set into a target DE. Used inside automations. updateType: Overwrite (replace all rows), Append (insert only), UpdateAdd (upsert), UpdateOnly (update matched rows).
+
+Target DE must exist already (use delma_sfmc_create_de first). Reference DEs in FROM by their CustomerKey / Name.`,
+  inputSchema: {
+    name: z.string(),
+    key: z.string().optional(),
+    description: z.string().optional(),
+    targetDE: z.string().describe('CustomerKey of the target DE'),
+    sql: z.string().describe('SFMC SQL — T-SQL dialect, subset'),
+    updateType: z.enum(['Overwrite', 'Append', 'UpdateAdd', 'UpdateOnly']).optional(),
+    bu: BU_FIELD
+  }
+}, withLogging('delma_sfmc_create_query_activity', async (args) => {
+  const acct = await resolveSfmcAccount(args.bu)
+  const result = await sfmcClient.createQueryActivity(acct, args)
+  return text(result)
+}))
+
+server.registerTool('delma_sfmc_run_query', {
+  title: 'SFMC: Run Query Activity',
+  description: `Kick off a Query Activity immediately (outside of an automation). Useful for one-off data fixes or testing. Returns when the run starts; doesn't wait for completion.`,
+  inputSchema: {
+    queryId: z.string(),
+    bu: BU_FIELD
+  }
+}, withLogging('delma_sfmc_run_query', async (args) => {
+  const acct = await resolveSfmcAccount(args.bu)
+  const result = await sfmcClient.runQueryActivity(acct, args)
+  return text(result)
+}))
+
+server.registerTool('delma_sfmc_create_automation', {
+  title: 'SFMC: Create Automation',
+  description: `Create an Automation Studio automation from an array of steps. Each step contains activities to run in parallel; steps run sequentially.
+
+**Activity types (activityObjectId = the key of the activity to run, objectTypeId identifies the type):**
+- Query Activity: objectTypeId = 300
+- Import File Activity: objectTypeId = 73
+- Data Extract: objectTypeId = 73
+- Email Send: objectTypeId = 42
+
+**Schedule (optional):** pass \`{ startDate, icalRecur, timezoneId? }\` to run on a recurring schedule. icalRecur follows RFC 5545 (e.g. "FREQ=DAILY;INTERVAL=1"). timezoneId defaults to 10 (Eastern). Omit \`schedule\` for an unscheduled automation (run manually or via delma_sfmc_run_automation).`,
+  inputSchema: {
+    name: z.string(),
+    key: z.string().optional(),
+    description: z.string().optional(),
+    steps: z.array(z.object({
+      stepNumber: z.number().int().optional(),
+      name: z.string().optional(),
+      activities: z.array(z.object({
+        name: z.string(),
+        activityObjectId: z.string(),
+        objectTypeId: z.number().int().optional(),
+        displayOrder: z.number().int().optional()
+      }))
+    })),
+    schedule: z.object({
+      startDate: z.string(),
+      icalRecur: z.string(),
+      timezoneId: z.number().int().optional(),
+      endDate: z.string().optional()
+    }).optional(),
+    bu: BU_FIELD
+  }
+}, withLogging('delma_sfmc_create_automation', async (args) => {
+  const acct = await resolveSfmcAccount(args.bu)
+  const result = await sfmcClient.createAutomation(acct, args)
+  return text(result)
+}))
+
+server.registerTool('delma_sfmc_run_automation', {
+  title: 'SFMC: Run Automation',
+  description: `Start an automation immediately (outside of its schedule). Useful for testing after creation or backfilling.`,
+  inputSchema: {
+    automationId: z.string(),
+    bu: BU_FIELD
+  }
+}, withLogging('delma_sfmc_run_automation', async (args) => {
+  const acct = await resolveSfmcAccount(args.bu)
+  const result = await sfmcClient.runAutomation(acct, args)
+  return text(result)
+}))
+
+server.registerTool('delma_sfmc_check_automation_status', {
+  title: 'SFMC: Check Automation Status',
+  description: `Poll an automation's current status, last run time, and next run time. Use after kicking one off with delma_sfmc_run_automation to monitor completion.`,
+  inputSchema: {
+    automationId: z.string(),
+    bu: BU_FIELD
+  }
+}, withLogging('delma_sfmc_check_automation_status', async (args) => {
+  const acct = await resolveSfmcAccount(args.bu)
+  const result = await sfmcClient.getAutomationStatus(acct, args)
+  return text(result)
+}))
 
 // ── Helper ───────────────────────────────────────────────────────────────────
 

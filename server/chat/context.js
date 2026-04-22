@@ -150,7 +150,22 @@ export async function buildChatSystemPrompt({ projectId, orgId, sfmcAccounts, pr
       lines.push(`- Env vars: \`PARENT_BU_CLIENT_ID\`, \`PARENT_BU_CLIENT_SECRET\`, \`PARENT_BU_MID\`, \`PARENT_BU_AUTH_BASE_URL\`, \`PARENT_BU_REST_BASE_URL\`, \`PARENT_BU_SOAP_BASE_URL\``)
     }
     lines.push(``)
-    lines.push(`**OAuth:** \`POST $SFMC_AUTH_BASE_URL/v2/token\` with \`{ grant_type: "client_credentials", client_id, client_secret, account_id (MID) }\` → \`access_token\` (Bearer, ~20 min). Cache the token across calls in the same turn.`)
+    lines.push(`**Use the \`delma_sfmc_*\` MCP tools for all SFMC operations.** Delma handles OAuth, SOAP envelope construction, REST payloads, and error normalization — you just pass plain JSON. Do NOT hand-roll curl/SOAP XML; that's a known failure mode.`)
+    lines.push(``)
+    lines.push(`Available SFMC tools:`)
+    lines.push(`- \`delma_sfmc_list_des\` — check what DEs already exist (call this BEFORE creating to avoid duplicates)`)
+    lines.push(`- \`delma_sfmc_get_de\` — fetch a DE's schema (fields, types, PK)`)
+    lines.push(`- \`delma_sfmc_create_de\` — create a Data Extension`)
+    lines.push(`- \`delma_sfmc_insert_rows\` — upsert rows into a DE`)
+    lines.push(`- \`delma_sfmc_create_query_activity\` — create a SQL Query Activity that writes to a target DE`)
+    lines.push(`- \`delma_sfmc_run_query\` — trigger a Query Activity immediately`)
+    lines.push(`- \`delma_sfmc_create_automation\` — build an automation from Query Activity / import / extract steps`)
+    lines.push(`- \`delma_sfmc_run_automation\` — start an automation outside its schedule`)
+    lines.push(`- \`delma_sfmc_check_automation_status\` — poll status / last run / next run`)
+    lines.push(``)
+    lines.push(`Each tool takes an optional \`bu: "child" | "parent"\` (default: child). Tools return \`{ ok: true, ... }\` or \`{ ok: false, code, message }\` — check \`ok\` and surface the error cleanly if something fails.`)
+    lines.push(``)
+    lines.push(`Shell access (\`Bash\`) is still available for one-off reads SFMC doesn't expose as a tool (checking SQL results, exploring a specific asset). OAuth + env vars (\`$SFMC_AUTH_BASE_URL\`, \`$SFMC_REST_BASE_URL\`, \`$CLIENT_ID\`, \`$CLIENT_SECRET\`, etc.) are still set for that case.`)
   }
   lines.push(``)
 

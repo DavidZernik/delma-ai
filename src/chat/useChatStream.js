@@ -21,6 +21,7 @@ export function useChatStream({ projectId, userId }) {
   const [conversationId, setConversationId] = useState(null)
   const [currentTool, setCurrentTool] = useState(null)  // { name, input } while a tool is mid-flight
   const abortRef = useRef(null)
+  const clearInFlight = useRef(false)
   const toolClearTimerRef = useRef(null)
 
   // Load prior conversation on mount / project switch. Server returns the
@@ -191,6 +192,12 @@ export function useChatStream({ projectId, userId }) {
   }, [])
 
   const clear = useCallback(async () => {
+    // Rapid clicks can land before React re-renders the button into its
+    // disabled state; a ref-based re-entry guard blocks duplicate fetches
+    // regardless of render timing. useCallback deps intentionally omit
+    // `status` to avoid recreating the callback on every status change.
+    if (clearInFlight.current) return
+    clearInFlight.current = true
     // Stop any in-flight stream first so we don't race with new messages
     // landing into the wiped UI.
     abortRef.current?.abort()
@@ -204,6 +211,8 @@ export function useChatStream({ projectId, userId }) {
       if (!res.ok) throw new Error(`clear ${res.status}`)
     } catch (err) {
       console.warn('[chat] clear failed:', err.message)
+    } finally {
+      clearInFlight.current = false
     }
     setMessages([])
     setConversationId(null)

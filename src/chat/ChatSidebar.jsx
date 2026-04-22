@@ -209,16 +209,31 @@ function formatToolStatus({ name, input }) {
   if (!name) return 'working…'
 
   if (name === 'Bash') {
-    const cmd = short(input?.command, 70)
-    // Recognize the common case: curl to SFMC. Makes the progress feel alive.
-    if (/curl/i.test(cmd)) {
-      if (/token/i.test(cmd)) return 'getting SFMC OAuth token…'
-      if (/asset/i.test(cmd)) return 'fetching SFMC asset…'
-      if (/dataextension/i.test(cmd)) return 'querying Data Extension…'
-      if (/journey/i.test(cmd)) return 'reading journey from SFMC…'
-      return `calling SFMC: ${cmd}`
+    const full = String(input?.command || '')
+    // Strip leading env-var chains like `TOKEN="eyJhbG…" && curl …` so the
+    // status doesn't surface a 200-char JWT before the real command.
+    const stripped = full.replace(/^(?:\s*[A-Z_][A-Z0-9_]*=(?:"[^"]*"|'[^']*'|\S+)\s*(?:&&|;)\s*)+/, '')
+    // Match on the FULL command, not the truncated display version, so long
+    // tokens don't hide the keyword.
+    if (/\bcurl\b/i.test(full)) {
+      if (/auth\/v\d\/token|\/token\b/i.test(full)) return 'getting SFMC OAuth token…'
+      if (/\/asset\/v\d\/content\/assets\/(\d+)/i.test(full)) {
+        const id = full.match(/\/asset\/v\d\/content\/assets\/(\d+)/i)[1]
+        return `fetching SFMC asset ${id}…`
+      }
+      if (/dataextension|\/data\/v\d/i.test(full)) return 'querying Data Extension…'
+      if (/journey|interaction/i.test(full)) return 'reading journey from SFMC…'
+      // Last-resort: show the URL path, not the whole curl invocation.
+      const urlMatch = full.match(/https?:\/\/[^\s"']+/)
+      if (urlMatch) {
+        try {
+          const u = new URL(urlMatch[0])
+          return `calling ${u.hostname}${short(u.pathname, 40)}`
+        } catch { /* fall through */ }
+      }
+      return `calling SFMC: ${short(stripped, 60)}`
     }
-    return `running: ${cmd}`
+    return `running: ${short(stripped, 70)}`
   }
   if (name === 'Read')     return `reading ${short(input?.file_path, 50)}`
   if (name === 'Write')    return `writing ${short(input?.file_path, 50)}`
