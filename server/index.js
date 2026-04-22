@@ -9,6 +9,10 @@ import { dirname, join } from 'path'
 import { createClient } from '@supabase/supabase-js'
 import { applyOpsToTab, parseTabKey } from './lib/apply-op.js'
 import { cleanMermaid } from './lib/clean-mermaid.js'
+import { getSfmcAccountsForOrg } from './lib/sfmc-account.js'
+import * as sfmcClient from './lib/sfmc-client.js'
+import { assemble207, validate207 } from './lib/sfmc-email-assembly.js'
+import { BLOCKS, BASE_TEMPLATE } from './email-library/index.js'
 import { requireUser, requireOrgMembership, requireProjectMembership } from './lib/auth.js'
 import { parseStructuredContent } from './lib/parse-tab.js'
 import { render, isStructuredTab } from '../src/tab-ops.js'
@@ -392,6 +396,157 @@ app.put('/api/projects/:projectId/app-permissions/:appId', async (req, res) => {
   if (error) return res.status(500).json({ error: error.message })
   console.log('[delma WRITE] app_permission', appId, '→', permission, 'project:', projectId.slice(0, 8), 'by:', user.id.slice(0, 8))
   res.json({ ok: true, permission })
+})
+
+// ── Email library manifest ────────────────────────────────────────────────────
+// Returns the static block library + base template metadata for the
+// "New Email" modal. Live fetches of folder trees and template IDs happen
+// via separate SFMC endpoints. Auth required so external callers can't
+// enumerate block HTML without a session.
+
+app.get('/api/email-library', async (req, res) => {
+  try { await requireUser(req) }
+  catch (err) { return res.status(err.status || 401).json({ error: err.message }) }
+
+  res.json({
+    baseTemplate: {
+      id: BASE_TEMPLATE.id,
+      name: BASE_TEMPLATE.name,
+      description: BASE_TEMPLATE.description,
+      slots: BASE_TEMPLATE.slots
+    },
+    blocks: BLOCKS.map(b => ({
+      id: b.id,
+      name: b.name,
+      description: b.description,
+      variables: b.variables,
+      html: b.html // used by the modal to render thumbnail previews
+    }))
+  })
+})
+
+// ── Create Email asset ────────────────────────────────────────────────────────
+// Called by the "New Email" modal when the user hits Create. Assembles the
+// 207 JSON via the assembly module, validates, POSTs to SFMC, returns the
+// new asset ID + Content Builder deep link.
+
+app.post('/api/projects/:projectId/emails/create', async (req, res) => {
+  const sb = getSb()
+  if (!sb) return res.status(500).json({ error: 'Supabase not configured' })
+  let user
+  try { user = await requireUser(req) }
+  catch (err) { return res.status(err.status || 401).json({ error: err.message }) }
+
+  const { projectId } = req.params
+  try { await requireProjectMembership(sb, user.id, projectId) }
+  catch (err) { return res.status(err.status || 403).json({ error: err.message }) }
+
+  const { name, customerKey, subject, preheader, categoryId, templateKey, blocks, bu } = req.body || {}
+  if (!name || !subject || !categoryId || !Array.isArray(blocks) || !blocks.length) {
+    return res.status(400).json({ error: 'name, subject, categoryId, blocks[] all required' })
+  }
+  const resolvedTemplateKey = templateKey || BASE_TEMPLATE.id
+
+  const { data: ws } = await sb.from('projects').select('org_id').eq('id', projectId).single()
+  if (!ws?.org_id) return res.status(404).json({ error: 'project not found' })
+  const accounts = await getSfmcAccountsForOrg(ws.org_id)
+  const acct = accounts[bu || 'child'] || accounts.child || accounts.parent
+  if (!acct) return res.status(400).json({ error: 'no SFMC account connected for this org' })
+
+  // Resolve templateKey → SFMC template asset ID (cached per account inside sfmc-client).
+  let templateId
+  try {
+    const tokenRes = await fetch(`${acct.auth_base_url}/v2/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        grant_type: 'client_credentials',
+        client_id: acct.client_id,
+        client_secret: acct.client_secret,
+        ...(acct.account_id ? { account_id: acct.account_id } : {})
+      })
+    })
+    const token = (await tokenRes.json()).access_token
+    const lookup = await fetch(`${acct.rest_base_url}/asset/v1/content/assets/query`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: { property: 'customerKey', simpleOperator: 'equals', value: resolvedTemplateKey } })
+    })
+    const ld = await lookup.json()
+    templateId = ld.items?.[0]?.id
+  } catch (err) {
+    return res.status(502).json({ error: `template lookup failed: ${err.message}` })
+  }
+  if (!templateId) return res.status(400).json({ error: `template "${resolvedTemplateKey}" not found in SFMC — run scripts/upload-base-template.js to install it` })
+
+  let payload
+  try { payload = assemble207({ name, customerKey, subject, preheader, categoryId, templateId, blocks }) }
+  catch (err) { return res.status(400).json({ error: `assembly failed: ${err.message}` }) }
+
+  const validation = validate207(payload)
+  if (!validation.ok) {
+    console.error('[server] create-email validation failed:', validation.errors)
+    return res.status(400).json({ error: `validation failed`, details: validation.errors })
+  }
+
+  console.log('[server] create-email POST → SFMC — project:', projectId.slice(0, 8), 'name:', name, 'blocks:', blocks.map(b => b.id).join(','))
+  const result = await sfmcClient.createEmailAsset(acct, payload)
+  if (!result.ok) {
+    console.error('[server] create-email SFMC rejected:', result.code, result.message)
+    return res.status(502).json({ error: result.message, code: result.code })
+  }
+  console.log('[server] create-email success — assetId:', result.assetId, 'customerKey:', result.customerKey)
+  res.json({
+    ok: true,
+    assetId: result.assetId,
+    customerKey: result.customerKey,
+    name: result.name,
+    deepLink: `${acct.rest_base_url?.replace(/\.rest\.marketingcloudapis\.com.*$/, '').replace(/^https?:\/\//, 'https://mc.')}.exacttarget.com/cloud/#app/Content%20Builder/${result.assetId}`
+  })
+})
+
+// ── SFMC folder tree (for the modal's folder picker) ──────────────────────────
+// Returns content-builder email folders so the user can pick where the
+// new email lands. `catType=asset` filters to Content Builder folders.
+
+app.get('/api/projects/:projectId/sfmc/folders', async (req, res) => {
+  const sb = getSb()
+  if (!sb) return res.status(500).json({ error: 'Supabase not configured' })
+  let user
+  try { user = await requireUser(req) }
+  catch (err) { return res.status(err.status || 401).json({ error: err.message }) }
+
+  const { projectId } = req.params
+  try { await requireProjectMembership(sb, user.id, projectId) }
+  catch (err) { return res.status(err.status || 403).json({ error: err.message }) }
+
+  const { data: ws } = await sb.from('projects').select('org_id').eq('id', projectId).single()
+  if (!ws?.org_id) return res.status(404).json({ error: 'project not found' })
+  const accounts = await getSfmcAccountsForOrg(ws.org_id)
+  const acct = accounts.child || accounts.parent
+  if (!acct) return res.status(400).json({ error: 'no SFMC account connected' })
+
+  try {
+    const tokenRes = await fetch(`${acct.auth_base_url}/v2/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        grant_type: 'client_credentials',
+        client_id: acct.client_id,
+        client_secret: acct.client_secret,
+        ...(acct.account_id ? { account_id: acct.account_id } : {})
+      })
+    })
+    const token = (await tokenRes.json()).access_token
+    const folderRes = await fetch(`${acct.rest_base_url}/asset/v1/content/categories?$pagesize=200`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+    const data = await folderRes.json()
+    const items = (data.items || []).map(c => ({ id: c.id, name: c.name, parentId: c.parentId, path: c.categoryType }))
+    res.json({ ok: true, folders: items })
+  } catch (err) {
+    res.status(502).json({ error: err.message })
+  }
 })
 
 // ── Clean diagrams ────────────────────────────────────────────────────────────

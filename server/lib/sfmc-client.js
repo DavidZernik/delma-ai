@@ -451,6 +451,57 @@ export async function runAutomation(account, { automationId }) {
   return { ok: true, result: data }
 }
 
+// ── Email asset (207) ─────────────────────────────────────────────────────
+// Takes a fully-assembled 207 JSON payload (build it via
+// server/lib/sfmc-email-assembly.js) and POSTs it to Content Builder.
+
+export async function createEmailAsset(account, payload) {
+  if (!payload?.assetType?.id) throw new Error('sfmc-client.createEmailAsset: payload missing assetType.id')
+  const { httpOk, status, data, text } = await restRequest(
+    account, 'POST', '/asset/v1/content/assets/', payload
+  )
+  if (!httpOk) return { ok: false, code: `http_${status}`, message: data?.message || text.slice(0, 400), raw: data }
+  return {
+    ok: true,
+    assetId: data.id,
+    customerKey: data.customerKey,
+    objectId: data.objectID,
+    name: data.name,
+    categoryId: data.category?.id
+  }
+}
+
+// Upload a template asset (assetType 4) from a raw HTML string. Used as a
+// one-time setup — each base template gets uploaded once and its ID is
+// referenced by every email built from it.
+export async function createTemplate(account, { name, customerKey, html, categoryId }) {
+  if (!name || !html) throw new Error('sfmc-client.createTemplate: need name + html')
+  const payload = {
+    name,
+    customerKey: customerKey || name,
+    assetType: { id: 4, name: 'template' },
+    content: html,
+    ...(categoryId ? { category: { id: categoryId } } : {})
+  }
+  const { httpOk, status, data, text } = await restRequest(
+    account, 'POST', '/asset/v1/content/assets/', payload
+  )
+  if (!httpOk) return { ok: false, code: `http_${status}`, message: data?.message || text.slice(0, 400) }
+  return { ok: true, templateId: data.id, customerKey: data.customerKey, name: data.name }
+}
+
+// Delete any asset by numeric ID (emails, templates, blocks).
+// Used for cleanup and recovery workflows. Returns ok even if the asset
+// doesn't exist — idempotent from the caller's perspective.
+export async function deleteAsset(account, { assetId }) {
+  if (!assetId) throw new Error('sfmc-client.deleteAsset: need assetId')
+  const { httpOk, status, text } = await restRequest(
+    account, 'DELETE', `/asset/v1/content/assets/${encodeURIComponent(assetId)}`
+  )
+  if (!httpOk && status !== 404) return { ok: false, code: `http_${status}`, message: text.slice(0, 300) }
+  return { ok: true, assetId }
+}
+
 export async function getAutomationStatus(account, { automationId }) {
   if (!automationId) throw new Error('sfmc-client.getAutomationStatus: need automationId')
   const { httpOk, status, data, text } = await restRequest(
