@@ -265,7 +265,6 @@ function formatToolStatus({ name, input }) {
       delma_arch_set_node_label: 'renaming a diagram node',
       delma_arch_add_node: 'adding a diagram node',
       delma_arch_remove_node: 'removing a diagram node',
-      delma_append_my_note: 'saving to My Notes',
       delma_add_decision: 'saving to Project Details',
       delma_set_environment_key: 'updating Files Locations & Keys',
       delma_add_person: 'adding someone to People',

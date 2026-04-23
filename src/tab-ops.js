@@ -16,7 +16,6 @@ export const TAB_SCHEMAS = {
   'playbook.md': () => ({ rules: [] }),
   'environment.md': () => ({ entries: [] }),
   'decisions.md': () => ({ decisions: [], actions: [] }),
-  'my-notes.md': () => ({ text: '' }),
   // Architecture diagrams live in diagram_views, not memory_notes — but we
   // share the same structured-ops machinery. The view_key is the "filename".
   'architecture': () => ({ prose: '', nodes: [], edges: [], layers: [] })
@@ -273,11 +272,6 @@ function renderDecisions(data) {
   return lines.join('\n')
 }
 
-function renderMyNotes(data) {
-  const text = (data && data.text) || ''
-  return text.trim() ? `# My Notes\n\n${text}\n` : `# My Notes\n`
-}
-
 // Architecture renderer — reproduces the SFMC visual vocabulary:
 // floating annotation labels next to each technical node, optional layer
 // subgraphs grouping related nodes, and the full classDef block.
@@ -375,7 +369,6 @@ const RENDERERS = {
   'playbook.md': renderPlaybook,
   'environment.md': renderEnvironment,
   'decisions.md': renderDecisions,
-  'my-notes.md': renderMyNotes,
   'architecture': renderArchitecture
 }
 
@@ -715,16 +708,6 @@ const OPS = {
     // Promote orphaned nodes to no-layer
     const nodes = (data.nodes || []).map(n => n.layer === id ? { ...n, layer: null } : n)
     return { ...data, layers, nodes }
-  },
-
-  // My Notes (free-form)
-  append_my_note(data, { text }) {
-    if (!text) throw new Error('text required')
-    const prev = (data.text || '').trim()
-    return { ...data, text: prev ? `${prev}\n\n${text}` : text }
-  },
-  replace_my_notes(data, { text }) {
-    return { ...data, text: text || '' }
   }
 }
 
@@ -734,7 +717,6 @@ export const OPS_BY_TAB = {
   'playbook.md': ['add_playbook_rule', 'remove_playbook_rule', 'supersede_rule'],
   'environment.md': ['set_environment_key', 'remove_environment_key'],
   'decisions.md': ['add_decision', 'add_action', 'complete_action', 'complete_action_by_text', 'remove_decision', 'supersede_decision'],
-  'my-notes.md': ['append_my_note', 'replace_my_notes'],
   'architecture': ['set_prose', 'add_node', 'set_node_label', 'set_node_note', 'set_node_description', 'set_node_kind', 'move_node_to_layer', 'remove_node', 'merge_nodes', 'add_edge', 'remove_edge', 'add_layer', 'remove_layer']
 }
 

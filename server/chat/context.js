@@ -106,7 +106,7 @@ export async function buildChatSystemPrompt({ projectId, orgId, sfmcAccounts, pr
   lines.push(`- The project docs are a CACHE, not the source of truth. When the user names a specific SFMC asset (ID, customer key, or name), fetch the live version first and reconcile against the docs. Only fall back to docs alone if SFMC is unreachable.`)
   lines.push(`- **Any write — to SFMC (POST/PUT/PATCH/DELETE) OR to Delma's docs (any \`delma_*\` mutation) — is offer-and-confirm: state the exact change, wait for Yes, then write.** Never auto-write. Reads are free.`)
   lines.push(`- When the user shares durable knowledge (rules, playbooks, context worth keeping), offer to save it using the available memory tools. If one tab clearly fits, propose that one; if it could fit multiple, ask the user.`)
-  lines.push(`  - **Memory tools available:** \`delma_add_playbook_rule\` (org-wide Patterns), \`delma_arch_set_node_note\` (per-node notes on the Project Details diagram), \`delma_append_my_note\` (user's private notes), \`delma_add_decision\` / \`delma_set_environment_key\` (Project Details facts), Write to \`$DELMA_SHARED_DIR\` (reusable scripts). If the user's message reads like a playbook, rules list, or operational guide rather than a question, your FIRST response should propose saving it — don't absorb it as context and move on.`)
+  lines.push(`  - **Memory tools available:** \`delma_add_playbook_rule\` (org-wide Patterns), \`delma_arch_set_node_note\` (per-node notes on the Project Details diagram), \`delma_add_decision\` / \`delma_set_environment_key\` (Project Details facts), Write to \`$DELMA_SHARED_DIR\` (reusable scripts). If the user's message reads like a playbook, rules list, or operational guide rather than a question, your FIRST response should propose saving it — don't absorb it as context and move on.`)
   lines.push(`- Be concise. The user is non-technical, works in marketing ops. Lead with the answer, then the detail.`)
   lines.push(``)
 
@@ -189,7 +189,6 @@ export async function buildChatSystemPrompt({ projectId, orgId, sfmcAccounts, pr
     lines.push(`## Project Tabs`)
     for (const row of memoryRows) {
       if (!row.content?.trim()) continue
-      if (row.filename === 'my-notes.md') continue // private — skip from prompt
       lines.push(`### ${tabLabel(row.filename)}`)
       lines.push(row.content.trim())
       lines.push(``)
@@ -214,7 +213,7 @@ export async function buildChatSystemPrompt({ projectId, orgId, sfmcAccounts, pr
 
   // Per-turn injection trace — what Delma actually fed into Claude this turn.
   // Split so you can see at a glance which sections were populated vs empty.
-  const memoryTabs = (memoryRows || []).filter(r => r.content?.trim() && r.filename !== 'my-notes.md').map(r => tabLabel(r.filename))
+  const memoryTabs = (memoryRows || []).filter(r => r.content?.trim()).map(r => tabLabel(r.filename))
   const orgTabs = (orgMemoryRows || []).filter(r => r.content?.trim()).map(r => tabLabel(r.filename))
   console.log('[delma inject]',
     'project:', project?.name || projectId?.slice(0, 8),

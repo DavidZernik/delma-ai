@@ -21,11 +21,24 @@
 //  - slot.content is regenerated from scratch every time (never patched)
 //  - every block has a unique key; mixing keys corrupts the slot
 
-import { BLOCKS_BY_ID, renderBlock } from '../email-library/index.js'
+import { BLOCKS_BY_ID, renderBlock, BASE_TEMPLATE } from '../email-library/index.js'
 
 // SFMC block asset type: freeHTMLBlock (id 199 in some tenants, check if
 // yours differs — found via `assetType.id` in a reference email's block).
 const FREE_HTML_BLOCK_ASSET_TYPE = { id: 199, name: 'freehtmlblock' }
+
+// Substitute `<div data-type="slot" data-key="X"></div>` in the template HTML
+// with the rendered slot content. SFMC won't auto-compile `views.html.content`
+// on POST — if we leave it empty, Content Builder falls back to the legacy
+// editor and Code View is blank. So we compile server-side.
+function compileTemplate(templateHtml, slotContents) {
+  let out = templateHtml
+  for (const [slotKey, content] of Object.entries(slotContents)) {
+    const re = new RegExp(`<div data-type="slot" data-key="${slotKey}"></div>`, 'g')
+    out = out.replace(re, `<div data-type="slot" data-key="${slotKey}">${content}</div>`)
+  }
+  return out
+}
 
 export function assemble207({
   name,
@@ -53,13 +66,17 @@ export function assemble207({
     }
   })
 
-  // slot.blocks map — one entry per block, content is rendered HTML.
+  // slot.blocks map — one entry per block. SFMC stores `content` (sent HTML)
+  // AND `design` (editor view). Both are required; a missing `design` leaves
+  // Content Builder's drag-and-drop editor empty. For free-HTML blocks the
+  // two are identical.
   const slotBlocks = {}
   for (const rb of renderedBlocks) {
     slotBlocks[rb.key] = {
       assetType: FREE_HTML_BLOCK_ASSET_TYPE,
       content: rb.html,
-      meta: { wrapperStyles: { mobileFlag: 0 } },
+      design: rb.html,
+      meta: { wrapperStyles: { mobile: { visible: true } } },
       availableViews: [],
       data: {},
       modelVersion: 2
@@ -73,6 +90,11 @@ export function assemble207({
   const slotContent = renderedBlocks
     .map(rb => `<div data-type="block" data-key="${rb.key}">${rb.html}</div>`)
     .join('\n')
+
+  // views.html.content — the compiled send-ready HTML. SFMC does NOT compile
+  // this on its own when you POST; we substitute the slot markers in the
+  // base template with the slot content so Content Builder can render.
+  const compiledHtml = compileTemplate(BASE_TEMPLATE.html, { main: slotContent })
 
   // Assemble the full 207 asset JSON.
   return {
@@ -93,12 +115,12 @@ export function assemble207({
       },
       html: {
         contentType: 'application/vnd.etmc-email.htmlemail',
-        content: '',
+        content: compiledHtml,
         template: { id: templateId },
         slots: {
           main: {
             content: slotContent,
-            design: '',
+            design: slotContent,
             availableViews: [],
             blocks: slotBlocks,
             data: {},

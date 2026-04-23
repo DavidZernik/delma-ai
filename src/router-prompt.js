@@ -48,11 +48,6 @@ TABS AND THEIR OPS:
    supersede_decision         { id, new_text, owner? }   // preserves audit trail
    remove_decision            { id }     // hard-delete, no audit trail
 
-─ memory:my-notes.md  (PRIVATE scratchpad — only the current user sees this)
-   append_my_note    { text }
-   replace_my_notes  { text }
-   Route here ONLY if the input is explicitly personal ("note to self", "remind me", etc.).
-
 ─ diagram:architecture  (the SFMC system architecture — automations, journeys, DEs, emails, etc.)
    set_prose             { text }                                  // plain-English "How it works"
    add_node              { id, label, kind, note?, layer? }

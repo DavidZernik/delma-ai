@@ -415,8 +415,6 @@ const SCHEMA_BY_OP = {
   complete_action_by_text: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
   remove_decision: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
   supersede_decision: { type: 'object', properties: { id: { type: 'string' }, new_text: { type: 'string' }, owner: { type: 'string' } }, required: ['id', 'new_text'] },
-  append_my_note: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
-  replace_my_notes: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
   set_prose: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
   add_node: { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' }, kind: { type: 'string' }, note: { type: 'string' }, layer: { type: 'string' } }, required: ['id', 'label', 'kind'] },
   set_node_label: { type: 'object', properties: { id: { type: 'string' }, label: { type: 'string' } }, required: ['id', 'label'] },

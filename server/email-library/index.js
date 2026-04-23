@@ -26,9 +26,9 @@ export const BLOCKS = [
     name: 'Card Art',
     description: 'Card image on colored background, headline, CTA button.',
     variables: [
-      { key: 'background_image_url', label: 'Background image URL', type: 'url', default: 'https://placehold.co/620x155.png' },
+      { key: 'background_image_url', label: 'Background image URL', type: 'url', default: 'https://placehold.co/620x155.png', dimensions: { w: 620, h: 155 } },
       { key: 'background_color', label: 'Background color', type: 'color', default: '#00175a' },
-      { key: 'card_image_url', label: 'Card image URL', type: 'url', default: 'https://placehold.co/250x133.png' },
+      { key: 'card_image_url', label: 'Card image URL', type: 'url', default: 'https://placehold.co/250x133.png', dimensions: { w: 250, h: 133 } },
       { key: 'card_image_alt', label: 'Card image alt text', type: 'text', default: 'Card' },
       { key: 'headline', label: 'Headline', type: 'text', default: 'Headline goes here' },
       { key: 'button_label', label: 'Button label', type: 'text', default: 'Learn more' },
@@ -41,7 +41,7 @@ export const BLOCKS = [
     name: 'Text with Background Graphic',
     description: 'Full-width background image with headline, two paragraphs, and CTA.',
     variables: [
-      { key: 'background_image_url', label: 'Background image URL', type: 'url', default: 'https://placehold.co/620x317.png' },
+      { key: 'background_image_url', label: 'Background image URL', type: 'url', default: 'https://placehold.co/620x317.png', dimensions: { w: 620, h: 317 } },
       { key: 'headline', label: 'Headline', type: 'text', default: 'Headline goes here' },
       { key: 'body_1', label: 'Paragraph 1', type: 'textarea', default: 'Opening paragraph text.' },
       { key: 'body_2', label: 'Paragraph 2', type: 'textarea', default: 'Follow-up sentence.' },
@@ -66,7 +66,7 @@ export const BLOCKS = [
     name: 'Icon with Text',
     description: 'Small icon beside a headline, body paragraph, and CTA.',
     variables: [
-      { key: 'icon_image_url', label: 'Icon image URL', type: 'url', default: 'https://placehold.co/80x80.png' },
+      { key: 'icon_image_url', label: 'Icon image URL', type: 'url', default: 'https://placehold.co/80x80.png', dimensions: { w: 80, h: 80 } },
       { key: 'headline', label: 'Headline', type: 'text', default: 'Headline goes here' },
       { key: 'body', label: 'Body paragraph', type: 'textarea', default: 'Supporting copy goes here.' },
       { key: 'button_label', label: 'Button label', type: 'text', default: 'Learn more' },

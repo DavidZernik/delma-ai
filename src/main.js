@@ -437,7 +437,7 @@ async function createProject(name) {
   // designed around, so the user isn't staring at an empty canvas.
   //   environment.md → "Files Locations and Keys"
   //   decisions.md   → "Project Details"
-  // (people.md + playbook.md live at the org level, my-notes.md is global per-user)
+  // (people.md + playbook.md live at the org level)
   const memDefaults = {
     'environment.md': {
       content: SFMC_ENVIRONMENT_TEMPLATE,
@@ -562,47 +562,10 @@ async function refreshWorkspace() {
     state.activeViewKey = state.views[0]?.view_key || null
   }
 
-  // Load global My Notes (per-user, follows across orgs/projects).
-  // Falls back gracefully if the user_notes table isn't migrated yet.
-  await loadGlobalNotes()
-
   const active = getActiveView()
   state.previewMermaid = active?.mermaid || ''
   console.log('[delma refresh] done in', Math.round(performance.now() - t0), 'ms | views:', state.views.length, 'memory:', Object.keys(state.memory).length, 'orgMemory:', Object.keys(state.orgMemory).length, 'activeView:', active?.view_key, 'mermaidLen:', state.previewMermaid.length)
   renderWorkspace()
-}
-
-// ── Global My Notes (per-user, not per-project) ─────────────────────────────
-async function loadGlobalNotes() {
-  if (!state.user) { state.globalNotes = ''; return }
-  const { data, error } = await supabase
-    .from('user_notes')
-    .select('content')
-    .eq('user_id', state.user.id)
-    .maybeSingle()
-  if (error) {
-    console.warn('[delma notes] user_notes table not ready:', error.message)
-    state.globalNotes = ''
-    state.globalNotesUnavailable = true
-    return
-  }
-  state.globalNotes = data?.content || ''
-  state.globalNotesUnavailable = false
-  console.log('[delma notes] loaded global notes,', state.globalNotes.length, 'chars')
-}
-
-async function saveGlobalNotes(content) {
-  if (!state.user) return
-  console.log('[delma notes] saving global notes,', content.length, 'chars')
-  const { error } = await supabase
-    .from('user_notes')
-    .upsert({ user_id: state.user.id, content, updated_at: new Date().toISOString() })
-  if (error) {
-    console.error('[delma notes] save failed:', error.message)
-    setWorkspaceStatus(`Couldn't save notes: ${error.message}`)
-    return
-  }
-  state.globalNotes = content
 }
 
 // ── Supabase Realtime ────────────────────────────────────────────────────────
@@ -1979,7 +1942,7 @@ const MEMORY_TAB_LABELS = {
 }
 // Files present in memory_notes but deliberately not rendered as tabs.
 // decisions.md and environment.md are folded into the Project Details view.
-const HIDDEN_MEMORY_FILES = new Set(['my-notes.md', 'decisions.md', 'environment.md'])
+const HIDDEN_MEMORY_FILES = new Set(['decisions.md', 'environment.md'])
 
 // Org-level tab labels (shared across all projects)
 const ORG_TAB_LABELS = {
@@ -2025,7 +1988,6 @@ function renderViewTabs() {
 
   // Project memory tabs — only render if a project is actually loaded.
   // Iterate in MEMORY_TAB_LABELS order (decisions → environment).
-  // Filter out my-notes.md (now lives globally in user_notes table).
   const knownOrder = Object.keys(MEMORY_TAB_LABELS)
   const presentFiles = Object.keys(state.memory).filter(f => !HIDDEN_MEMORY_FILES.has(f))
   const hasProject = !!state.projectId
@@ -2054,7 +2016,7 @@ function renderViewTabs() {
 
   // ── Separator after Project Details ──
   // Project Details is the only tab that gets fresh-seeded per project;
-  // everything to the right (Integrations, org tabs, My Notes) persists
+  // everything to the right (Integrations, org tabs) persists
   // across projects, so the divider marks that boundary.
   if (hasProject) {
     const sep = document.createElement('span')
@@ -2099,25 +2061,6 @@ function renderViewTabs() {
     els.viewTabs.appendChild(btn)
   }
 
-  // ── Global My Notes — separator + tab on the far right ─────────────
-  if (state.user) {
-    const sep2 = document.createElement('span')
-    sep2.style.cssText = 'width:1px;height:20px;background:rgba(0,0,0,0.12);flex-shrink:0;'
-    els.viewTabs.appendChild(sep2)
-
-    const isActive = state.activeTopTab === 'myNotes'
-    const btn = document.createElement('button')
-    btn.className = `view-tab${isActive ? ' active' : ''}`
-    btn.innerHTML = `<div class="view-tab-title">My Notes</div>`
-    btn.dataset.tabKey = 'top:myNotes'
-    btn.addEventListener('click', () => {
-      saveCurrentEditState()
-      state.activeTopTab = 'myNotes'
-      renderWorkspace()
-    })
-    els.viewTabs.appendChild(btn)
-  }
-
   // Presence dots go on after the tab buttons are in place, and each tab
   // switch rebroadcasts so other clients see where you are now.
   renderPresenceIndicators()
@@ -2133,46 +2076,6 @@ function populateEditor(view) {
 }
 
 // ── Render a memory file as a readable document ─────────────────────────────
-
-// Render the global My Notes (per-user). Stored in user_notes table —
-// follows the user across all orgs and projects.
-async function renderGlobalMyNotes() {
-  els.viewTitle.textContent = 'My Notes'
-  els.viewDescription.textContent = 'Personal scratchpad — only you see this. Follows you across all orgs and projects.'
-  els.viewProvenance.textContent = ''
-  els.resetExampleBtn.hidden = true
-  els.modeToggle.hidden = false
-
-  if (state.globalNotesUnavailable) {
-    els.diagramOutput.hidden = false
-    els.diagramEditor.classList.remove('visible')
-    els.diagramOutput.className = ''
-    els.diagramOutput.innerHTML = `
-      <div class="diagram-card markdown-body">
-        <p>Your notes table isn't ready yet. Run the migration in your Supabase SQL editor to enable My Notes:</p>
-        <pre>supabase/migrations/006_user_notes.sql</pre>
-      </div>
-    `
-    return
-  }
-
-  const content = state.globalNotes || ''
-  if (state.diagramMode === 'edit') {
-    els.diagramOutput.hidden = true
-    els.diagramEditor.classList.add('visible')
-    els.diagramEditor.value = content
-    setDiagramMode('edit')
-  } else {
-    els.diagramOutput.hidden = false
-    els.diagramEditor.classList.remove('visible')
-    els.diagramOutput.className = ''
-    els.diagramOutput.innerHTML = `<div class="diagram-card markdown-body"><div class="markdown-content"></div></div>`
-    const card = els.diagramOutput.querySelector('.diagram-card')
-    const contentEl = card.querySelector('.markdown-content')
-    await renderMarkdownWithMermaid(contentEl, content.trim() || '_(empty — click Edit to add notes)_')
-    setDiagramMode('view')
-  }
-}
 
 // Integrations tab — per-project credentials form + permission toggle.
 // One tab to rule them all: replaces both the old Connected Apps tab and the
@@ -2543,12 +2446,6 @@ function renderWorkspace() {
     }))
   }))
 
-  // Global My Notes (per-user, follows across orgs/projects)
-  if (state.activeTopTab === 'myNotes') {
-    void renderGlobalMyNotes().then(revealDiagramOutput)
-    return
-  }
-
   // Integrations — credentials form + per-project permission toggle
   if (state.activeTopTab === 'integrations') {
     void renderIntegrations().then(revealDiagramOutput)
@@ -2667,13 +2564,6 @@ function updateActiveViewFromEditor() {
 // ── Save to Supabase ─────────────────────────────────────────────────────────
 
 async function saveCurrentTab() {
-  // Global My Notes (no workspace required — follows the user)
-  if (state.activeTopTab === 'myNotes') {
-    console.log('[delma save] saving global my notes')
-    await saveGlobalNotes(els.diagramEditor.value)
-    setWorkspaceStatus('Notes saved.')
-    return
-  }
   if (!state.projectId) return
   console.log('[delma save] saving tab:', state.activeTopTab, state.activeMemoryFile || state.activeViewKey)
 

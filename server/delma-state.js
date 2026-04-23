@@ -28,30 +28,25 @@ import { cleanMermaid } from './lib/clean-mermaid.js'
 // Project-level memory files. People and Playbook live in org_memory_notes.
 export const MEMORY_FILES = [
   'environment.md',
-  'decisions.md',
-  'my-notes.md'
+  'decisions.md'
 ]
 
 // Default permission for each memory file when creating a new workspace.
 // These encode the product opinion about what should be visible to whom.
-// Project-level memory tabs. People and Playbook are at the org level
-// (org_memory_notes). my-notes is per-user private.
+// Project-level memory tabs. People and Playbook are at the org level.
 const DEFAULT_PERMISSIONS = {
   'environment.md': 'view-admins',
-  'decisions.md': 'edit-all',       // anyone can capture a decision/action
-  'my-notes.md': 'private'
+  'decisions.md': 'edit-all'        // anyone can capture a decision/action
 }
 
 const VISIBILITY_RULES = {
   'environment.md': 'shared',
-  'decisions.md': 'shared',
-  'my-notes.md': 'private'
+  'decisions.md': 'shared'
 }
 
 const DEFAULT_MEMORY_CONTENT = {
   'environment.md': '# Environment\n\nSFMC Business Unit, MIDs, Data Extensions, Journeys, Automations, CloudPages, and other project-specific IDs and configuration.\n',
-  'decisions.md': '# Decisions & Actions\n\n## Decisions\n- _What\'s been decided. Outline form, one bullet each._\n\n## Actions\n- _What needs to happen next. Outline form. Add owner if known._\n',
-  'my-notes.md': '# My Notes\n\nPersonal scratchpad — only you see this. Jot down questions, reminders, half-baked thoughts.\n'
+  'decisions.md': '# Decisions & Actions\n\n## Decisions\n- _What\'s been decided. Outline form, one bullet each._\n\n## Actions\n- _What needs to happen next. Outline form. Add owner if known._\n'
 }
 
 // ── Permission Helpers ──────────────────────────────────────────────────────

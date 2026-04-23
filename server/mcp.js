@@ -98,7 +98,6 @@ const WRITE_TOOLS = new Set([
   'delma_add_playbook_rule',
   'delma_add_decision', 'delma_supersede_decision',
   'delma_add_action', 'delma_complete_action', 'delma_complete_action_by_text',
-  'delma_append_my_note',
   'delma_set_environment_key',
   'delma_arch_add_node', 'delma_arch_move_node', 'delma_arch_remove_node',
   'delma_arch_set_node_kind', 'delma_arch_set_node_label', 'delma_arch_set_node_note', 'delma_arch_set_node_description',
@@ -283,9 +282,9 @@ server.registerTool(
   'append_memory_note',
   {
     title: 'Append Memory Note',
-    description: 'LEGACY free-form append. Prefer typed ops: delma_add_decision / delma_add_action for decisions.md, delma_set_environment_key for environment.md, delma_append_my_note for my-notes.md. Use this only when the typed ops do not fit (e.g. unstructured prose).',
+    description: 'LEGACY free-form append. Prefer typed ops: delma_add_decision / delma_add_action for decisions.md, delma_set_environment_key for environment.md. Use this only when the typed ops do not fit (e.g. unstructured prose).',
     inputSchema: {
-      file: z.enum(['environment.md', 'decisions.md', 'my-notes.md']),
+      file: z.enum(['environment.md', 'decisions.md']),
       note: z.string(),
       heading: z.string().optional()
     }
@@ -593,14 +592,6 @@ server.registerTool('delma_arch_remove_layer', {
   inputSchema: { id: z.string() }
 }, withLogging('delma_arch_remove_layer', (args) => runOp('diagram:architecture', 'remove_layer', args)))
 
-// My Notes ──────────────────────────────────────────────────────────────────
-
-server.registerTool('delma_append_my_note', {
-  title: 'Append My Note',
-  description: 'Add a private note to the current user\'s scratchpad. Private — only you see it.',
-  inputSchema: { text: z.string() }
-}, withLogging('delma_append_my_note', (args) => runOp('memory:my-notes.md', 'append_my_note', args)))
-
 // ── Conversation Sync ───────────────────────────────────────────────────────
 
 server.registerTool(
@@ -612,7 +603,6 @@ server.registerTool(
 - delma_add_playbook_rule for Playbook
 - delma_set_environment_key for Environment IDs
 - delma_add_decision / delma_add_action for Decisions & Actions
-- delma_append_my_note for personal notes
 - save_diagram_view for Architecture diagram updates
 
 The typed-op tools are deterministic, surgical, and can't corrupt content.

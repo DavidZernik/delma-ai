@@ -300,22 +300,11 @@ function renderPlaybookEditor(host, data, run) {
   )
 }
 
-function renderMyNotesEditor(host, data, run) {
-  const ta = el('textarea', { class: 'struct-input struct-textarea', rows: 16, value: data.text || '' })
-  const saveBtn = el('button', {
-    class: 'struct-btn-add', textContent: 'Save',
-    on: { click: () => run('replace_my_notes', { text: ta.value }) }
-  })
-  host.replaceChildren(ta, el('div', { class: 'struct-row' }, [saveBtn]),
-    el('div', { class: 'struct-status' }))
-}
-
 const EDITORS = {
   'people.md': renderPeopleEditor,
   'decisions.md': renderDecisionsEditor,
   'environment.md': renderEnvironmentEditor,
-  'playbook.md': renderPlaybookEditor,
-  'my-notes.md': renderMyNotesEditor
+  'playbook.md': renderPlaybookEditor
 }
 
 // Public API. Returns true if the editor took over, false if the filename

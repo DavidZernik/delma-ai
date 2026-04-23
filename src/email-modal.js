@@ -164,6 +164,7 @@ function renderStepBlocks() {
     return `
       <div class="email-block-card${selected ? ' selected' : ''}" data-block="${b.id}">
         ${selected ? `<div class="email-block-card-badge">${order}</div>` : ''}
+        <div class="email-block-thumb">${renderBlockThumb(b.id)}</div>
         <div class="email-block-card-id">${b.id}</div>
         <div class="email-block-card-name">${escapeHtml(b.name)}</div>
         <div class="email-block-card-desc">${escapeHtml(b.description || '')}</div>
@@ -171,43 +172,119 @@ function renderStepBlocks() {
     `
   }).join('')
 
-  const pickedList = state.picked.length
-    ? `
-      <div class="email-block-picked">
-        <div class="email-block-picked-header">Picked · in order</div>
-        <div class="email-block-picked-list">
-          ${state.picked.map((p, i) => {
-            const def = state.library.blocks.find(b => b.id === p.id)
-            return `
-              <div class="email-block-picked-row">
-                <span class="email-block-picked-order">${i + 1}.</span>
-                <span class="email-block-picked-name">${def.id} · ${escapeHtml(def.name)}</span>
-                <button class="email-block-picked-remove" data-remove="${p.id}" title="Remove">×</button>
-              </div>
-            `
-          }).join('')}
-        </div>
-      </div>
-    ` : ''
-
   els.body.innerHTML = `
     <p style="font-size:13px;color:var(--ink-secondary);margin:0 0 16px;">
       Click blocks in the order you want them stacked in the email. Click again to remove.
     </p>
     <div class="email-block-grid">${cards}</div>
-    ${pickedList}
   `
 
   els.body.querySelectorAll('[data-block]').forEach(el => {
     el.addEventListener('click', () => toggleBlock(el.dataset.block))
   })
-  els.body.querySelectorAll('[data-remove]').forEach(el => {
-    el.addEventListener('click', (ev) => {
-      ev.stopPropagation()
-      state.picked = state.picked.filter(p => p.id !== el.dataset.remove)
-      render()
-    })
-  })
+}
+
+// Schematic block previews — stylized wireframes using the Delma brand
+// palette (cream bg, red accent, muted lines). All thumbs share the same
+// cream background, line treatment, and button color so cards feel like
+// one family rather than four different designs.
+//
+// Primitives:
+//   `imgBox(...)` — dashed rectangle with a picture icon (image placeholder)
+//   `textLines(...)` — horizontal bars representing lines of text
+//   `cta(...)` — red pill for button
+//
+// Not pixel-perfect (real block HTML references external images that would
+// 404 offline), but conveys each block's layout at a glance.
+function renderBlockThumb(blockId) {
+  const wrap = 'position:relative;width:100%;aspect-ratio:22/10;background:#FFFEEE;border-radius:6px;overflow:hidden;margin-bottom:10px;border:1px solid var(--line);'
+
+  // SVG picture icon (mountain + sun) — shown inside image placeholders.
+  const pictureIcon = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted);opacity:0.7;"><rect x="3" y="5" width="18" height="14" rx="1.5"></rect><circle cx="8.5" cy="10" r="1.5"></circle><path d="M21 17l-5-5-6 6"></path></svg>`
+
+  const imgBox = ({ top, left, width, height }) => `
+    <div style="position:absolute;top:${top}%;left:${left}%;width:${width}%;height:${height}%;
+                border:1.2px dashed var(--line);border-radius:4px;background:#FFFFFF;
+                display:flex;align-items:center;justify-content:center;">
+      ${pictureIcon}
+    </div>
+  `
+  // `widths` = array of % widths for each line (varying to look like real text).
+  const textLines = ({ top, left, widthContainer, widths, align = 'left' }) => {
+    const alignItems = align === 'center' ? 'center' : 'flex-start'
+    const lines = widths.map(w =>
+      `<div style="width:${w}%;height:1.4px;background:var(--muted);opacity:0.55;border-radius:1px;margin:1.2px 0;"></div>`
+    ).join('')
+    return `
+      <div style="position:absolute;top:${top}%;left:${left}%;width:${widthContainer}%;
+                  display:flex;flex-direction:column;align-items:${alignItems};">
+        ${lines}
+      </div>
+    `
+  }
+  const cta = ({ top, left, align = 'center' }) => {
+    const transform = align === 'center' ? 'translateX(-50%)' : 'none'
+    return `<div style="position:absolute;top:${top}%;left:${left}%;width:24%;height:11%;
+                        background:var(--accent);border-radius:3px;transform:${transform};"></div>`
+  }
+
+  if (blockId === 'HB10') {
+    // Card Art — colored strip at the top (shown as a wide dashed box),
+    // with the card image as a smaller dashed box centered on top of it.
+    // Then headline text + centered CTA below the strip.
+    return `
+      <div style="${wrap}">
+        ${imgBox({ top: 6, left: 4, width: 92, height: 42 })}
+        ${imgBox({ top: 14, left: 35, width: 30, height: 26 })}
+        ${textLines({ top: 56, left: 28, widthContainer: 44, widths: [70, 55], align: 'center' })}
+        ${cta({ top: 78, left: 50 })}
+      </div>
+    `
+  }
+  if (blockId === 'HB11') {
+    // Text with Background Graphic — image fills tile, text overlaid
+    // directly on the image (no box behind it, real block doesn't have one).
+    return `
+      <div style="${wrap}">
+        ${imgBox({ top: 6, left: 6, width: 88, height: 88 })}
+        <div style="position:absolute;top:22%;left:12%;width:50%;">
+          <div style="width:80%;height:1.8px;background:var(--muted);opacity:0.7;margin-bottom:4px;border-radius:1px;"></div>
+          <div style="width:60%;height:1.2px;background:var(--muted);opacity:0.5;margin-bottom:3px;border-radius:1px;"></div>
+          <div style="width:48%;height:1.2px;background:var(--muted);opacity:0.5;border-radius:1px;"></div>
+        </div>
+        ${cta({ top: 68, left: 12, align: 'left' })}
+      </div>
+    `
+  }
+  if (blockId === 'HB12') {
+    // Member Since Ribbon — stacked centered elements: headline text,
+    // member name text, Member Since IMAGE (not text), year text.
+    return `
+      <div style="${wrap}">
+        ${textLines({ top: 14, left: 25, widthContainer: 50, widths: [100], align: 'center' })}
+        ${textLines({ top: 34, left: 32, widthContainer: 36, widths: [70], align: 'center' })}
+        ${imgBox({ top: 52, left: 32, width: 36, height: 18 })}
+        ${textLines({ top: 78, left: 38, widthContainer: 24, widths: [60], align: 'center' })}
+      </div>
+    `
+  }
+  if (blockId === 'HB14') {
+    // Icon with Text — small square image left, text + CTA right.
+    return `
+      <div style="${wrap}">
+        ${imgBox({ top: 22, left: 8, width: 18, height: 48 })}
+        ${textLines({ top: 24, left: 32, widthContainer: 58, widths: [70, 45, 30] })}
+        ${cta({ top: 70, left: 32, align: 'left' })}
+      </div>
+    `
+  }
+  // Unknown — generic fallback.
+  return `
+    <div style="${wrap}">
+      ${textLines({ top: 30, left: 20, widthContainer: 60, widths: [80, 60, 40] })}
+      ${cta({ top: 72, left: 50 })}
+    </div>
+  `
 }
 
 function toggleBlock(id) {
@@ -233,11 +310,16 @@ function renderStepContent() {
     const fields = def.variables.map(v => renderField(p, v)).join('')
     return `
       <div class="email-content-block">
-        <div class="email-content-block-header">
-          <span class="email-content-block-badge">${def.id}</span>
-          <span class="email-content-block-title">${escapeHtml(def.name)}</span>
+        <div class="email-content-block-layout">
+          <div class="email-content-block-thumb">${renderBlockThumb(def.id)}</div>
+          <div class="email-content-block-fields">
+            <div class="email-content-block-header">
+              <span class="email-content-block-badge">${def.id}</span>
+              <span class="email-content-block-title">${escapeHtml(def.name)}</span>
+            </div>
+            ${fields}
+          </div>
         </div>
-        ${fields}
       </div>
     `
   }).join('')
@@ -259,10 +341,17 @@ function renderField(picked, v) {
   const blockIdx = state.picked.indexOf(picked)
   const val = picked.vars[v.key] ?? v.default ?? ''
   const common = `data-var="${blockIdx}::${v.key}"`
+  // Dimension hint for image fields — shown beside the label so users know
+  // the size to match before they paste a URL.
+  const dimHint = v.dimensions
+    ? `<span class="email-field-hint">${v.dimensions.w} × ${v.dimensions.h} px</span>`
+    : ''
+  const labelHtml = `<label>${escapeHtml(v.label)}${dimHint}</label>`
+
   if (v.type === 'textarea') {
     return `
       <div class="email-field">
-        <label>${escapeHtml(v.label)}</label>
+        ${labelHtml}
         <textarea ${common} rows="2">${escapeHtml(val)}</textarea>
       </div>
     `
@@ -270,14 +359,14 @@ function renderField(picked, v) {
   if (v.type === 'color') {
     return `
       <div class="email-field">
-        <label>${escapeHtml(v.label)}</label>
+        ${labelHtml}
         <input type="color" ${common} value="${escapeHtml(val)}" />
       </div>
     `
   }
   return `
     <div class="email-field">
-      <label>${escapeHtml(v.label)}</label>
+      ${labelHtml}
       <input type="${v.type === 'url' ? 'url' : 'text'}" ${common} value="${escapeHtml(val)}" />
     </div>
   `

@@ -14,11 +14,6 @@ function rid(prefix) {
   return `${prefix}_${Math.random().toString(36).slice(2, 7)}`
 }
 
-export function parseMyNotes(md) {
-  const stripped = (md || '').replace(/^#\s*My Notes\s*\n+/i, '').trim()
-  return { text: stripped }
-}
-
 export function parseDecisions(md) {
   const pickSection = (name) => {
     const m = (md || '').match(new RegExp(`##\\s*${name}[^\\n]*\\n([\\s\\S]*?)(?=\\n##\\s|$)`, 'i'))
@@ -163,7 +158,6 @@ Return ONLY valid JSON. No prose. No code fences.`
 export async function parseStructuredContent(filename, content, { anthropicKey } = {}) {
   if (!isStructuredTab(filename)) return null
   switch (filename) {
-    case 'my-notes.md': return parseMyNotes(content)
     case 'decisions.md': return parseDecisions(content)
     case 'environment.md': return parseEnvironment(content)
     case 'playbook.md': return parsePlaybook(content)

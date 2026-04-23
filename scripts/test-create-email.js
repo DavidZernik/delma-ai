@@ -92,13 +92,13 @@ async function main() {
   const blockKeys = Object.keys(slot?.blocks || {})
   console.log(`   slot blocks: ${blockKeys.length}`)
   console.log(`   slot.content length: ${slot?.content?.length || 0} chars`)
+  console.log(`   views.html.content length: ${verify.views?.html?.content?.length || 0} chars (must be > 0!)`)
   console.log(`   subjectline: "${verify.views?.subjectline?.content}"`)
   console.log(`   template.id: ${verify.views?.html?.template?.id}\n`)
 
-  // 6. Cleanup
-  console.log('6. Cleanup: deleting the test email…')
-  const del = await sfmc.deleteAsset(acct, { assetId: result.assetId })
-  console.log(`   ${del.ok ? 'deleted' : 'failed: ' + del.message}\n`)
+  // 6. Cleanup (skip — leave for manual Content Builder inspection)
+  console.log('6. Leaving email in SFMC for manual verification.')
+  console.log(`   Deep link: https://mc.s11.exacttarget.com/cloud/#app/Content%20Builder/${result.assetId}\n`)
 
   console.log('=== END TO END: PASS ===')
 }
