@@ -19,7 +19,7 @@ function renderChatMarkdown(text) {
 }
 
 export function ChatSidebar({ projectId, userId }) {
-  const { messages, status, send, abort, clear, currentTool } = useChatStream({ projectId, userId })
+  const { messages, status, send, abort, clear, currentTool, suggestions, applySuggestion, dismissSuggestion } = useChatStream({ projectId, userId })
   const [input, setInput] = useState('')
   const [composerHeight, setComposerHeight] = useState(120)
   const thinkingLabel = useThinkingLabel()
@@ -99,6 +99,14 @@ export function ChatSidebar({ projectId, userId }) {
         {status === 'streaming' && (
           <div style={styles.thinking}>⟳ {currentTool ? formatToolStatus(currentTool) : thinkingLabel}</div>
         )}
+        {suggestions.map(s => (
+          <SuggestionCard
+            key={s.id}
+            suggestion={s}
+            onApply={() => applySuggestion(s.id)}
+            onDismiss={() => dismissSuggestion(s.id)}
+          />
+        ))}
       </div>
 
       <div style={styles.toolbar}>
@@ -300,6 +308,31 @@ function isYesNoQuestion(text) {
   return proposalVerbs.test(tail) || saveLocation.test(tail)
 }
 
+// Post-turn suggestion card. After each exchange, the server parses a
+// <delma-suggest> block from Claude's response and pushes one of these per
+// proposed save. The user reads the human summary, clicks Yes to apply or
+// No to dismiss. Nothing writes until Yes.
+function SuggestionCard({ suggestion, onApply, onDismiss }) {
+  const [busy, setBusy] = useState(false)
+  const click = (fn) => {
+    if (busy) return
+    setBusy(true)
+    fn()
+  }
+  return (
+    <div style={styles.suggestCard}>
+      <div style={styles.suggestPrompt}>
+        Should we update <strong>{suggestion.tab}</strong>?
+      </div>
+      <div style={styles.suggestSummary}>{suggestion.summary}</div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+        <button disabled={busy} onClick={() => click(onApply)} style={styles.yesBtn}>Yes, update</button>
+        <button disabled={busy} onClick={() => click(onDismiss)} style={styles.noBtn}>No</button>
+      </div>
+    </div>
+  )
+}
+
 function YesNoButtons({ onAnswer }) {
   return (
     <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
@@ -434,5 +467,23 @@ const styles = {
   noBtn: {
     background: '#8F0000', color: '#fff', border: 'none', borderRadius: 999,
     padding: '6px 18px', fontSize: 12, fontWeight: 600, cursor: 'pointer'
+  },
+  suggestCard: {
+    margin: '10px 0',
+    padding: '12px 14px',
+    background: '#FFFEEE',
+    border: '1.5px solid #8F0000',
+    borderRadius: 10,
+    boxShadow: '0 2px 6px rgba(143, 0, 0, 0.08)'
+  },
+  suggestPrompt: {
+    fontSize: 13,
+    color: '#4a3a3a',
+    marginBottom: 4
+  },
+  suggestSummary: {
+    fontSize: 14,
+    color: '#1a1a1a',
+    lineHeight: 1.4
   }
 }

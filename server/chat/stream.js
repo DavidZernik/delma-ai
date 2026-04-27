@@ -17,8 +17,9 @@ import { join } from 'node:path'
 import { supabase as sb } from '../lib/supabase.js'
 import { requireUser, requireOrgMembership, requireProjectMembership } from '../lib/auth.js'
 import { makeLimiter } from '../lib/rate-limit.js'
-import { getSfmcAccountsForOrg } from '../lib/sfmc-account.js'
+import { loadSfmcAccounts } from '../lib/local-config.js'
 import { buildChatSystemPrompt } from './context.js'
+import { applyOpsToTab, parseTabKey } from '../lib/apply-op.js'
 
 // Shared with /api/chat conceptually but separate bucket: the streaming
 // endpoint is where the real LLM spend happens, so its budget is its own.
@@ -208,10 +209,116 @@ async function saveMessage(conversationId, message) {
 }
 
 // Rough translator from Agent SDK messages to what assistant-ui expects.
+// Detect when a tool call is going to write to the scratchpad. Returns a
+// short description of what's being written, or null if it's not a write.
+// Catches Write/Edit directly, and the common Bash shell-redirect patterns
+// (`>`, `>>`, `tee`, heredocs to files). Doesn't try to parse every possible
+// shell form — just enough to see the pattern in logs.
+function detectScratchWrite(toolName, input) {
+  if (!input) return null
+  if (toolName === 'Write' || toolName === 'Edit') {
+    return `${toolName} ${input.file_path || '?'}`
+  }
+  if (toolName === 'Bash' && typeof input.command === 'string') {
+    const cmd = input.command
+    if (/(^|\s|\|)\s*(tee|dd)\s/.test(cmd)) return `Bash (tee/dd): ${cmd.slice(0, 80)}`
+    if (/>>?\s*[^|&]/.test(cmd) && !/>\s*\/dev\/null/.test(cmd)) return `Bash redirect: ${cmd.slice(0, 80)}`
+  }
+  return null
+}
+
 // Agent SDK streams typed messages (user, assistant, tool_use, tool_result,
 // etc.); we forward them as SSE events the client can render directly.
 function sseEvent(res, event, data) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+}
+
+// ── Suggestion registry ──────────────────────────────────────────────────────
+// After the agent finishes a turn, the server scans its full assistant text
+// for a <delma-suggest>[{tab, summary, tool, input}, ...]</delma-suggest>
+// block. Each entry gets a fresh id, is parked here, and is streamed to the
+// browser as a `suggestions` SSE event. The browser renders a button per
+// entry: "Update Project Details with: <summary>?". On click, it POSTs
+// /api/chat/apply-suggestion → we run the MCP tool against the user's
+// workspace and write to Supabase. Memory lives only for the life of the
+// server process — that's fine; the SSE event has all the data the client
+// needs to display buttons and to re-POST if the server restarts.
+const pendingSuggestions = new Map() // key: `${userId}:${id}` → suggestion
+
+// Pull the last <delma-suggest>...</delma-suggest> JSON array out of the
+// accumulated assistant text. Tolerant: allow surrounding whitespace, code
+// fences the model may wrap around it, and partial parses (bad entries are
+// dropped rather than failing the whole set).
+function parseSuggestions(text) {
+  if (!text) return []
+  const m = text.match(/<delma-suggest>([\s\S]*?)<\/delma-suggest>/i)
+  if (!m) return []
+  const body = m[1].trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim()
+  let parsed
+  try { parsed = JSON.parse(body) } catch { return [] }
+  if (!Array.isArray(parsed)) return []
+  const ALLOWED_TABS = new Set(['Project Details', 'General Patterns and Docs', 'People'])
+  return parsed.filter(s =>
+    s && typeof s === 'object'
+    && ALLOWED_TABS.has(s.tab)
+    && typeof s.summary === 'string' && s.summary.trim()
+    && typeof s.tool === 'string' && s.tool.startsWith('mcp__delma__')
+    && s.input && typeof s.input === 'object'
+  )
+}
+
+// Strip the <delma-suggest> block from any text chunk before it reaches
+// the UI, so users never see the raw JSON in their chat.
+function stripSuggestBlock(text) {
+  return text.replace(/<delma-suggest>[\s\S]*?<\/delma-suggest>/gi, '').trimEnd()
+}
+
+export function getPendingSuggestion({ userId, id }) {
+  return pendingSuggestions.get(`${userId}:${id}`) || null
+}
+export function deletePendingSuggestion({ userId, id }) {
+  return pendingSuggestions.delete(`${userId}:${id}`)
+}
+
+// Map the public MCP tool name ("mcp__delma__delma_add_decision") to the
+// tabKey + op name used by applyOpsToTab. Matches the wiring in server/mcp.js.
+const TOOL_TO_OP = {
+  'mcp__delma__delma_add_decision':            ['memory:decisions.md', 'add_decision'],
+  'mcp__delma__delma_supersede_decision':      ['memory:decisions.md', 'supersede_decision'],
+  'mcp__delma__delma_add_action':              ['memory:decisions.md', 'add_action'],
+  'mcp__delma__delma_complete_action':         ['memory:decisions.md', 'complete_action'],
+  'mcp__delma__delma_complete_action_by_text': ['memory:decisions.md', 'complete_action_by_text'],
+  'mcp__delma__delma_set_environment_key':     ['memory:environment.md', 'set_environment_key'],
+  'mcp__delma__delma_add_playbook_rule':       ['org:playbook.md', 'add_playbook_rule'],
+  'mcp__delma__delma_add_person':              ['org:people.md', 'add_person'],
+  'mcp__delma__delma_set_role':                ['org:people.md', 'set_role'],
+  'mcp__delma__delma_set_manager':             ['org:people.md', 'set_manager'],
+  'mcp__delma__delma_add_reporting_line':      ['org:people.md', 'add_reporting_line'],
+  'mcp__delma__delma_remove_reporting_line':   ['org:people.md', 'remove_reporting_line'],
+  'mcp__delma__delma_remove_person':           ['org:people.md', 'remove_person'],
+  'mcp__delma__delma_arch_set_prose':          ['diagram:architecture', 'set_prose'],
+  'mcp__delma__delma_arch_add_node':           ['diagram:architecture', 'add_node'],
+  'mcp__delma__delma_arch_set_node_label':     ['diagram:architecture', 'set_node_label'],
+  'mcp__delma__delma_arch_set_node_note':      ['diagram:architecture', 'set_node_note'],
+  'mcp__delma__delma_arch_set_node_description': ['diagram:architecture', 'set_node_description'],
+  'mcp__delma__delma_arch_set_node_kind':      ['diagram:architecture', 'set_node_kind'],
+  'mcp__delma__delma_arch_move_node':          ['diagram:architecture', 'move_node_to_layer'],
+  'mcp__delma__delma_arch_remove_node':        ['diagram:architecture', 'remove_node'],
+  'mcp__delma__delma_arch_add_edge':           ['diagram:architecture', 'add_edge'],
+  'mcp__delma__delma_arch_remove_edge':        ['diagram:architecture', 'remove_edge'],
+  'mcp__delma__delma_arch_add_layer':          ['diagram:architecture', 'add_layer'],
+  'mcp__delma__delma_arch_remove_layer':       ['diagram:architecture', 'remove_layer']
+}
+
+// Run a suggestion against Supabase. Takes the exact shape that was parked
+// in pendingSuggestions plus caller identity. Returns the op's applied +
+// errors result for the client to display.
+export async function applySuggestion({ suggestion, userId, projectId, orgId }) {
+  const mapped = TOOL_TO_OP[suggestion.tool]
+  if (!mapped) throw new Error(`Unknown tool: ${suggestion.tool}`)
+  const [tabKey, opName] = mapped
+  const scope = parseTabKey(tabKey, { projectId, orgId, userId })
+  return applyOpsToTab(sb, scope, [{ op: opName, args: suggestion.input || {} }])
 }
 
 // Per-message log line so the browser console (via /api/debug/logs) gets a
@@ -225,6 +332,11 @@ function logStreamMessage(msg) {
       } else if (c.type === 'tool_use') {
         const inputStr = (() => { try { return JSON.stringify(c.input) } catch { return '(unserializable)' } })()
         console.log('[chat msg] tool_use:', c.name, inputStr.slice(0, 300))
+        // Flag every filesystem-write attempt so we can audit weekly what
+        // Claude is persisting outside MCP. If a pattern recurs, it's a
+        // signal we need a new tab or MCP tool for that shape of data.
+        const fsHit = detectScratchWrite(c.name, c.input)
+        if (fsHit) console.log('[scratch-write]', c.name, '→', fsHit)
       }
     }
     return
@@ -238,6 +350,14 @@ function logStreamMessage(msg) {
         console.log('[chat msg] tool_result:', String(out).slice(0, 300))
       }
     }
+    return
+  }
+  if (t === 'system' && msg?.subtype === 'init') {
+    // Dump the tool catalog and MCP server status so we can see what the
+    // agent actually has vs. what the prompt advertises.
+    const mcpStatus = (msg.mcp_servers || []).map(s => `${s.name}=${s.status}`).join(', ')
+    const delmaTools = (msg.tools || []).filter(t => t.startsWith('mcp__delma'))
+    console.log('[chat msg] system init — mcp:', mcpStatus || '(none)', '| delma tools:', delmaTools.length, delmaTools.length ? `(${delmaTools.slice(0, 3).join(', ')}...)` : '')
     return
   }
   if (t === 'result' || t === 'system' || msg?.subtype === 'final') {
@@ -278,10 +398,11 @@ export async function handleChatStream(req, res) {
     catch { await requireOrgMembership(sb, userId, ws.org_id) }
   } catch (err) { return res.status(err.status || 403).json({ error: err.message }) }
 
-  // Pull SFMC creds for this project's org (both parent + child BU if
-  // configured). Decrypted in memory; passed through as env vars only for
-  // this turn's MCP subprocess and Bash environment. Never written to disk.
-  const sfmcAccounts = await getSfmcAccountsForOrg(projectOrgId)
+  // SFMC creds come from ~/.config/sfmc/.env (see server/lib/local-config.js).
+  // Same on every turn, same across every project — credentials belong to
+  // the user, not to a project. Passed through as env vars to the MCP
+  // subprocess so sfmc-client tools have auth automatically.
+  const sfmcAccounts = loadSfmcAccounts()
 
   // Resolve the user's active conversation FIRST so we can load its prior
   // turns into the system prompt. Persistence: the chat picks up where the
@@ -385,19 +506,56 @@ export async function handleChatStream(req, res) {
           if (text) console.log('[agent-sdk]', text)
         },
         allowedTools: [
-          'Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch',
-          'mcp__delma'
-        ]
+          'Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch'
+        ],
+        // Delma mutations are NOT invoked by the agent. The system prompt
+        // tells Claude to emit a <delma-suggest>[...]</delma-suggest> block
+        // at the end of its response; we parse that block after the turn
+        // and surface each entry as a "should we update X with Y?" button
+        // in the UI. Any rogue mcp__delma__* call is denied.
+        canUseTool: async (toolName) => {
+          if (toolName.startsWith('mcp__delma__')) {
+            return { behavior: 'deny', message: 'Never call Delma tools directly. Emit a <delma-suggest> block at the end of your response instead.' }
+          }
+          return { behavior: 'allow' }
+        }
       }
     })
 
+    // Accumulate all assistant text from this turn so we can scan it for
+    // the <delma-suggest> block after the SDK finishes streaming.
+    let fullAssistantText = ''
     for await (const msg of result) {
+      // Strip the <delma-suggest> block from assistant text chunks BEFORE
+      // forwarding so the user never sees the raw JSON in the chat.
+      if (msg?.type === 'assistant' && Array.isArray(msg.message?.content)) {
+        for (const c of msg.message.content) {
+          if (c.type === 'text' && typeof c.text === 'string') {
+            fullAssistantText += c.text
+            c.text = stripSuggestBlock(c.text)
+          }
+        }
+      }
       sseEvent(res, 'message', msg)
-      // Structured per-message trace so the browser log stream shows turn
-      // progress in real time. Tool uses, results, and final wrap all land.
       try { logStreamMessage(msg) } catch { /* best-effort tracing */ }
       try { await saveMessage(conversationId, msg) }
       catch (err) { console.warn('[chat] save message failed (non-fatal):', err.message) }
+    }
+    // Parse + emit suggestions the frontend can render as buttons.
+    const suggestions = parseSuggestions(fullAssistantText)
+    const rawBlock = (fullAssistantText.match(/<delma-suggest>[\s\S]*?<\/delma-suggest>/i) || [null])[0]
+    if (rawBlock) console.log('[chat] <delma-suggest> block detected, parsed', suggestions.length, 'valid suggestion(s)')
+    else console.log('[chat] no <delma-suggest> block emitted by agent this turn')
+    if (suggestions.length) {
+      const stamped = suggestions.map(s => ({
+        id: `sug_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+        ...s
+      }))
+      for (const s of stamped) {
+        pendingSuggestions.set(`${userId}:${s.id}`, s)
+      }
+      sseEvent(res, 'suggestions', { items: stamped })
+      console.log('[chat] emitted', stamped.length, 'suggestion(s) for user', userId.slice(0, 8))
     }
     sseEvent(res, 'done', {})
     console.log('[chat] turn done user:', userId.slice(0, 8), 'project:', projectId.slice(0, 8))

@@ -9,20 +9,33 @@ import { dirname, join } from 'path'
 import { createClient } from '@supabase/supabase-js'
 import { applyOpsToTab, parseTabKey } from './lib/apply-op.js'
 import { cleanMermaid } from './lib/clean-mermaid.js'
-import { getSfmcAccountsForOrg } from './lib/sfmc-account.js'
+// getSfmcAccountsForOrg replaced by loadSfmcAccounts() from local-config.js —
+// creds now live in ~/.config/sfmc/.env instead of a Supabase row per org.
 import * as sfmcClient from './lib/sfmc-client.js'
 import { assemble207, validate207 } from './lib/sfmc-email-assembly.js'
 import { BLOCKS, BASE_TEMPLATE } from './email-library/index.js'
+import { listEmailFolders, createEmail } from './lib/sfmc-ops.js'
 import { requireUser, requireOrgMembership, requireProjectMembership } from './lib/auth.js'
 import { parseStructuredContent } from './lib/parse-tab.js'
 import { render, isStructuredTab } from '../src/tab-ops.js'
 import { runAllLayers, runOvernight } from './quality/runner.js'
 import { renderLogsPage } from './quality/logs-page.js'
 import { ANTHROPIC_URL, anthropicHeaders } from './lib/llm.js'
-import { handleChatStream } from './chat/stream.js'
+import { handleChatStream, getPendingSuggestion, deletePendingSuggestion, applySuggestion } from './chat/stream.js'
+import {
+  handleLocalChatStream,
+  handleLocalApplySuggestion,
+  handleLocalDismissSuggestion,
+  handleLocalHistory,
+  handleLocalClear
+} from './chat/local-stream.js'
 import { makeLimiter } from './lib/rate-limit.js'
 import { encrypt } from './lib/crypto.js'
 import { initLogStream, isLogStreamEnabled, attachSseClient } from './lib/log-stream.js'
+import { loadDelmaConfig, saveDelmaConfig, loadSfmcAccounts, saveSfmcEnv, getConfigStatus, CONFIG_PATHS, safeResolveProjectPath } from './lib/local-config.js'
+import { readClaudeMd, readOrSeedClaudeMd, writeClaudeMd, parseClaudeMd, serializeClaudeMd, starterTemplate, SECTION_KEYS } from './lib/claude-md.js'
+import { existsSync, statSync } from 'node:fs'
+import { resolve as resolvePath, basename } from 'node:path'
 
 // Install before anything else logs, so startup traces land in the ring buffer.
 if (isLogStreamEnabled()) initLogStream()
@@ -88,6 +101,123 @@ async function callOpenAICompatible(apiUrl, apiKey, provider, model, system, use
   const data = await response.json()
   return res.json({ content: [{ text: data.choices?.[0]?.message?.content || '' }] })
 }
+
+// ── Local config endpoints ────────────────────────────────────────────────
+// Delma runs locally now: the Anthropic API key + SFMC creds live on the
+// user's disk in ~/.config/delma/config.json and ~/.config/sfmc/.env.
+// These endpoints let the frontend check status, run first-time setup,
+// and update creds without editing files by hand. No auth — the server
+// is bound to localhost and only the person who launched it can reach it.
+
+// GET /api/config/status — is Delma configured? Never returns secrets.
+app.get('/api/config/status', (req, res) => {
+  try { res.json(getConfigStatus()) }
+  catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+// POST /api/config/delma — save Anthropic key + optional defaults.
+// Body: { anthropic_api_key: "sk-ant-...", default_project_dir?: "/abs/path" }
+app.post('/api/config/delma', (req, res) => {
+  const { anthropic_api_key, default_project_dir } = req.body || {}
+  const patch = {}
+  if (anthropic_api_key) patch.anthropic_api_key = anthropic_api_key
+  if (default_project_dir) patch.default_project_dir = default_project_dir
+  if (!Object.keys(patch).length) return res.status(400).json({ error: 'no fields to save' })
+  try {
+    saveDelmaConfig(patch)
+    res.json({ ok: true, path: CONFIG_PATHS.delmaConfig })
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
+
+// ── Local project endpoints ───────────────────────────────────────────────
+// A "project" in local-first Delma is any folder on disk. The canonical
+// source of project state is <folder>/CLAUDE.md; Delma reads/writes it,
+// the user edits it in their IDE, git tracks history.
+
+// GET /api/local/open?path=/abs/folder
+// Returns { path, title, summary, sections, seeded } where `seeded` is
+// true iff we created CLAUDE.md from the template just now. Adds the
+// folder to the recent-projects list in ~/.config/delma/config.json.
+app.get('/api/local/open', (req, res) => {
+  let projectDir
+  try { projectDir = safeResolveProjectPath(req.query.path) }
+  catch (err) { return res.status(400).json({ error: err.message }) }
+  if (!existsSync(projectDir)) return res.status(404).json({ error: `folder not found: ${projectDir}` })
+  let st
+  try { st = statSync(projectDir) } catch (err) { return res.status(400).json({ error: err.message }) }
+  if (!st.isDirectory()) return res.status(400).json({ error: `not a directory: ${projectDir}` })
+
+  const existed = !!readClaudeMd(projectDir)
+  const doc = readOrSeedClaudeMd(projectDir, { projectName: basename(projectDir) })
+  // Track in recent projects — most-recent first, dedup, capped at 10.
+  try {
+    const cfg = loadDelmaConfig()
+    const recent = (cfg.recent_projects || []).filter(p => p !== projectDir)
+    recent.unshift(projectDir)
+    saveDelmaConfig({ recent_projects: recent.slice(0, 10) })
+  } catch { /* config save is best-effort */ }
+
+  res.json({
+    path: projectDir,
+    name: doc.title || basename(projectDir),
+    summary: doc.summary || '',
+    sections: doc.sections,
+    seeded: !existed
+  })
+})
+
+// POST /api/local/save
+// Body: { path, title?, summary?, sections? }
+// Partial: only provided keys are updated. Missing sections keep their
+// current content. Writes the full file back atomically.
+app.post('/api/local/save', (req, res) => {
+  const { path: raw, title, summary, sections } = req.body || {}
+  let projectDir
+  try { projectDir = safeResolveProjectPath(raw) }
+  catch (err) { return res.status(400).json({ error: err.message }) }
+  if (!existsSync(projectDir)) return res.status(404).json({ error: `folder not found: ${projectDir}` })
+  const current = readOrSeedClaudeMd(projectDir, { projectName: basename(projectDir) })
+  const next = {
+    title: title ?? current.title,
+    summary: summary ?? current.summary,
+    sections: { ...current.sections, ...(sections || {}) }
+  }
+  const filePath = writeClaudeMd(projectDir, next)
+  res.json({ ok: true, path: projectDir, filePath })
+})
+
+// GET /api/local/recent — list recent project folders, newest first.
+// Filters out folders that no longer exist so the UI list stays clean.
+app.get('/api/local/recent', (req, res) => {
+  const cfg = loadDelmaConfig()
+  const raw = cfg.recent_projects || []
+  const items = []
+  for (const p of raw) {
+    if (!existsSync(p)) continue
+    try {
+      if (!statSync(p).isDirectory()) continue
+    } catch { continue }
+    items.push({ path: p, name: basename(p) })
+  }
+  // Persist the pruned list so stale entries don't come back next load.
+  if (items.length !== raw.length) {
+    saveDelmaConfig({ recent_projects: items.map(i => i.path) })
+  }
+  res.json({ items })
+})
+
+// POST /api/config/sfmc — save SFMC creds. Body is a flat object of env
+// var names (CLIENT_ID, CLIENT_SECRET, AUTH_BASE_URL, etc.). We only write
+// keys that were explicitly sent — missing keys leave the existing file's
+// value intact, so partial updates are safe.
+app.post('/api/config/sfmc', (req, res) => {
+  const body = req.body || {}
+  if (!Object.keys(body).length) return res.status(400).json({ error: 'no fields to save' })
+  try {
+    saveSfmcEnv(body)
+    res.json({ ok: true, path: CONFIG_PATHS.sfmcEnv })
+  } catch (err) { res.status(500).json({ error: err.message }) }
+})
 
 app.post('/api/chat', async (req, res) => {
   // Require a valid session. This endpoint proxies to the LLM provider with
@@ -398,6 +528,56 @@ app.put('/api/projects/:projectId/app-permissions/:appId', async (req, res) => {
   res.json({ ok: true, permission })
 })
 
+// ── Local-mode SFMC + email endpoints ────────────────────────────────────────
+// These mirror /api/email-library, /api/projects/:id/sfmc/folders, and
+// /api/projects/:id/emails/create but skip auth + projectId. Creds come
+// from ~/.config/sfmc/.env. The email builder modal routes to these when
+// no active project UUID is set (local-mode UI).
+
+app.get('/api/local/email-library', (req, res) => {
+  res.json({
+    baseTemplate: {
+      id: BASE_TEMPLATE.id,
+      name: BASE_TEMPLATE.name,
+      description: BASE_TEMPLATE.description,
+      slots: BASE_TEMPLATE.slots
+    },
+    blocks: BLOCKS.map(b => ({
+      id: b.id, name: b.name, description: b.description,
+      variables: b.variables, html: b.html
+    }))
+  })
+})
+
+// Pulls the SFMC account for the request + returns it, or writes a 400
+// and returns null. DRY helper for local-mode routes that all want the
+// same behavior: creds from ~/.config/sfmc/.env, pick BU.
+function acctFromLocalConfig(bu, res) {
+  const accounts = loadSfmcAccounts()
+  const acct = accounts[bu || 'child'] || accounts.child || accounts.parent
+  if (!acct) { res.status(400).json({ error: `No SFMC credentials. Put them in ${CONFIG_PATHS.sfmcEnv}.` }); return null }
+  return acct
+}
+
+app.get('/api/local/sfmc/folders', async (req, res) => {
+  const acct = acctFromLocalConfig(req.query.bu, res); if (!acct) return
+  try { res.json({ folders: await listEmailFolders(acct) }) }
+  catch (err) { res.status(502).json({ error: err.message }) }
+})
+
+app.post('/api/local/emails/create', async (req, res) => {
+  const acct = acctFromLocalConfig(req.body?.bu, res); if (!acct) return
+  try {
+    console.log('[server] local create-email → SFMC — name:', req.body?.name, 'blocks:', (req.body?.blocks || []).map(b => b.id).join(','))
+    const out = await createEmail(acct, req.body || {})
+    console.log('[server] local create-email success — assetId:', out.assetId, 'customerKey:', out.customerKey)
+    res.json(out)
+  } catch (err) {
+    const status = err.details ? 400 : (err.message?.startsWith('SFMC rejected') ? 502 : 400)
+    res.status(status).json({ error: err.message, ...(err.details ? { details: err.details } : {}) })
+  }
+})
+
 // ── Email library manifest ────────────────────────────────────────────────────
 // Returns the static block library + base template metadata for the
 // "New Email" modal. Live fetches of folder trees and template IDs happen
@@ -441,68 +621,22 @@ app.post('/api/projects/:projectId/emails/create', async (req, res) => {
   try { await requireProjectMembership(sb, user.id, projectId) }
   catch (err) { return res.status(err.status || 403).json({ error: err.message }) }
 
-  const { name, customerKey, subject, preheader, categoryId, templateKey, blocks, bu } = req.body || {}
-  if (!name || !subject || !categoryId || !Array.isArray(blocks) || !blocks.length) {
-    return res.status(400).json({ error: 'name, subject, categoryId, blocks[] all required' })
-  }
-  const resolvedTemplateKey = templateKey || BASE_TEMPLATE.id
-
-  const { data: ws } = await sb.from('projects').select('org_id').eq('id', projectId).single()
-  if (!ws?.org_id) return res.status(404).json({ error: 'project not found' })
-  const accounts = await getSfmcAccountsForOrg(ws.org_id)
+  const { bu } = req.body || {}
+  const accounts = loadSfmcAccounts()
   const acct = accounts[bu || 'child'] || accounts.child || accounts.parent
-  if (!acct) return res.status(400).json({ error: 'no SFMC account connected for this org' })
+  if (!acct) return res.status(400).json({ error: `No SFMC credentials configured. Put them in ${CONFIG_PATHS.sfmcEnv}.` })
 
-  // Resolve templateKey → SFMC template asset ID (cached per account inside sfmc-client).
-  let templateId
   try {
-    const tokenRes = await fetch(`${acct.auth_base_url}/v2/token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        grant_type: 'client_credentials',
-        client_id: acct.client_id,
-        client_secret: acct.client_secret,
-        ...(acct.account_id ? { account_id: acct.account_id } : {})
-      })
-    })
-    const token = (await tokenRes.json()).access_token
-    const lookup = await fetch(`${acct.rest_base_url}/asset/v1/content/assets/query`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query: { property: 'customerKey', simpleOperator: 'equals', value: resolvedTemplateKey } })
-    })
-    const ld = await lookup.json()
-    templateId = ld.items?.[0]?.id
+    console.log('[server] create-email → SFMC — project:', projectId.slice(0, 8), 'name:', req.body?.name, 'blocks:', (req.body?.blocks || []).map(b => b.id).join(','))
+    const out = await createEmail(acct, req.body || {})
+    console.log('[server] create-email success — assetId:', out.assetId, 'customerKey:', out.customerKey)
+    const deepLink = `${acct.rest_base_url?.replace(/\.rest\.marketingcloudapis\.com.*$/, '').replace(/^https?:\/\//, 'https://mc.')}.exacttarget.com/cloud/#app/Content%20Builder/${out.assetId}`
+    return res.json({ ok: true, ...out, deepLink })
   } catch (err) {
-    return res.status(502).json({ error: `template lookup failed: ${err.message}` })
+    console.error('[server] create-email failed:', err.message)
+    const status = err.details ? 400 : (err.message?.startsWith('SFMC rejected') ? 502 : 400)
+    return res.status(status).json({ error: err.message, ...(err.details ? { details: err.details } : {}) })
   }
-  if (!templateId) return res.status(400).json({ error: `template "${resolvedTemplateKey}" not found in SFMC — run scripts/upload-base-template.js to install it` })
-
-  let payload
-  try { payload = assemble207({ name, customerKey, subject, preheader, categoryId, templateId, blocks }) }
-  catch (err) { return res.status(400).json({ error: `assembly failed: ${err.message}` }) }
-
-  const validation = validate207(payload)
-  if (!validation.ok) {
-    console.error('[server] create-email validation failed:', validation.errors)
-    return res.status(400).json({ error: `validation failed`, details: validation.errors })
-  }
-
-  console.log('[server] create-email POST → SFMC — project:', projectId.slice(0, 8), 'name:', name, 'blocks:', blocks.map(b => b.id).join(','))
-  const result = await sfmcClient.createEmailAsset(acct, payload)
-  if (!result.ok) {
-    console.error('[server] create-email SFMC rejected:', result.code, result.message)
-    return res.status(502).json({ error: result.message, code: result.code })
-  }
-  console.log('[server] create-email success — assetId:', result.assetId, 'customerKey:', result.customerKey)
-  res.json({
-    ok: true,
-    assetId: result.assetId,
-    customerKey: result.customerKey,
-    name: result.name,
-    deepLink: `${acct.rest_base_url?.replace(/\.rest\.marketingcloudapis\.com.*$/, '').replace(/^https?:\/\//, 'https://mc.')}.exacttarget.com/cloud/#app/Content%20Builder/${result.assetId}`
-  })
 })
 
 // ── SFMC folder tree (for the modal's folder picker) ──────────────────────────
@@ -520,33 +654,15 @@ app.get('/api/projects/:projectId/sfmc/folders', async (req, res) => {
   try { await requireProjectMembership(sb, user.id, projectId) }
   catch (err) { return res.status(err.status || 403).json({ error: err.message }) }
 
-  const { data: ws } = await sb.from('projects').select('org_id').eq('id', projectId).single()
-  if (!ws?.org_id) return res.status(404).json({ error: 'project not found' })
-  const accounts = await getSfmcAccountsForOrg(ws.org_id)
+  const accounts = loadSfmcAccounts()
   const acct = accounts.child || accounts.parent
-  if (!acct) return res.status(400).json({ error: 'no SFMC account connected' })
+  if (!acct) return res.status(400).json({ error: `No SFMC credentials configured. Put them in ${CONFIG_PATHS.sfmcEnv}.` })
 
   try {
-    const tokenRes = await fetch(`${acct.auth_base_url}/v2/token`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        grant_type: 'client_credentials',
-        client_id: acct.client_id,
-        client_secret: acct.client_secret,
-        ...(acct.account_id ? { account_id: acct.account_id } : {})
-      })
-    })
-    const token = (await tokenRes.json()).access_token
-    const folderRes = await fetch(`${acct.rest_base_url}/asset/v1/content/categories?$pagesize=200`, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-    const data = await folderRes.json()
-    const items = (data.items || []).map(c => ({ id: c.id, name: c.name, parentId: c.parentId, path: c.categoryType }))
+    const items = (await listEmailFolders(acct))
+      .map(c => ({ id: c.id, name: c.name, parentId: c.parentId, path: c.categoryType }))
     res.json({ ok: true, folders: items })
-  } catch (err) {
-    res.status(502).json({ error: err.message })
-  }
+  } catch (err) { res.status(502).json({ error: err.message }) }
 })
 
 // ── Clean diagrams ────────────────────────────────────────────────────────────
@@ -759,6 +875,57 @@ app.post('/api/conversation-tick', async (req, res) => {
 // This is the primary chat surface (replaces the need for Claude Desktop).
 app.post('/api/chat/stream', handleChatStream)
 
+// Local-mode chat. Streams from Anthropic via Agent SDK, reads project
+// state from CLAUDE.md, persists turns in <project>/.delma/chat-history.json.
+app.post('/api/local/chat/stream', handleLocalChatStream)
+app.post('/api/local/chat/apply-suggestion', handleLocalApplySuggestion)
+app.post('/api/local/chat/dismiss-suggestion', handleLocalDismissSuggestion)
+app.get('/api/local/chat/history', handleLocalHistory)
+app.post('/api/local/chat/clear', handleLocalClear)
+
+// Apply a suggestion the agent emitted during its last turn. Body:
+// { id: '<suggestion id>', projectId: '<uuid>' }. The server looks up the
+// parked suggestion, resolves it against the user's workspace, and writes
+// via the typed-op runner. The browser then sees the change via Supabase
+// realtime on memory_notes / diagram_views.
+app.post('/api/chat/apply-suggestion', async (req, res) => {
+  let user
+  try { user = await requireUser(req) }
+  catch (err) { return res.status(err.status || 401).json({ error: err.message }) }
+  const { id, projectId } = req.body || {}
+  if (!id || !projectId) return res.status(400).json({ error: 'id + projectId required' })
+
+  const suggestion = getPendingSuggestion({ userId: user.id, id })
+  if (!suggestion) return res.status(404).json({ error: 'suggestion not found (may have already been applied or server restarted)' })
+
+  const sb = getSb()
+  if (!sb) return res.status(500).json({ error: 'Supabase not configured' })
+  const { data: proj } = await sb.from('projects').select('org_id').eq('id', projectId).maybeSingle()
+  if (!proj) return res.status(404).json({ error: 'project not found' })
+
+  try {
+    const result = await applySuggestion({
+      suggestion, userId: user.id, projectId, orgId: proj.org_id
+    })
+    deletePendingSuggestion({ userId: user.id, id })
+    res.json({ ok: true, applied: result.applied || [], errors: result.errors || [] })
+  } catch (err) {
+    console.error('[apply-suggestion] failed:', err.message)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Dismiss a suggestion without applying it.
+app.post('/api/chat/dismiss-suggestion', async (req, res) => {
+  let user
+  try { user = await requireUser(req) }
+  catch (err) { return res.status(err.status || 401).json({ error: err.message }) }
+  const { id } = req.body || {}
+  if (!id) return res.status(400).json({ error: 'id required' })
+  deletePendingSuggestion({ userId: user.id, id })
+  res.json({ ok: true })
+})
+
 // GET /api/chat/history?projectId=… — last N messages for the user's active
 // conversation in this project. Used on UI mount so reload doesn't blank the
 // chat. Filters strictly by (user_id from JWT, project_id, archived=false)
@@ -893,4 +1060,8 @@ if (process.env.NODE_ENV === 'production') {
   app.get('*', (req, res) => res.sendFile(join(dist, 'index.html')))
 }
 
-app.listen(PORT, () => console.log(`Delma server on http://localhost:${PORT}`))
+// Bind to 127.0.0.1 explicitly. Delma-local holds the user's Anthropic key
+// and SFMC creds in memory; a default 0.0.0.0 bind would expose them to
+// any device on the same network. Localhost-only keeps blast radius to
+// the laptop.
+app.listen(PORT, '127.0.0.1', () => console.log(`Delma server on http://localhost:${PORT}`))

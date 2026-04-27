@@ -23,9 +23,11 @@
 
 import { BLOCKS_BY_ID, renderBlock, BASE_TEMPLATE } from '../email-library/index.js'
 
-// SFMC block asset type: freeHTMLBlock (id 199 in some tenants, check if
-// yours differs — found via `assetType.id` in a reference email's block).
-const FREE_HTML_BLOCK_ASSET_TYPE = { id: 199, name: 'freehtmlblock' }
+// SFMC asset type for an editable raw-HTML block in the drag-and-drop editor.
+// htmlblock is 197; it stores HTML in `content` and is editable in Content
+// Builder's right panel. (id 199 is imageblock — using that id with HTML
+// content triggers "Your account is not provisioned with this block".)
+const FREE_HTML_BLOCK_ASSET_TYPE = { id: 197, name: 'htmlblock' }
 
 // Substitute `<div data-type="slot" data-key="X"></div>` in the template HTML
 // with the rendered slot content. SFMC won't auto-compile `views.html.content`

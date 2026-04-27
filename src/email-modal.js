@@ -16,6 +16,7 @@
 // function from state → HTML + event wiring.
 
 import { supabase } from './lib/supabase.js'
+import './email-modal.css' // side-effect import — Vite injects stylesheet
 
 const STEPS = ['blocks', 'content', 'subject', 'folder', 'review']
 const STEP_LABELS = {
@@ -80,19 +81,24 @@ async function openModal(opts = {}) {
   state.submitting = false
   state.result = null
   state.projectId = opts.projectId || window.delmaState?.projectId || window.__delmaProjectId || null
+  // Local-mode = no project UUID. Uses /api/local/* endpoints which read
+  // creds from ~/.config/sfmc/.env and don't require auth.
+  state.localMode = !state.projectId
 
   els.modal.hidden = false
   paintLoading('Loading your block library…')
 
   try {
-    const lib = await fetchJSON('/api/email-library')
+    const libPath = state.localMode ? '/api/local/email-library' : '/api/email-library'
+    const lib = await fetchJSON(libPath)
     state.library = lib
     // Kick off folders fetch in parallel — it's slow and only needed at step 4.
-    if (state.projectId) {
-      fetchJSON(`/api/projects/${state.projectId}/sfmc/folders`)
-        .then(f => { state.folders = f.folders || [] })
-        .catch(err => { state.folders = { error: err.message } })
-    }
+    const foldersPath = state.localMode
+      ? '/api/local/sfmc/folders'
+      : `/api/projects/${state.projectId}/sfmc/folders`
+    fetchJSON(foldersPath)
+      .then(f => { state.folders = f.folders || [] })
+      .catch(err => { state.folders = { error: err.message } })
     render()
   } catch (err) {
     paintError(`Failed to load block library: ${err.message}`)
@@ -515,12 +521,14 @@ function renderStepReview() {
 }
 
 async function submit() {
-  if (!state.projectId) { alert('No active project. Open a project first, then try again.'); return }
   state.submitting = true
   state.result = null
   render()
   try {
-    const res = await fetchJSON(`/api/projects/${state.projectId}/emails/create`, {
+    const createPath = state.localMode
+      ? '/api/local/emails/create'
+      : `/api/projects/${state.projectId}/emails/create`
+    const res = await fetchJSON(createPath, {
       method: 'POST',
       body: JSON.stringify({
         name: state.name,

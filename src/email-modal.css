@@ -1,0 +1,619 @@
+    /* ── New Email modal ─────────────────────────────────────────────────
+       Full-screen modal for creating an SFMC 207 email from the block
+       library. Step-by-step UX: pick blocks → fill content → subject →
+       folder → review. Styled consistently with Delma's cream + red
+       palette. Content rendered by src/email-modal.js. */
+    .email-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 450;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+    .email-modal[hidden] { display: none; }
+    .email-modal-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(30, 22, 22, 0.55);
+      backdrop-filter: blur(3px);
+      animation: email-modal-fade 180ms ease-out;
+    }
+    .email-modal-content {
+      position: relative;
+      background: var(--bg);
+      border: 1.5px solid var(--line);
+      border-radius: 16px;
+      width: min(920px, 100%);
+      max-height: calc(100vh - 48px);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.22);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      animation: email-modal-in 200ms ease-out;
+    }
+    .email-modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 18px 22px;
+      border-bottom: 1px solid var(--line);
+      background: #FFFFFF;
+    }
+    .email-modal-eyebrow {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      color: var(--accent);
+      text-transform: uppercase;
+    }
+    .email-modal-step-label {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--ink);
+      margin-top: 4px;
+    }
+    .email-modal-close {
+      width: 32px;
+      height: 32px;
+      border: none;
+      background: transparent;
+      border-radius: 8px;
+      font-size: 22px;
+      color: var(--muted);
+      cursor: pointer;
+    }
+    .email-modal-close:hover { background: var(--bg); color: var(--ink); }
+    .email-modal-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 22px;
+      background: var(--bg);
+    }
+    .email-modal-footer {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 22px;
+      border-top: 1px solid var(--line);
+      background: #FFFFFF;
+    }
+    .email-modal-btn {
+      border: none;
+      border-radius: 8px;
+      padding: 9px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 120ms ease, opacity 120ms ease;
+    }
+    .email-modal-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .email-modal-btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+    .email-modal-btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+    .email-modal-btn-ghost {
+      background: transparent;
+      color: var(--ink-secondary);
+      border: 1px solid var(--line);
+    }
+    .email-modal-btn-ghost:hover:not(:disabled) { background: var(--bg); border-color: var(--muted); }
+    @keyframes email-modal-fade { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes email-modal-in {
+      from { opacity: 0; transform: translateY(10px) scale(0.985); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    /* Block picker grid (Step 1) */
+    .email-block-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 14px;
+    }
+    .email-block-card {
+      background: #FFFFFF;
+      border: 1.5px solid var(--line);
+      border-radius: 12px;
+      padding: 14px;
+      cursor: pointer;
+      transition: border-color 120ms ease, transform 120ms ease;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      position: relative;
+    }
+    .email-block-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+    .email-block-card.selected {
+      border-color: var(--accent);
+      background: #FFFEEE;
+    }
+    .email-block-card-badge {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+      z-index: 10;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+    }
+    .email-block-thumb {
+      /* Schematic preview sits at the top of each card. CSS-only: no
+         external images, no iframes — fast + offline-safe. */
+      width: 100%;
+    }
+    .email-block-card-id {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+    }
+    .email-block-card-name { font-size: 14px; font-weight: 600; }
+    .email-block-card-desc { font-size: 12px; color: var(--ink-secondary); line-height: 1.5; }
+    .email-block-picked {
+      margin-top: 22px;
+      padding-top: 18px;
+      border-top: 1px solid var(--line);
+    }
+    .email-block-picked-header {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+    .email-block-picked-list { display: flex; flex-direction: column; gap: 6px; }
+    .email-block-picked-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      background: #FFFFFF;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      font-size: 13px;
+    }
+    .email-block-picked-order {
+      font-weight: 700;
+      color: var(--accent);
+      min-width: 20px;
+    }
+    .email-block-picked-name { flex: 1; }
+    .email-block-picked-remove {
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      font-size: 18px;
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .email-block-picked-remove:hover { background: var(--bg); color: var(--accent); }
+
+    /* Content editor (Step 2) */
+    .email-content-block {
+      background: #FFFFFF;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 14px;
+    }
+    .email-content-block-layout {
+      display: grid;
+      grid-template-columns: 200px 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+    @media (max-width: 720px) {
+      .email-content-block-layout { grid-template-columns: 1fr; }
+    }
+    .email-content-block-thumb {
+      position: sticky;
+      top: 0;
+    }
+    .email-content-block-thumb > div {
+      margin-bottom: 0;  /* Override the wrap's bottom margin from step 1 */
+    }
+    .email-content-block-fields { min-width: 0; }
+    .email-content-block-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .email-content-block-badge {
+      font-family: var(--mono);
+      font-size: 11px;
+      background: var(--accent);
+      color: #fff;
+      padding: 3px 7px;
+      border-radius: 4px;
+      letter-spacing: 0.04em;
+    }
+    .email-content-block-title { font-weight: 600; font-size: 14px; }
+    .email-field { margin-bottom: 12px; }
+    .email-field:last-child { margin-bottom: 0; }
+    .email-field label {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .email-field-hint {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      color: var(--accent);
+      text-transform: none;
+      background: #FFFEEE;
+      padding: 1px 7px;
+      border-radius: 999px;
+      border: 1px solid rgba(143, 0, 0, 0.2);
+    }
+    .email-field input[type="text"],
+    .email-field input[type="url"],
+    .email-field textarea,
+    .email-field select {
+      width: 100%;
+      padding: 9px 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #FFFFFF;
+      font-family: inherit;
+      font-size: 13px;
+      color: var(--ink);
+      box-sizing: border-box;
+    }
+    .email-field input:focus,
+    .email-field textarea:focus,
+    .email-field select:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(143, 0, 0, 0.08);
+    }
+    .email-field textarea { resize: vertical; min-height: 60px; font-family: inherit; }
+    .email-field input[type="color"] {
+      width: 60px;
+      height: 36px;
+      padding: 3px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    /* Folder picker (Step 4) */
+    .email-folder-list {
+      max-height: 420px;
+      overflow-y: auto;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #FFFFFF;
+    }
+    .email-folder-row {
+      display: flex;
+      align-items: center;
+      padding: 10px 14px;
+      cursor: pointer;
+      font-size: 13px;
+      border-bottom: 1px solid var(--line);
+    }
+    .email-folder-row:last-child { border-bottom: none; }
+    .email-folder-row:hover { background: var(--bg); }
+    .email-folder-row.selected { background: #FFFEEE; color: var(--accent); font-weight: 600; }
+    .email-folder-icon { margin-right: 10px; color: var(--muted); }
+
+    /* Review step */
+    .email-review-summary {
+      background: #FFFFFF;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 18px 20px;
+    }
+    .email-review-row {
+      display: flex;
+      align-items: start;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--line);
+      font-size: 13px;
+    }
+    .email-review-row:last-child { border-bottom: none; }
+    .email-review-label {
+      font-weight: 600;
+      color: var(--muted);
+      min-width: 120px;
+      text-transform: uppercase;
+      font-size: 11px;
+      letter-spacing: 0.05em;
+      padding-top: 2px;
+    }
+    .email-review-value { flex: 1; color: var(--ink); word-break: break-word; }
+
+    /* Success state */
+    .email-success {
+      text-align: center;
+      padding: 40px 20px;
+    }
+    .email-success-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 60px;
+      height: 60px;
+      border-radius: 50%;
+      background: #FFFEEE;
+      border: 2px solid var(--accent);
+      color: var(--accent);
+      font-size: 28px;
+      margin-bottom: 16px;
+    }
+    .email-success-title { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
+    .email-success-detail { font-size: 13px; color: var(--ink-secondary); margin-bottom: 18px; }
+    .email-success-actions { display: flex; gap: 10px; justify-content: center; }
+
+    .email-empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    /* Branded confirm dialog — replaces window.confirm() for destructive
+       actions. Reuses the same backdrop / content pattern as the node
+       modal so the app keeps a single visual language for overlays. */
+    .delma-confirm {
+      position: fixed; inset: 0; z-index: 500;
+      display: flex; align-items: center; justify-content: center;
+      padding: 20px;
+    }
+    .delma-confirm-backdrop {
+      position: absolute; inset: 0;
+      background: rgba(30, 22, 22, 0.45);
+      backdrop-filter: blur(2px);
+      animation: node-modal-fade 160ms ease-out;
+    }
+    .delma-confirm-panel {
+      position: relative;
+      background: #FFFFFF;
+      border: 1.5px solid var(--accent);
+      border-radius: 14px;
+      padding: 24px 28px 22px;
+      width: min(440px, 100%);
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.18);
+      animation: node-modal-in 180ms ease-out;
+    }
+    .delma-confirm-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--ink);
+      margin-bottom: 8px;
+    }
+    .delma-confirm-body {
+      font-size: 14px;
+      color: var(--ink-secondary);
+      line-height: 1.5;
+      margin-bottom: 20px;
+    }
+    .delma-confirm-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+    .delma-confirm-btn {
+      padding: 9px 18px;
+      font-size: 13px;
+      font-weight: 600;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #FFFFFF;
+      color: var(--ink);
+      cursor: pointer;
+      transition: background 120ms ease, border-color 120ms ease;
+    }
+    .delma-confirm-btn:hover { background: var(--bg); }
+    .delma-confirm-btn.primary {
+      background: var(--accent);
+      color: #FFFFFF;
+      border-color: var(--accent);
+    }
+    .delma-confirm-btn.primary:hover { background: #7A0000; border-color: #7A0000; }
+    .delma-confirm-btn.danger {
+      background: #8F0000;
+      color: #FFFFFF;
+      border-color: #8F0000;
+    }
+    .delma-confirm-btn.danger:hover { background: #6F0000; border-color: #6F0000; }
+    .side-panel-kind {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 3px 8px;
+      border-radius: 999px;
+      margin-bottom: 8px;
+      background: #F0EDE6;
+      color: var(--ink-secondary);
+    }
+    .side-panel-kind[data-kind="journey"]    { background: #E3D4F0; color: #3D2863; }
+    .side-panel-kind[data-kind="email"]      { background: #F9D1D9; color: #5F1F32; }
+    .side-panel-kind[data-kind="automation"] { background: #F8D6B3; color: #5E3700; }
+    .side-panel-kind[data-kind="sql"]        { background: #F5E4B5; color: #5C4500; }
+    .side-panel-kind[data-kind="de"]         { background: #D4E9D4; color: #2A5A2A; }
+    .side-panel-kind[data-kind="deSource"]   { background: #DDE5F5; color: #1E3A5F; }
+    .side-panel-kind[data-kind="cloudpage"]  { background: #C8E6E0; color: #1B3E3A; }
+    .side-panel-kind[data-kind="decision"]   { background: #FFE8A8; color: #5E4800; }
+    .side-panel-label {
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      margin-bottom: 10px;
+      color: var(--ink);
+      word-break: break-word;
+    }
+    .side-panel-note { color: var(--ink-secondary); }
+
+    /* Node active/dimmed states in the SVG when the user has selected one. */
+    .diagram-shell .node.node-dimmed,
+    .mermaid-inline .node.node-dimmed { opacity: 0.35; transition: opacity 140ms ease; }
+    .diagram-shell .node.node-active rect,
+    .diagram-shell .node.node-active polygon,
+    .mermaid-inline .node.node-active rect,
+    .mermaid-inline .node.node-active polygon {
+      filter: drop-shadow(0 2px 8px rgba(143, 0, 0, 0.35));
+      stroke-width: 3px !important;
+    }
+    .diagram-shell .node { transition: opacity 140ms ease; }
+
+    .diagram-card:hover {
+      box-shadow: 0 4px 14px rgba(143, 0, 0, 0.08);
+    }
+
+    /* Scrollable viewport for the diagram. Both axes scroll independently
+       so the user can pan the full diagram when it's wider or taller than
+       the card column. Scrollbars are FORCED VISIBLE (overflow: scroll
+       instead of auto) so the pan affordance isn't hidden by macOS's
+       "show scrollbars only while scrolling" default. */
+    .diagram-zoom-wrapper {
+      overflow-x: scroll;
+      overflow-y: scroll;
+      -webkit-overflow-scrolling: touch;
+      position: relative;
+      cursor: default;
+      touch-action: pan-x pan-y;
+      user-select: none;
+      min-height: 320px;
+      max-height: 70vh;
+      background: transparent;
+      border: none;
+      border-radius: 0;
+      padding: 0;
+      margin: 0;
+      box-shadow: none;
+      /* Reserve space for scrollbars on both axes, even when the OS hides
+         overlay scrollbars. Ensures the affordance is always visible. */
+      scrollbar-gutter: stable both-edges;
+      /* Firefox */
+      scrollbar-width: auto;
+      scrollbar-color: rgba(143, 0, 0, 0.55) rgba(0, 0, 0, 0.05);
+    }
+    /* Chrome/Safari — always-visible styled scrollbars */
+    .diagram-zoom-wrapper::-webkit-scrollbar {
+      width: 12px;
+      height: 12px;
+      -webkit-appearance: none;
+    }
+    .diagram-zoom-wrapper::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.06);
+      border-radius: 6px;
+    }
+    .diagram-zoom-wrapper::-webkit-scrollbar-thumb {
+      background: rgba(143, 0, 0, 0.55);
+      border-radius: 6px;
+      border: 2px solid rgba(255, 255, 255, 0.8);
+    }
+    .diagram-zoom-wrapper::-webkit-scrollbar-thumb:hover { background: rgba(143, 0, 0, 0.8); }
+    .diagram-zoom-wrapper::-webkit-scrollbar-corner { background: transparent; }
+
+
+    /* SVG renders at its natural viewBox size. The zoom engine scales via
+       transform: scale(). Initial zoom stays at 100% so horizontal/vertical
+       scrolling reveals the full diagram.
+       overflow:visible lets drop-shadows and stroke extents outside the
+       computed viewBox render instead of clipping the last shape's edge. */
+    .diagram-zoom-wrapper svg {
+      display: block;
+      margin: 0 auto;
+      transform-origin: top left;
+      overflow: visible;
+    }
+
+    .diagram-zoom-canvas {
+      position: relative;
+      width: fit-content;
+      min-width: 100%;
+      min-height: 100%;
+    }
+
+    @keyframes fadeInDiagram {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    .diagram-zoom-controls {
+      position: absolute;
+      top: 24px;          /* more breathing room from the top edge */
+      right: 24px;        /* more breathing room from the right edge */
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      z-index: 5;
+      align-items: flex-end;
+    }
+
+    .zoom-btn {
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--ink);
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+      transition: background 120ms ease;
+    }
+
+    .zoom-btn:hover { background: var(--chrome); }
+
+    .zoom-level {
+      font-size: 10px;
+      text-align: center;
+      color: var(--muted);
+      padding: 0;
+      margin: 0;
+    }
+
+    .documentation-shell {
+      width: 100%;
+      max-width: 100%;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .markdown-body h1 { font-size: 22px; font-weight: 700; margin: 24px 0 8px; letter-spacing: -0.02em; }
+    .markdown-body h2 { font-size: 17px; font-weight: 700; margin: 20px 0 6px; letter-spacing: -0.01em; }
+    .markdown-body h3 { font-size: 14px; font-weight: 600; margin: 16px 0 4px; }
+    .markdown-body p { margin: 6px 0; }
+    .markdown-body ul, .markdown-body ol { margin: 6px 0; padding-left: 20px; }
+    .markdown-body li { margin: 3px 0; }
+    .markdown-body code { background: #FFFFFF; padding: 2px 5px; border-radius: 4px; font-size: 11px; word-break: break-all; border: 1px solid var(--line); }
+    .markdown-body pre { background: #FFFFFF; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 11px; margin: 8px 0; max-width: 100%; border: 1px solid var(--line); }
+    .markdown-body pre code { background: none; padding: 0; word-break: normal; }
+    .markdown-body table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 12px; display: block; overflow-x: auto; }
+    .markdown-body th, .markdown-body td { border: 1px solid #e0e0e0; padding: 6px 10px; text-align: left; }
+    .markdown-body th { background: #FFFFFF; font-weight: 600; }
+    .markdown-body a { color: var(--accent); }
+    .markdown-body hr { border: none; border-top: 1px solid var(--line); margin: 16px 0; }
+    .markdown-body blockquote { border-left: 3px solid var(--accent); margin: 8px 0; padding: 4px 12px; color: var(--muted); }

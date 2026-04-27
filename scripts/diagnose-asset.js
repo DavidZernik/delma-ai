@@ -46,14 +46,8 @@ if (main) {
   console.log(main.content?.slice(0, 500))
   console.log('\n── slot.main.blocks keys ─────────')
   console.log(Object.keys(main.blocks || {}))
-  const firstKey = Object.keys(main.blocks || {})[0]
-  if (firstKey) {
-    console.log('\n── first block', firstKey, '───')
-    const b = main.blocks[firstKey]
-    console.log('keys:', Object.keys(b))
-    console.log('assetType', b.assetType)
-    console.log('content len', (b.content||'').length, 'design len', (b.design||'').length)
-    console.log('modelVersion', b.modelVersion, 'meta', JSON.stringify(b.meta))
+  for (const [k, b] of Object.entries(main.blocks || {})) {
+    console.log(`  block ${k}: assetType=${JSON.stringify(b.assetType)} contentLen=${(b.content||'').length} designLen=${(b.design||'').length}`)
   }
   console.log('\n── slot.main keys', Object.keys(main))
   console.log('slot.main.design len', (main.design||'').length)

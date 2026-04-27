@@ -20,6 +20,10 @@ export function useChatStream({ projectId, userId }) {
   const [status, setStatus] = useState('idle')   // 'idle' | 'streaming' | 'error' | 'loading'
   const [conversationId, setConversationId] = useState(null)
   const [currentTool, setCurrentTool] = useState(null)  // { name, input } while a tool is mid-flight
+  // Post-turn "should we update X with Y?" cards. Each entry is
+  // { id, tab, summary, tool, input } as produced server-side from the
+  // <delma-suggest> block.
+  const [suggestions, setSuggestions] = useState([])
   const abortRef = useRef(null)
   const clearInFlight = useRef(false)
   const toolClearTimerRef = useRef(null)
@@ -115,6 +119,13 @@ export function useChatStream({ projectId, userId }) {
           }
           if (parsed.event === 'done') {
             currentAssistant = null
+            continue
+          }
+          if (parsed.event === 'suggestions') {
+            // Agent proposed N saves at end of turn; append to any
+            // still-outstanding ones from prior turns.
+            const items = parsed.data?.items || []
+            if (items.length) setSuggestions(prev => [...prev, ...items])
             continue
           }
           if (parsed.event === 'message') {
@@ -219,7 +230,35 @@ export function useChatStream({ projectId, userId }) {
     setStatus('idle')
   }, [projectId])
 
-  return { messages, status, conversationId, send, abort, clear, currentTool }
+  const applySuggestion = useCallback(async (id) => {
+    try {
+      const res = await fetch('/api/chat/apply-suggestion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+        body: JSON.stringify({ id, projectId })
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        console.warn('[chat] apply-suggestion failed:', err.error || res.status)
+      }
+    } catch (err) {
+      console.warn('[chat] apply-suggestion error:', err.message)
+    }
+    setSuggestions(prev => prev.filter(s => s.id !== id))
+  }, [projectId])
+
+  const dismissSuggestion = useCallback(async (id) => {
+    try {
+      await fetch('/api/chat/dismiss-suggestion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+        body: JSON.stringify({ id })
+      })
+    } catch { /* best-effort — the UI drops it either way */ }
+    setSuggestions(prev => prev.filter(s => s.id !== id))
+  }, [])
+
+  return { messages, status, conversationId, send, abort, clear, currentTool, suggestions, applySuggestion, dismissSuggestion }
 }
 
 function parseFrame(frame) {

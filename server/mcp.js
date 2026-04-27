@@ -44,7 +44,7 @@ import { generateClaudeMd } from './lib/summarizer.js'
 import { applyOpsToTab, parseTabKey } from './lib/apply-op.js'
 import { supabase as sbRoot } from './lib/supabase.js'
 import { cleanMermaid } from './lib/clean-mermaid.js'
-import { getSfmcAccountsForOrg } from './lib/sfmc-account.js'
+import { loadSfmcAccounts } from './lib/local-config.js'
 import * as sfmcClient from './lib/sfmc-client.js'
 
 // ── Auto-summarizer ──────────────────────────────────────────────────────────
@@ -282,7 +282,7 @@ server.registerTool(
   'append_memory_note',
   {
     title: 'Append Memory Note',
-    description: 'LEGACY free-form append. Prefer typed ops: delma_add_decision / delma_add_action for decisions.md, delma_set_environment_key for environment.md. Use this only when the typed ops do not fit (e.g. unstructured prose).',
+    description: 'LEGACY free-form append. Prefer typed ops: mcp__delma__delma_add_decision / mcp__delma__delma_add_action for decisions.md, mcp__delma__delma_set_environment_key for environment.md. Use this only when the typed ops do not fit (e.g. unstructured prose).',
     inputSchema: {
       file: z.enum(['environment.md', 'decisions.md']),
       note: z.string(),
@@ -526,7 +526,7 @@ server.registerTool('delma_arch_set_node_note', {
   title: 'Architecture: Set Node Note',
   description: `Set the short floating annotation that appears beside this node in the diagram itself — 2-5 words, e.g. "master source DE", "entry source", "email sequence".
 
-For the long-form explanation shown in the click-to-reveal modal, use \`delma_arch_set_node_description\` instead.
+For the long-form explanation shown in the click-to-reveal modal, use \`mcp__delma__delma_arch_set_node_description\` instead.
 
 Pass empty string for \`note\` to remove.`,
   inputSchema: { id: z.string(), note: z.string() }
@@ -599,11 +599,11 @@ server.registerTool(
   {
     title: 'Sync Conversation Summary (LEGACY)',
     description: `LEGACY bulk-sync tool. STRONGLY PREFER the typed-op tools instead:
-- delma_add_person / delma_set_role / delma_add_reporting_line for People
-- delma_add_playbook_rule for Playbook
-- delma_set_environment_key for Environment IDs
-- delma_add_decision / delma_add_action for Decisions & Actions
-- save_diagram_view for Architecture diagram updates
+- mcp__delma__delma_add_person / mcp__delma__delma_set_role / mcp__delma__delma_add_reporting_line for People
+- mcp__delma__delma_add_playbook_rule for Playbook
+- mcp__delma__delma_set_environment_key for Environment IDs
+- mcp__delma__delma_add_decision / mcp__delma__delma_add_action for Decisions & Actions
+- mcp__delma__save_diagram_view for Architecture diagram updates
 
 The typed-op tools are deterministic, surgical, and can't corrupt content.
 Only fall back to this tool when the typed ops genuinely don't fit (bulk
@@ -757,12 +757,11 @@ server.registerResource(
 // (default: child) and resolve the account from the active project's org.
 
 async function resolveSfmcAccount(bu = 'child') {
-  const { projectId } = requireContext()
-  const { data: ws } = await sbRoot.from('projects').select('org_id').eq('id', projectId).single()
-  if (!ws?.org_id) throw new Error('no org for active project')
-  const accounts = await getSfmcAccountsForOrg(ws.org_id)
+  // Creds live in ~/.config/sfmc/.env — one set of BUs per Delma install,
+  // shared across every project. No org-scoped lookup needed.
+  const accounts = loadSfmcAccounts()
   const acct = accounts[bu] || accounts.child || accounts.parent
-  if (!acct) throw new Error(`no SFMC account connected for this org (asked for "${bu}" BU)`)
+  if (!acct) throw new Error(`no SFMC credentials configured (asked for "${bu}" BU). Populate ~/.config/sfmc/.env.`)
   return acct
 }
 
@@ -848,8 +847,8 @@ rows: [
   inputSchema: {
     customerKey: z.string(),
     rows: z.array(z.object({
-      keys: z.record(z.any()),
-      values: z.record(z.any()).optional()
+      keys: z.record(z.string(), z.any()),
+      values: z.record(z.string(), z.any()).optional()
     })),
     bu: BU_FIELD
   }
