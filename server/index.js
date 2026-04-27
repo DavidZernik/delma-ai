@@ -29,6 +29,7 @@ import {
   handleLocalHistory,
   handleLocalClear
 } from './chat/local-stream.js'
+import { handleLocalWatch } from './chat/watch.js'
 import { makeLimiter } from './lib/rate-limit.js'
 import { encrypt } from './lib/crypto.js'
 import { initLogStream, isLogStreamEnabled, attachSseClient } from './lib/log-stream.js'
@@ -1051,6 +1052,11 @@ app.post('/api/local/chat/apply-suggestion', handleLocalApplySuggestion)
 app.post('/api/local/chat/dismiss-suggestion', handleLocalDismissSuggestion)
 app.get('/api/local/chat/history', handleLocalHistory)
 app.post('/api/local/chat/clear', handleLocalClear)
+
+// SSE: pushes a `change` event when the project's CLAUDE.md is modified
+// outside the app (IDE save, Claude Code rewrite, etc.) so the UI can
+// re-render without a manual refresh.
+app.get('/api/local/watch', handleLocalWatch)
 
 // Apply a suggestion the agent emitted during its last turn. Body:
 // { id: '<suggestion id>', projectId: '<uuid>' }. The server looks up the

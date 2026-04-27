@@ -176,7 +176,10 @@ export async function handleLocalChatStream(req, res) {
   //      ~/.config/delma/config.json under `anthropic_api_key`.
   // If neither is present, ask them to sign in.
   const sessionToken = cfg.session?.access_token
-  const cloudProxyUrl = cfg.cloud_proxy_url || process.env.DELMA_CLOUD_PROXY_URL || 'http://localhost:3002/v1'
+  // Default points at the production proxy so installs without local env
+  // config Just Work. Override via cloud_proxy_url in ~/.config/delma/config.json
+  // or DELMA_CLOUD_PROXY_URL env var (used during dev to hit the local 3002).
+  const cloudProxyUrl = cfg.cloud_proxy_url || process.env.DELMA_CLOUD_PROXY_URL || 'https://delma-ai.onrender.com/v1'
   const usingProxy = !!sessionToken
   const anthropicKey = sessionToken || cfg.anthropic_api_key
   if (!anthropicKey) {

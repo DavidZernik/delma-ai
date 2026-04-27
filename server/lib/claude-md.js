@@ -37,9 +37,48 @@ const SECTION_HEADINGS = {
   'General Notes':           'generalNotes',
   'File Locations and Keys': 'fileLocations'
 }
-const KEY_TO_HEADING = Object.fromEntries(
-  Object.entries(SECTION_HEADINGS).map(([heading, key]) => [key, heading])
-)
+
+// Legacy heading aliases. Files written by older Delma versions had
+// different section names; we fold their content into the closest current
+// section on read so nothing's lost. The next write serializes with the
+// current headings, completing the migration silently. If a legacy heading
+// AND a current heading both exist, the merge concatenates them — better
+// than overwriting if the user has both for some reason.
+const LEGACY_HEADINGS = {
+  'General Patterns and Docs':  'generalNotes',  // direct rename
+  'Integrations':               'generalNotes',  // closest current section
+  'People':                     'generalNotes',  // closest current section
+  'Files, Locations, and Keys': 'fileLocations', // direct rename, comma-style
+  'Files Locations and Keys':   'fileLocations'  // direct rename, no commas
+}
+
+// We only emit the canonical names back out — legacy names exist only on
+// the read path.
+const KEY_TO_HEADING = {
+  projectDetails: 'Project Details',
+  generalNotes:   'General Notes',
+  fileLocations:  'File Locations and Keys'
+}
+
+// True if a section body has no real content — only seed-template prose
+// or placeholder hints. Used to drop legacy starter content during the
+// fold-into-current-sections migration. Heuristic: zero bullets, zero
+// subsections, and contains an `_(...)_` italic placeholder line OR is
+// just a single short description sentence.
+function isPlaceholderOnly(body) {
+  if (!body) return true
+  const lines = body.split('\n').map(l => l.trim()).filter(Boolean)
+  if (lines.length === 0) return true
+  const hasBullet = lines.some(l => /^[-*]\s/.test(l))
+  const hasH3 = lines.some(l => /^###\s/.test(l))
+  const hasFence = lines.some(l => /^```/.test(l))
+  if (hasBullet || hasH3 || hasFence) return false
+  const hasPlaceholder = lines.some(l => /^_\([^)]+\)_$/.test(l))
+  if (hasPlaceholder) return true
+  // No structure at all + no placeholder + only a sentence or two → also
+  // treat as placeholder; the legacy seeds were always one-paragraph hints.
+  return lines.length <= 2
+}
 
 // Parse a CLAUDE.md string into { title, summary, sections: {...} }.
 // Tolerant: missing sections → empty strings. Content before the first
@@ -58,16 +97,23 @@ export function parseClaudeMd(text) {
   if (summaryMatch && summaryMatch[1].trim()) summary = summaryMatch[1].trim()
 
   // Split on H2 headings. Each match captures (heading, body-until-next-H2).
+  // Legacy headings fold into their current-section equivalent; if both an
+  // old and new heading point at the same key, concatenate so nothing's
+  // lost in transit. Placeholder-only bodies (seed templates with no real
+  // user content) are dropped so they don't pollute the merged section.
   const h2Re = /^##\s+(.+?)\s*$/gm
   const matches = [...src.matchAll(h2Re)]
   for (let i = 0; i < matches.length; i++) {
     const m = matches[i]
     const heading = m[1].trim()
-    const key = SECTION_HEADINGS[heading]
-    if (!key) continue // unrecognized sub-heading — ignored here
+    const key = SECTION_HEADINGS[heading] || LEGACY_HEADINGS[heading]
+    if (!key) continue
     const bodyStart = m.index + m[0].length
     const bodyEnd = i + 1 < matches.length ? matches[i + 1].index : src.length
-    sections[key] = src.slice(bodyStart, bodyEnd).replace(/^\s*\n/, '').trimEnd()
+    const body = src.slice(bodyStart, bodyEnd).replace(/^\s*\n/, '').trimEnd()
+    if (isPlaceholderOnly(body)) continue
+    if (sections[key]) sections[key] += '\n\n' + body
+    else sections[key] = body
   }
 
   return { title, summary, sections }

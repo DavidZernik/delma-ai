@@ -78,6 +78,16 @@ const chat = initChat({
   onDocUpdated: refreshSectionsFromDisk
 })
 
+// One open EventSource at a time. Closed and reopened on every project
+// switch so we're never watching the wrong folder.
+let watchSource = null
+function startWatch(path) {
+  if (watchSource) { try { watchSource.close() } catch { /* ignored */ } }
+  watchSource = new EventSource(`/api/local/watch?path=${encodeURIComponent(path)}`)
+  watchSource.addEventListener('change', () => { refreshSectionsFromDisk() })
+  watchSource.onerror = () => { /* server is down or socket closed; browser auto-reconnects */ }
+}
+
 const picker = initPicker({
   els,
   onOpen: async (doc) => {
@@ -87,6 +97,7 @@ const picker = initPicker({
     state.sections = doc.sections || {}
     await workspace.show({ path: doc.path, name: doc.name })
     await chat.load()
+    startWatch(doc.path)
   }
 })
 
