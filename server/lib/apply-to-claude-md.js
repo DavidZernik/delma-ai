@@ -38,19 +38,11 @@ const TOOL_MAP = {
   'mcp__delma__delma_complete_action':         { section: 'projectDetails', sub: 'Actions',   op: 'checkTodo' },
   'mcp__delma__delma_complete_action_by_text': { section: 'projectDetails', sub: 'Actions',   op: 'checkTodo' },
 
-  // Environment (key/value)
-  'mcp__delma__delma_set_environment_key':     { section: 'projectDetails', sub: 'Environment', op: 'upsertKV' },
+  // File Locations and Keys (key/value lookup table)
+  'mcp__delma__delma_set_environment_key':     { section: 'fileLocations', sub: null, op: 'upsertKV' },
 
-  // Playbook / General Patterns
-  'mcp__delma__delma_add_playbook_rule':       { section: 'patterns', sub: null, op: 'add' },
-
-  // People
-  'mcp__delma__delma_add_person':              { section: 'people', sub: null, op: 'addPerson' },
-  'mcp__delma__delma_set_role':                { section: 'people', sub: null, op: 'setPersonRole' },
-  'mcp__delma__delma_remove_person':           { section: 'people', sub: null, op: 'removePerson' },
-  'mcp__delma__delma_set_manager':             { section: 'people', sub: null, op: 'setManager' },
-  'mcp__delma__delma_add_reporting_line':      { section: 'people', sub: 'Reporting lines', op: 'add' },
-  'mcp__delma__delma_remove_reporting_line':   { section: 'people', sub: 'Reporting lines', op: 'removeLine' }
+  // General Notes (conventions, rules, unwritten norms)
+  'mcp__delma__delma_add_playbook_rule':       { section: 'generalNotes', sub: null, op: 'add' }
 }
 
 // ── Sub-section helpers ──────────────────────────────────────────────────

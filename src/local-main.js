@@ -5,12 +5,14 @@
 import { initPicker } from './local/picker.js'
 import { initWorkspace } from './local/workspace.js'
 import { initChat } from './local/chat.js'
+import { initAuth } from './local/auth.js'
 import { initEmailModal } from './email-modal.js'
 
 initEmailModal()
 
 const els = {
   workspace:      document.getElementById('workspace'),
+  login:          document.getElementById('login'),
   picker:         document.getElementById('picker'),
   pathInput:      document.getElementById('pathInput'),
   openBtn:        document.getElementById('openBtn'),
@@ -27,7 +29,10 @@ const els = {
   chatInput:      document.getElementById('chatInput'),
   chatSendBtn:    document.getElementById('chatSendBtn'),
   chatClearBtn:   document.getElementById('chatClearBtn'),
-  openEmailBtn:   document.getElementById('openEmailBtn')
+  openEmailBtn:   document.getElementById('openEmailBtn'),
+  accountWidget:  document.getElementById('accountWidget'),
+  accountEmail:   document.getElementById('accountEmail'),
+  signOutBtn:     document.getElementById('signOutBtn')
 }
 
 // Single source of truth for "what project is open right now." Modules
@@ -93,13 +98,24 @@ els.openEmailBtn.addEventListener('click', () => {
   else alert('Email builder not loaded yet.')
 })
 
-// Boot: if ?path=/some/folder is in the URL, auto-open; otherwise the
-// picker shows its recent-folders list and waits for input.
-async function boot() {
-  const params = new URLSearchParams(window.location.search)
-  const urlPath = params.get('path')
-  if (urlPath) { await picker.tryOpen(urlPath); return }
-  await picker.loadRecent()
-}
+// Auth gate. If signed in, the picker (or auto-open from ?path=…) takes
+// over; if not, the login screen renders into #login and we wait. Sign-out
+// reloads the page so all module state resets cleanly.
+const auth = initAuth({
+  els,
+  onSignedIn: async (status) => {
+    els.accountWidget.hidden = false
+    els.accountEmail.textContent = status.email || ''
+    els.picker.hidden = false
+    const params = new URLSearchParams(window.location.search)
+    const urlPath = params.get('path')
+    if (urlPath) { await picker.tryOpen(urlPath); return }
+    await picker.loadRecent()
+  }
+})
+els.signOutBtn.addEventListener('click', () => auth.signOut())
 
-boot().catch(err => console.error('[local] boot failed:', err))
+// Hide the picker until auth resolves so the login screen has the stage.
+els.picker.hidden = true
+
+auth.start().catch(err => console.error('[local] boot failed:', err))

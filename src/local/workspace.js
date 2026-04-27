@@ -1,26 +1,35 @@
-// The four-tab workspace: renders the active section of CLAUDE.md as
-// markdown (with Mermaid code blocks turned into inline SVG), and hands
-// off to the editor module when the user clicks Edit. Holds no data
-// beyond the sections it was given — parent owns state.
+// The three-tab workspace: renders the active section of CLAUDE.md via the
+// diagram module (which handles mermaid + click-to-reveal node modals when
+// a "### Step descriptions" subsection is present), and hands off to the
+// editor when the user clicks Edit. Holds no data beyond the sections it
+// was given — parent owns state.
 
 import { marked } from 'marked'
-import mermaid from 'mermaid'
 import { escapeHtml } from './util.js'
 import { initEditor } from './editor.js'
+import { renderSection } from './diagram.js'
+import { initSfmcTab } from './sfmc-tab.js'
 
 marked.setOptions({ breaks: true, gfm: true })
-mermaid.initialize({ startOnLoad: false, theme: 'neutral', flowchart: { useMaxWidth: true, curve: 'basis' } })
 
+// Most tabs are slices of the project's CLAUDE.md (one ## heading per tab).
+// "Connections and Passwords" is the exception: its data lives in
+// machine-local config files (~/.config/sfmc/.env, future ~/.config/<platform>/)
+// because credentials belong to the machine, not the project. Tab UI is
+// identical; the renderer just sources from a different place. Today it
+// only knows SFMC; future platforms will compose into the same tab.
 const TAB_ORDER = [
-  { key: 'projectDetails', label: 'Project Details' },
-  { key: 'integrations',   label: 'Integrations' },
-  { key: 'patterns',       label: 'General Patterns and Docs' },
-  { key: 'people',         label: 'People' }
+  { key: 'projectDetails',  label: 'Project Details' },
+  { key: 'generalNotes',    label: 'General Notes' },
+  { key: 'fileLocations',   label: 'File Locations and Keys' },
+  { key: 'connections',     label: 'Connections and Passwords', external: true }
 ]
 
 export function initWorkspace({ els, getState, saveSection }) {
   let activeTab = 'projectDetails'
   let editing = false
+
+  const sfmcTab = initSfmcTab()
 
   const editor = initEditor({
     els,
@@ -57,7 +66,21 @@ export function initWorkspace({ els, getState, saveSection }) {
     }
   }
 
+  function activeTabDef() {
+    return TAB_ORDER.find(t => t.key === activeTab) || TAB_ORDER[0]
+  }
+
   async function renderActivePane() {
+    const def = activeTabDef()
+    // External-data tabs (SFMC Connections) have their own in-card edit
+    // affordances, so the workspace-level Edit/Save bar is hidden for them.
+    if (def.external) {
+      editing = false
+      els.editBar.hidden = true
+      els.editStatus.textContent = ''
+      if (def.key === 'connections') await sfmcTab.render(els.pane)
+      return
+    }
     els.editBar.hidden = false
     els.editToggleBtn.textContent = editing ? 'Cancel' : 'Edit'
     els.editStatus.textContent = ''
@@ -67,8 +90,7 @@ export function initWorkspace({ els, getState, saveSection }) {
       els.pane.innerHTML = `<p class="empty-hint">This section is empty. Click Edit to add content, or chat with Delma to have it propose updates.</p>`
       return
     }
-    els.pane.innerHTML = marked.parse(content)
-    await renderMermaidBlocks(els.pane)
+    await renderSection(els.pane, content)
   }
 
   els.editToggleBtn.addEventListener('click', async () => {
@@ -76,25 +98,6 @@ export function initWorkspace({ els, getState, saveSection }) {
     if (editing) editor.paint()
     else await renderActivePane()
   })
-
-  // Walk rendered markdown, replace each mermaid code block with an
-  // inline-rendered SVG in a card host. Failures log and leave the code
-  // visible — better than a silent missing diagram.
-  async function renderMermaidBlocks(root) {
-    const codeBlocks = root.querySelectorAll('code.language-mermaid')
-    let i = 0
-    for (const code of codeBlocks) {
-      const src = code.textContent
-      const id = `mmd-${Date.now()}-${i++}`
-      try {
-        const { svg } = await mermaid.render(id, src)
-        const host = document.createElement('div')
-        host.className = 'diagram-host'
-        host.innerHTML = svg
-        code.closest('pre').replaceWith(host)
-      } catch (err) { console.warn('[local] mermaid render failed:', err.message) }
-    }
-  }
 
   return { show, renderActivePane, getActiveTab: () => activeTab }
 }

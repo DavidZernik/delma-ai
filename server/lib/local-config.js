@@ -68,6 +68,20 @@ function serializeEnv(obj) {
     .join('\n') + '\n'
 }
 
+// Stash a Delma session (access_token, email) into the local config so the
+// app stays signed in across restarts. We persist the access_token only
+// (not refresh — re-sign-in is fine when it expires; this is a desktop tool
+// not a 24/7 service) and the user's email for UI display.
+export function saveDelmaSession({ access_token, email, expires_at }) {
+  return saveDelmaConfig({ session: { access_token, email, expires_at } })
+}
+export function clearDelmaSession() {
+  const cur = loadDelmaConfig()
+  delete cur.session
+  atomicWrite(DELMA_CONFIG_PATH, JSON.stringify(cur, null, 2) + '\n', { mode: 0o600 })
+  return cur
+}
+
 // Read ~/.config/delma/config.json. Returns {} if missing — first-run UX
 // handles the missing-key case; this loader doesn't throw on its own.
 export function loadDelmaConfig() {

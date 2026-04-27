@@ -14,32 +14,28 @@
 //   ## Project Details
 //   <anything — Mermaid flowcharts, decision logs, open actions>
 //
-//   ## Integrations
-//   <external systems, BUs, credentials references (not secrets)>
+//   ## General Notes
+//   <conventions, rules, unwritten norms, links to longer docs>
 //
-//   ## General Patterns and Docs
-//   <conventions, rules, links to longer docs>
-//
-//   ## People
-//   <stakeholders, owners, open questions by owner>
+//   ## File Locations and Keys
+//   <env vars, MIDs, customer keys, SFMC folder paths — the boring lookup table>
 //
 // Sections that don't exist on read are treated as empty strings. Writes
-// always emit all four in canonical order so files stay predictable.
+// always emit all three in canonical order so files stay predictable.
 
 import { readFileSync, existsSync } from 'node:fs'
 import { basename, resolve as resolvePath } from 'node:path'
 import { atomicWrite } from './local-config.js'
 
-export const SECTION_KEYS = ['projectDetails', 'integrations', 'patterns', 'people']
+export const SECTION_KEYS = ['projectDetails', 'generalNotes', 'fileLocations']
 
 // Human heading → internal key. Kept strict — if the user renames a heading
 // we treat it as custom content inside the parent section rather than a new
 // recognized section.
 const SECTION_HEADINGS = {
-  'Project Details':           'projectDetails',
-  'Integrations':              'integrations',
-  'General Patterns and Docs': 'patterns',
-  'People':                    'people'
+  'Project Details':         'projectDetails',
+  'General Notes':           'generalNotes',
+  'File Locations and Keys': 'fileLocations'
 }
 const KEY_TO_HEADING = Object.fromEntries(
   Object.entries(SECTION_HEADINGS).map(([heading, key]) => [key, heading])
@@ -50,7 +46,7 @@ const KEY_TO_HEADING = Object.fromEntries(
 // recognized ## heading is treated as the "preamble" (title + summary).
 export function parseClaudeMd(text) {
   const src = String(text || '')
-  const sections = { projectDetails: '', integrations: '', patterns: '', people: '' }
+  const sections = { projectDetails: '', generalNotes: '', fileLocations: '' }
 
   // Extract the H1 title + optional one-line summary from the preamble.
   let title = null
@@ -123,43 +119,41 @@ export function starterTemplate({ projectName, oneLiner } = {}) {
       projectDetails: [
         'System flow, decisions, and open actions for this project.',
         '',
-        '```mermaid',
-        'flowchart TD',
-        '  Start[Define the first component] --> Next[Next step]',
-        '```',
-        '',
         '### Decisions',
-        '_(empty — nothing decided yet)_',
+        '_(empty)_',
         '',
         '### Actions',
-        '_(empty — nothing open yet)_'
+        '_(empty)_'
       ].join('\n'),
-      integrations: [
-        'External systems this project touches: BUs, APIs, databases.',
-        '',
-        '_(none configured yet)_'
-      ].join('\n'),
-      patterns: [
-        'Conventions, rules, and unwritten norms that shape how work happens here.',
+      generalNotes: [
+        'Conventions, rules, unwritten norms, links to longer docs.',
         '',
         '_(none captured yet)_'
       ].join('\n'),
-      people: [
-        'Stakeholders, owners, and open questions assigned by owner.',
+      fileLocations: [
+        'Env vars, business-unit IDs, customer keys, and SFMC folder paths used by this project. This is the lookup table — paste an ID once, find it forever.',
         '',
-        '_(none added yet)_'
+        '_(none captured yet)_'
       ].join('\n')
     }
   }
 }
 
 // Idempotent: if CLAUDE.md exists, return it. If not, seed from the template
-// and return the seeded content. Used by the folder-open flow so a new
-// project gets a usable file on first click.
-export function readOrSeedClaudeMd(projectDir, seed = {}) {
+// and return the seeded content. `inheritedSections` (optional) lets the
+// caller paste in already-good content for the org-level sections so a new
+// project starts with the team's conventions instead of empty placeholders.
+// Project Details is never inherited — that's project-specific by design.
+export function readOrSeedClaudeMd(projectDir, { projectName, oneLiner, inheritedSections } = {}) {
   const existing = readClaudeMd(projectDir)
   if (existing) return existing
-  const parsed = starterTemplate(seed)
+  const parsed = starterTemplate({ projectName, oneLiner })
+  if (inheritedSections) {
+    for (const k of ['generalNotes', 'fileLocations']) {
+      const inherited = inheritedSections[k]
+      if (inherited && inherited.trim()) parsed.sections[k] = inherited
+    }
+  }
   const filePath = writeClaudeMd(projectDir, parsed)
   return { filePath, raw: serializeClaudeMd(parsed), ...parsed }
 }

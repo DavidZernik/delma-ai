@@ -60,13 +60,12 @@ function buildLocalSystemPrompt({ projectDir, claudeMdRaw }) {
   lines.push(`]`)
   lines.push(`</delma-suggest>`)
   lines.push(``)
-  lines.push(`**"tab" must be one of:** \`Project Details\`, \`General Patterns and Docs\`, \`People\`.`)
+  lines.push(`**"tab" must be one of:** \`Project Details\`, \`General Notes\`, \`File Locations and Keys\`.`)
   lines.push(``)
   lines.push(`**Routing:**`)
   lines.push(`- Goals, definitions, open questions → tab: \`Project Details\`, tool: \`mcp__delma__delma_add_decision\` (locked-in facts) or \`mcp__delma__delma_add_action\` (open items).`)
-  lines.push(`- Folder/DE/customer-key/URL specifics → tab: \`Project Details\`, tool: \`mcp__delma__delma_set_environment_key\` with \`{"key": "...", "value": "..."}\`.`)
-  lines.push(`- Operational rules / unwritten norms → tab: \`General Patterns and Docs\`, tool: \`mcp__delma__delma_add_playbook_rule\`.`)
-  lines.push(`- Stakeholders, roles, reporting lines → tab: \`People\`, tool: \`mcp__delma__delma_add_person\` / \`delma_add_reporting_line\`.`)
+  lines.push(`- Operational rules, unwritten norms, conventions → tab: \`General Notes\`, tool: \`mcp__delma__delma_add_playbook_rule\`.`)
+  lines.push(`- Folder paths, DE names, customer keys, MIDs, URLs, env vars → tab: \`File Locations and Keys\`, tool: \`mcp__delma__delma_set_environment_key\` with \`{"key": "...", "value": "..."}\`.`)
   lines.push(``)
   lines.push(`**If nothing is worth saving, OMIT the block entirely.** No empty arrays, no placeholders. Most messages won't have a block.`)
   lines.push(``)
@@ -84,7 +83,7 @@ function parseSuggestions(text) {
   let parsed
   try { parsed = JSON.parse(body) } catch { return [] }
   if (!Array.isArray(parsed)) return []
-  const ALLOWED = new Set(['Project Details', 'General Patterns and Docs', 'People'])
+  const ALLOWED = new Set(['Project Details', 'General Notes', 'File Locations and Keys'])
   return parsed.filter(s =>
     s && typeof s === 'object'
     && ALLOWED.has(s.tab)
@@ -170,8 +169,18 @@ export async function handleLocalChatStream(req, res) {
   if (!existsSync(projectDir)) return res.status(404).json({ error: `folder not found: ${projectDir}` })
 
   const cfg = loadDelmaConfig()
-  if (!cfg.anthropic_api_key) {
-    return res.status(400).json({ error: `No Anthropic API key configured. Save one to ${CONFIG_PATHS.delmaConfig}.` })
+  // Two ways to talk to Anthropic:
+  //   1) The user is signed into Delma → use the cloud proxy with their JWT
+  //      as the API key. No local Anthropic key required.
+  //   2) Power-user fallback — they put a raw Anthropic key in
+  //      ~/.config/delma/config.json under `anthropic_api_key`.
+  // If neither is present, ask them to sign in.
+  const sessionToken = cfg.session?.access_token
+  const cloudProxyUrl = cfg.cloud_proxy_url || process.env.DELMA_CLOUD_PROXY_URL || 'http://localhost:3002/v1'
+  const usingProxy = !!sessionToken
+  const anthropicKey = sessionToken || cfg.anthropic_api_key
+  if (!anthropicKey) {
+    return res.status(401).json({ error: 'sign in to Delma to use chat' })
   }
 
   // Load project state + history.
@@ -206,7 +215,12 @@ export async function handleLocalChatStream(req, res) {
         systemPrompt,
         env: {
           ...process.env,
-          ANTHROPIC_API_KEY: cfg.anthropic_api_key,
+          ANTHROPIC_API_KEY: anthropicKey,
+          // When using the proxy, point the SDK at it. Stripping any path
+          // to /v1 isn't needed — the SDK appends /v1/messages itself when
+          // ANTHROPIC_BASE_URL ends without it; here we pass the full base
+          // including /v1 so the SDK's path concatenation lands right.
+          ...(usingProxy ? { ANTHROPIC_BASE_URL: cloudProxyUrl } : {}),
           DELMA_PROJECT_DIR: projectDir
         },
         mcpServers: delmaMcpConfig(projectDir),

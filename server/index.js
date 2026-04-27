@@ -32,10 +32,11 @@ import {
 import { makeLimiter } from './lib/rate-limit.js'
 import { encrypt } from './lib/crypto.js'
 import { initLogStream, isLogStreamEnabled, attachSseClient } from './lib/log-stream.js'
-import { loadDelmaConfig, saveDelmaConfig, loadSfmcAccounts, saveSfmcEnv, getConfigStatus, CONFIG_PATHS, safeResolveProjectPath } from './lib/local-config.js'
+import { loadDelmaConfig, saveDelmaConfig, saveDelmaSession, clearDelmaSession, loadSfmcAccounts, saveSfmcEnv, getConfigStatus, CONFIG_PATHS, safeResolveProjectPath } from './lib/local-config.js'
 import { readClaudeMd, readOrSeedClaudeMd, writeClaudeMd, parseClaudeMd, serializeClaudeMd, starterTemplate, SECTION_KEYS } from './lib/claude-md.js'
-import { existsSync, statSync } from 'node:fs'
-import { resolve as resolvePath, basename } from 'node:path'
+import { existsSync, statSync, mkdirSync } from 'node:fs'
+import { resolve as resolvePath, basename, dirname as pathDirname, join as pathJoin } from 'node:path'
+import { findSiblings, readInheritedSections } from './lib/siblings.js'
 
 // Install before anything else logs, so startup traces land in the ring buffer.
 if (isLogStreamEnabled()) initLogStream()
@@ -115,6 +116,110 @@ app.get('/api/config/status', (req, res) => {
   catch (err) { res.status(500).json({ error: err.message }) }
 })
 
+// ── Delma auth (cloud-backed) ─────────────────────────────────────────────
+// The local app holds a Supabase JWT after sign-in and uses it as the API
+// key when proxying chat through Delma's cloud server. Two flows:
+//   - Production: signInWithOtp sends a magic link email; the email's URL
+//     redirects to /auth/callback which extracts the access_token from the
+//     URL hash and POSTs it here.
+//   - Dev (DELMA_DEV_AUTH=1): admin.generateLink + verifyOtp mints a
+//     session server-side without an email round-trip, so we can iterate
+//     locally without a working SMTP.
+
+const SUPABASE_AUTH_URL = process.env.SUPABASE_URL
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY
+const DEV_AUTH = process.env.DELMA_DEV_AUTH === '1'
+
+function authClient() {
+  return createClient(SUPABASE_AUTH_URL || '', SUPABASE_ANON_KEY || '', {
+    auth: { persistSession: false, autoRefreshToken: false }
+  })
+}
+function adminClient() {
+  return createClient(SUPABASE_AUTH_URL || '', SUPABASE_SERVICE_KEY || '', {
+    auth: { persistSession: false, autoRefreshToken: false }
+  })
+}
+
+// GET /api/auth/status — am I signed in? Returns email if so.
+app.get('/api/auth/status', (req, res) => {
+  const cfg = loadDelmaConfig()
+  const s = cfg.session
+  res.json({
+    signedIn: !!s?.access_token,
+    email: s?.email || null,
+    devAuth: DEV_AUTH
+  })
+})
+
+// POST /api/auth/sign-in — start sign-in. In production: triggers magic
+// link email. In DEV_AUTH mode: mints a session server-side and stores it
+// directly so the next request is signed in.
+app.post('/api/auth/sign-in', async (req, res) => {
+  const { email } = req.body || {}
+  if (!email || typeof email !== 'string') return res.status(400).json({ error: 'email required' })
+  if (!SUPABASE_AUTH_URL) return res.status(500).json({ error: 'auth not configured (SUPABASE_URL missing)' })
+
+  if (DEV_AUTH) {
+    if (!SUPABASE_SERVICE_KEY) return res.status(500).json({ error: 'DELMA_DEV_AUTH set but SUPABASE_SERVICE_ROLE_KEY missing' })
+    const sb = adminClient()
+    let userId
+    try {
+      const { data: list } = await sb.auth.admin.listUsers()
+      const existing = list?.users?.find(u => u.email === email)
+      if (existing) userId = existing.id
+      else {
+        const { data, error } = await sb.auth.admin.createUser({ email, email_confirm: true })
+        if (error) return res.status(500).json({ error: error.message })
+        userId = data.user.id
+      }
+      const { data: link, error: linkErr } = await sb.auth.admin.generateLink({ type: 'magiclink', email })
+      if (linkErr) return res.status(500).json({ error: linkErr.message })
+      const { data: verified, error: vErr } = await sb.auth.verifyOtp({
+        type: 'magiclink',
+        token_hash: link.properties.hashed_token
+      })
+      if (vErr) return res.status(500).json({ error: vErr.message })
+      saveDelmaSession({
+        access_token: verified.session.access_token,
+        email,
+        expires_at: verified.session.expires_at
+      })
+      return res.json({ ok: true, mode: 'dev', signedIn: true, email })
+    } catch (err) { return res.status(500).json({ error: err.message }) }
+  }
+
+  // Production flow: send a real magic link email. The email's URL takes
+  // the user to /auth/callback in this same app, which finishes the login.
+  const sb = authClient()
+  const redirectTo = `${req.protocol}://${req.get('host')}/auth/callback`
+  const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: redirectTo } })
+  if (error) return res.status(500).json({ error: error.message })
+  res.json({ ok: true, mode: 'email', message: 'check your email for the sign-in link' })
+})
+
+// POST /api/auth/callback — frontend posts the access_token it pulled from
+// the URL hash after the magic link redirect. Server validates it once
+// (calls /v1/me on Supabase) and stores the session locally.
+app.post('/api/auth/callback', async (req, res) => {
+  const { access_token, expires_at } = req.body || {}
+  if (!access_token) return res.status(400).json({ error: 'access_token required' })
+  const sb = adminClient()
+  const { data, error } = await sb.auth.getUser(access_token)
+  if (error || !data?.user) return res.status(401).json({ error: error?.message || 'invalid token' })
+  saveDelmaSession({ access_token, email: data.user.email, expires_at })
+  res.json({ ok: true, signedIn: true, email: data.user.email })
+})
+
+// POST /api/auth/sign-out — drop the local session. The cloud server's
+// session lives until natural JWT expiry; we don't have a sign-out webhook
+// because the JWT is stateless.
+app.post('/api/auth/sign-out', (req, res) => {
+  clearDelmaSession()
+  res.json({ ok: true })
+})
+
 // POST /api/config/delma — save Anthropic key + optional defaults.
 // Body: { anthropic_api_key: "sk-ant-...", default_project_dir?: "/abs/path" }
 app.post('/api/config/delma', (req, res) => {
@@ -134,21 +239,76 @@ app.post('/api/config/delma', (req, res) => {
 // source of project state is <folder>/CLAUDE.md; Delma reads/writes it,
 // the user edits it in their IDE, git tracks history.
 
-// GET /api/local/open?path=/abs/folder
-// Returns { path, title, summary, sections, seeded } where `seeded` is
-// true iff we created CLAUDE.md from the template just now. Adds the
-// folder to the recent-projects list in ~/.config/delma/config.json.
+// GET /api/local/open?path=/abs/folder[&inheritFrom=/abs/sibling]
+// Three response modes:
+//   1) Folder + CLAUDE.md exist → opens normally.
+//   2) Folder missing or CLAUDE.md missing, inheritFrom unset, 2+ siblings
+//      with a CLAUDE.md exist → returns { needsSeed: true, siblings: [...] }
+//      so the picker can prompt the user.
+//   3) Folder missing or CLAUDE.md missing, seed strategy is determinable
+//      (0 siblings, 1 sibling, or inheritFrom provided) → folder is created
+//      if needed and CLAUDE.md is seeded, with shared sections (General
+//      Notes + File Locations and Keys) inherited when applicable. Project
+//      Details is always fresh.
+//
+// `inheritFrom` semantics: an absolute sibling path means "copy from there",
+// an empty string means "user explicitly chose blank, skip the prompt",
+// undefined means "decide automatically".
 app.get('/api/local/open', (req, res) => {
   let projectDir
   try { projectDir = safeResolveProjectPath(req.query.path) }
   catch (err) { return res.status(400).json({ error: err.message }) }
-  if (!existsSync(projectDir)) return res.status(404).json({ error: `folder not found: ${projectDir}` })
+
+  // Resolve and read the inherit-from project if the caller supplied one.
+  // An empty string is a sentinel for "user chose blank starter."
+  const inheritFromRaw = req.query.inheritFrom
+  const inheritFromExplicitlyBlank = inheritFromRaw === ''
+  let inheritedSections = null
+  if (inheritFromRaw && !inheritFromExplicitlyBlank) {
+    let inheritFromDir
+    try { inheritFromDir = safeResolveProjectPath(inheritFromRaw) }
+    catch (err) { return res.status(400).json({ error: `inheritFrom: ${err.message}` }) }
+    if (existsSync(inheritFromDir)) {
+      inheritedSections = readInheritedSections(inheritFromDir)
+    }
+  }
+
+  const folderExists = existsSync(projectDir)
+  const claudeMdExists = folderExists && !!readClaudeMd(projectDir)
+
+  // If we'll need to seed (folder or CLAUDE.md missing) and the user hasn't
+  // already told us where to inherit from, see if we should prompt them.
+  if (!claudeMdExists && inheritFromRaw === undefined) {
+    const siblings = findSiblings(projectDir)
+    if (siblings.length >= 2) {
+      return res.json({ needsSeed: true, path: projectDir, siblings })
+    }
+    if (siblings.length === 1) {
+      inheritedSections = readInheritedSections(siblings[0].path)
+    }
+    // siblings.length === 0 — fall through with no inheritance, blank starter.
+  }
+
+  // Create the folder if it doesn't exist. Only one level deep — the parent
+  // must already exist so we don't accidentally `mkdir -p` arbitrary trees.
+  if (!folderExists) {
+    const parent = pathDirname(projectDir)
+    if (!existsSync(parent)) {
+      return res.status(404).json({ error: `parent folder not found: ${parent}` })
+    }
+    try { mkdirSync(projectDir) }
+    catch (err) { return res.status(500).json({ error: `couldn't create folder: ${err.message}` }) }
+  }
+
   let st
   try { st = statSync(projectDir) } catch (err) { return res.status(400).json({ error: err.message }) }
   if (!st.isDirectory()) return res.status(400).json({ error: `not a directory: ${projectDir}` })
 
-  const existed = !!readClaudeMd(projectDir)
-  const doc = readOrSeedClaudeMd(projectDir, { projectName: basename(projectDir) })
+  const doc = readOrSeedClaudeMd(projectDir, {
+    projectName: basename(projectDir),
+    inheritedSections
+  })
+
   // Track in recent projects — most-recent first, dedup, capped at 10.
   try {
     const cfg = loadDelmaConfig()
@@ -162,7 +322,7 @@ app.get('/api/local/open', (req, res) => {
     name: doc.title || basename(projectDir),
     summary: doc.summary || '',
     sections: doc.sections,
-    seeded: !existed
+    seeded: !claudeMdExists
   })
 })
 
@@ -204,6 +364,15 @@ app.get('/api/local/recent', (req, res) => {
     saveDelmaConfig({ recent_projects: items.map(i => i.path) })
   }
   res.json({ items })
+})
+
+// GET /api/config/sfmc — returns both BUs in structured form, secrets
+// included. Safe because the server is bound to 127.0.0.1; only the user
+// who launched it can reach this endpoint. Same source-of-truth as
+// loadSfmcAccounts() so the UI sees what the email builder uses.
+app.get('/api/config/sfmc', (req, res) => {
+  try { res.json(loadSfmcAccounts()) }
+  catch (err) { res.status(500).json({ error: err.message }) }
 })
 
 // POST /api/config/sfmc — save SFMC creds. Body is a flat object of env

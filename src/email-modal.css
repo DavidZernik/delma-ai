@@ -617,3 +617,261 @@
     .markdown-body a { color: var(--accent); }
     .markdown-body hr { border: none; border-top: 1px solid var(--line); margin: 16px 0; }
     .markdown-body blockquote { border-left: 3px solid var(--accent); margin: 8px 0; padding: 4px 12px; color: var(--muted); }
+
+    /* ── Inline diagram with click-to-reveal node modal ───────────────────
+       Used by src/local/diagram.js. The diagram card holds the rendered
+       Mermaid SVG; if the section also has a "### Step descriptions"
+       subsection, every node becomes clickable and opens the modal.        */
+
+    .diagram-prose { margin: 8px 0 12px; line-height: 1.55; color: var(--ink); }
+    .diagram-prose p:first-child { margin-top: 0; }
+
+    .diagram-hint {
+      font-size: 12px;
+      color: var(--muted);
+      font-style: italic;
+      margin: 4px 0 10px;
+    }
+
+    .diagram-card {
+      background: #fff;
+      border: 1px solid var(--line, rgba(0,0,0,0.1));
+      border-radius: 12px;
+      padding: 18px;
+      margin: 10px 0 18px;
+      transition: box-shadow 160ms ease;
+    }
+    .diagram-card svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
+    .diagram-card-clickable g.node:hover rect,
+    .diagram-card-clickable g.node:hover polygon,
+    .diagram-card-clickable g.node:hover circle {
+      filter: drop-shadow(0 2px 8px rgba(143, 0, 0, 0.35));
+    }
+
+    .delma-node-modal {
+      position: fixed; inset: 0; z-index: 600;
+      display: flex; align-items: center; justify-content: center;
+      padding: 24px;
+    }
+    .delma-node-modal[hidden] { display: none; }
+    .delma-node-modal-backdrop {
+      position: absolute; inset: 0;
+      background: rgba(30, 22, 22, 0.45);
+      backdrop-filter: blur(2px);
+    }
+    .delma-node-modal-panel {
+      position: relative;
+      background: #FFFFFF;
+      border: 1.5px solid var(--accent, #8F0000);
+      border-radius: 14px;
+      padding: 28px 30px 26px;
+      width: min(520px, 100%);
+      max-height: 80vh;
+      overflow-y: auto;
+      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.18);
+    }
+    .delma-node-modal-close {
+      position: absolute;
+      top: 10px;
+      right: 12px;
+      width: 32px; height: 32px;
+      font-size: 22px;
+      line-height: 1;
+      color: var(--muted, #6b5f5f);
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      border-radius: 999px;
+    }
+    .delma-node-modal-close:hover { background: rgba(0,0,0,0.06); color: var(--ink, #1a1a1a); }
+    .delma-node-modal-label {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: var(--ink, #1a1a1a);
+      margin-bottom: 12px;
+      padding-right: 28px;
+      word-break: break-word;
+    }
+    .delma-node-modal-body {
+      font-size: 14px;
+      line-height: 1.55;
+      color: var(--ink-secondary, #4a3f3d);
+      white-space: pre-wrap;
+    }
+
+    /* ── SFMC Connections tab ────────────────────────────────────────────── */
+
+    .sfmc-tab { display: flex; flex-direction: column; gap: 18px; }
+    .sfmc-intro {
+      font-size: 13px;
+      line-height: 1.55;
+      color: var(--muted, #6b5f5f);
+      margin: 0;
+    }
+    .sfmc-platform {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .sfmc-platform-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--line, rgba(0,0,0,0.1));
+    }
+    .sfmc-platform-title {
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: var(--ink, #1a1a1a);
+    }
+    .sfmc-intro code {
+      font-family: var(--mono);
+      background: rgba(0,0,0,0.05);
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-size: 0.9em;
+    }
+    .sfmc-card {
+      background: #fff;
+      border: 1px solid var(--line, rgba(0,0,0,0.1));
+      border-radius: 12px;
+      padding: 16px 20px;
+    }
+    .sfmc-card-empty .sfmc-card-empty-hint {
+      font-size: 13px;
+      color: var(--muted, #6b5f5f);
+      font-style: italic;
+      margin-top: 6px;
+    }
+    .sfmc-card-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      gap: 12px;
+    }
+    .sfmc-card-title {
+      font-weight: 700;
+      font-size: 15px;
+      color: var(--accent, #8F0000);
+    }
+    .sfmc-card-actions { display: flex; gap: 8px; }
+    .sfmc-card-body {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .sfmc-row {
+      display: grid;
+      grid-template-columns: 130px 1fr;
+      gap: 14px;
+      align-items: center;
+    }
+    .sfmc-row-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted, #6b5f5f);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .sfmc-row-value, .sfmc-row-input {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+    .sfmc-row-text {
+      font-family: var(--mono, ui-monospace, Menlo, monospace);
+      font-size: 12.5px;
+      color: var(--ink, #1a1a1a);
+      word-break: break-all;
+      overflow-wrap: anywhere;
+    }
+    .sfmc-row-mask { letter-spacing: 0.04em; }
+    .sfmc-row-empty { color: var(--muted, #6b5f5f); font-family: inherit; }
+    .sfmc-row-input input {
+      flex: 1;
+      min-width: 0;
+      padding: 7px 10px;
+      font-family: var(--mono, ui-monospace, Menlo, monospace);
+      font-size: 12.5px;
+      border: 1px solid var(--line, rgba(0,0,0,0.15));
+      border-radius: 6px;
+      background: #fff;
+      color: var(--ink, #1a1a1a);
+    }
+    .sfmc-row-input input:focus { outline: none; border-color: var(--accent, #8F0000); }
+    .sfmc-eye {
+      background: transparent;
+      border: 1px solid var(--line, rgba(0,0,0,0.15));
+      border-radius: 6px;
+      padding: 4px 8px;
+      cursor: pointer;
+      font-size: 14px;
+      line-height: 1;
+    }
+    .sfmc-eye:hover { border-color: var(--accent, #8F0000); }
+    .sfmc-card-status {
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--muted, #6b5f5f);
+      min-height: 16px;
+    }
+
+    /* ── New-project sibling-inheritance prompt ──────────────────────────── */
+
+    .seed-prompt {
+      margin-top: 16px;
+      padding: 16px 18px;
+      background: #FFFEEE;
+      border: 1.5px solid var(--accent, #8F0000);
+      border-radius: 12px;
+    }
+    .seed-prompt-head {
+      font-size: 14px;
+      line-height: 1.5;
+      color: var(--ink, #1a1a1a);
+      margin-bottom: 12px;
+    }
+    .seed-prompt-head em {
+      font-style: normal;
+      font-weight: 600;
+      color: var(--accent, #8F0000);
+    }
+    .seed-prompt-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .seed-pick {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 10px 14px;
+      border: 1px solid var(--line, rgba(0,0,0,0.1));
+      border-radius: 8px;
+      background: #fff;
+      font-family: inherit;
+      cursor: pointer;
+      transition: border-color 120ms ease, background 120ms ease;
+    }
+    .seed-pick:hover {
+      border-color: var(--accent, #8F0000);
+      background: rgba(143, 0, 0, 0.03);
+    }
+    .seed-pick-name {
+      font-weight: 600;
+      font-size: 13px;
+      color: var(--accent, #8F0000);
+      margin-bottom: 2px;
+    }
+    .seed-pick-path {
+      font-family: var(--mono, ui-monospace, Menlo, monospace);
+      font-size: 11.5px;
+      color: var(--muted, #6b5f5f);
+      word-break: break-all;
+    }
+    .seed-pick-blank .seed-pick-name { color: var(--ink, #1a1a1a); }
