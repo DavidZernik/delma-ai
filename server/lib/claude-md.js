@@ -162,15 +162,7 @@ export function starterTemplate({ projectName, oneLiner } = {}) {
     title: name,
     summary: oneLiner || 'One-line description of what this project is.',
     sections: {
-      projectDetails: [
-        'System flow, decisions, and open actions for this project.',
-        '',
-        '### Decisions',
-        '_(empty)_',
-        '',
-        '### Actions',
-        '_(empty)_'
-      ].join('\n'),
+      projectDetails: 'System flow, decisions, and open actions for this project.',
       generalNotes: [
         'Conventions, rules, unwritten norms, links to longer docs.',
         '',
