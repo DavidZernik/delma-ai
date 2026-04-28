@@ -46,7 +46,14 @@ const TOOL_MAP = {
   'mcp__delma__delma_set_environment_key':     { section: 'fileLocations', sub: null, op: 'upsertKV' },
 
   // General Notes (conventions, rules, unwritten norms)
-  'mcp__delma__delma_add_playbook_rule':       { section: 'generalNotes', sub: null, op: 'add' }
+  'mcp__delma__delma_add_playbook_rule':       { section: 'generalNotes', sub: null, op: 'add' },
+
+  // Removals — undo paths for when the user changes their mind or Claude
+  // routed something to the wrong place. Match by free-form text or key.
+  'mcp__delma__delma_remove_decision':         { section: 'projectDetails', sub: 'Decisions', op: 'removeBullet' },
+  'mcp__delma__delma_remove_action':           { section: 'projectDetails', sub: 'Actions',   op: 'removeBullet' },
+  'mcp__delma__delma_remove_environment_key':  { section: 'fileLocations',  sub: null,        op: 'removeKV' },
+  'mcp__delma__delma_remove_playbook_rule':    { section: 'generalNotes',   sub: null,        op: 'removeBullet' }
 }
 
 // ── Sub-section helpers ──────────────────────────────────────────────────
@@ -55,6 +62,21 @@ const H3_RE_TEMPLATE = (name) =>
   new RegExp(`^###\\s+${escapeRegex(name)}\\s*$`, 'mi')
 
 function escapeRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') }
+
+// Strip a "### Step descriptions" / "Node descriptions" / "Notes" subsection
+// (and its body) from a tail-of-section blob. Used when setOverview is
+// rewriting the diagram — old per-node descriptions almost certainly no
+// longer match, so we drop them and let the caller re-supply.
+function stripStepDescriptionsSubsection(tail) {
+  const re = /^###\s+(?:Step descriptions|Node descriptions|Notes)\s*$/m
+  const m = tail.match(re)
+  if (!m) return tail
+  const start = m.index
+  const after = tail.slice(start + m[0].length)
+  const nextH3 = after.search(/^###\s/m)
+  const end = nextH3 === -1 ? tail.length : start + m[0].length + nextH3
+  return (tail.slice(0, start) + tail.slice(end)).replace(/\n{3,}/g, '\n\n').trimEnd()
+}
 
 // Find the block of body text under a given H3 sub-heading inside a
 // section body. Returns { startOfBlock, endOfBlock, block } with block
@@ -139,14 +161,19 @@ const OPS = {
   },
 
   // Replace the "overview" of a section — everything before the first H3
-  // subheading — with new prose + a Mermaid diagram. Used by the Project
-  // Details tab so Claude can propose updated descriptions and flowcharts
-  // without disturbing the Decisions/Actions/Step descriptions sub-blocks
-  // below. Caller passes the WHOLE section body (no sub) and we splice.
+  // subheading — with new prose + a Mermaid diagram. Optionally also
+  // replaces the "### Step descriptions" subsection so click-to-reveal
+  // node modals stay in sync with the new diagram. Other subsections
+  // (Decisions, Actions, etc.) below the descriptions block are preserved.
+  // Caller passes the WHOLE section body (no sub) and we splice.
   setOverview: (block, input) => {
     const body = String(block || '')
     const firstH3 = body.search(/^###\s/m)
-    const tail = firstH3 === -1 ? '' : body.slice(firstH3).trimEnd()
+    let tail = firstH3 === -1 ? '' : body.slice(firstH3).trimEnd()
+
+    const descriptions = (input.descriptions && typeof input.descriptions === 'object') ? input.descriptions : null
+    if (descriptions) tail = stripStepDescriptionsSubsection(tail)
+
     const prose = (input.prose || '').trim()
     const mermaid = (input.mermaid || '').trim()
     const out = []
@@ -155,11 +182,43 @@ const OPS = {
       if (out.length) out.push('')
       out.push('```mermaid', mermaid, '```')
     }
+    if (descriptions && Object.keys(descriptions).length) {
+      if (out.length) out.push('')
+      out.push('### Step descriptions')
+      for (const [key, value] of Object.entries(descriptions)) {
+        out.push(`- **${key}**: ${String(value).trim()}`)
+      }
+    }
     if (tail) {
       if (out.length) out.push('')
       out.push(tail)
     }
     return out.join('\n') + '\n'
+  },
+
+  // Remove a bullet that contains the given text. Used for
+  // delete-a-decision / delete-an-action / delete-a-rule. Matching is
+  // forgiving — substring or exact, case-insensitive.
+  removeBullet: (block, input) => {
+    const parsed = parseBullets(block)
+    const target = (input.text || '').toLowerCase().trim()
+    if (!target) return block
+    parsed.bullets = parsed.bullets.filter(b => {
+      const body = b.replace(/^\s*[-*]\s*(?:\[[ x]\]\s*)?/i, '').toLowerCase().trim()
+      return !(body === target || body.includes(target) || target.includes(body))
+    })
+    return serializeBullets(parsed)
+  },
+
+  // Remove a "- **KEY**: value" bullet by key. Used for
+  // delete-an-environment-entry. Case-insensitive on the key.
+  removeKV: (block, input) => {
+    const parsed = parseBullets(block)
+    const key = (input.key || '').trim()
+    if (!key) return block
+    const kvRe = new RegExp(`^\\s*[-*]\\s+\\*\\*${escapeRegex(key)}\\*\\*\\s*:`, 'i')
+    parsed.bullets = parsed.bullets.filter(b => !kvRe.test(b))
+    return serializeBullets(parsed)
   },
 
   // Flip an action from [ ] to [x]. Match by id (if provided) else by
