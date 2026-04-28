@@ -153,33 +153,20 @@ export function writeClaudeMd(projectDir, parsed) {
 }
 
 // Starter template — used when the user opens a folder that has no CLAUDE.md.
-// Kept short on purpose; each section has one seed line the user replaces.
-// The Project Details section starts with an empty Mermaid fence so the
-// diagram renderer finds something to render from turn one.
+// All instructions about what each section is FOR live in the system prompt,
+// not the file itself. So a fresh project starts with just a title and three
+// empty sections. The serializer fills empty bodies with "_(empty)_" so the
+// file is well-formed; the workspace UI renders empty sections with a hint
+// inviting the user to chat with Delma or click Edit.
 export function starterTemplate({ projectName, oneLiner } = {}) {
   const name = projectName || basename(process.cwd())
   return {
     title: name,
-    summary: oneLiner || 'One-line description of what this project is.',
+    summary: oneLiner || null,
     sections: {
-      projectDetails: [
-        'A short paragraph describing what this project does goes here. Below it, a Mermaid flowchart shows the data flow / system logic. Both fill in as you chat with Delma.',
-        '',
-        '```mermaid',
-        'flowchart TD',
-        '  Project[Project overview will appear here]',
-        '```'
-      ].join('\n'),
-      generalNotes: [
-        'Conventions, rules, unwritten norms, links to longer docs.',
-        '',
-        '_(none captured yet)_'
-      ].join('\n'),
-      fileLocations: [
-        'Env vars, business-unit IDs, customer keys, and SFMC folder paths used by this project. This is the lookup table — paste an ID once, find it forever.',
-        '',
-        '_(none captured yet)_'
-      ].join('\n')
+      projectDetails: '',
+      generalNotes:   '',
+      fileLocations:  ''
     }
   }
 }
