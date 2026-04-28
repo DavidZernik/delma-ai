@@ -29,6 +29,10 @@ import { readOrSeedClaudeMd, writeClaudeMd } from './claude-md.js'
 // which sub-heading inside it (or null = append to the section body),
 // and which operation verb to apply.
 const TOOL_MAP = {
+  // Project overview — replaces the prose + Mermaid block at the top of
+  // Project Details. Preserves Decisions/Actions/Step descriptions below.
+  'mcp__delma__delma_set_project_overview':    { section: 'projectDetails', sub: null, op: 'setOverview' },
+
   // Decisions
   'mcp__delma__delma_add_decision':            { section: 'projectDetails', sub: 'Decisions', op: 'add' },
   'mcp__delma__delma_supersede_decision':      { section: 'projectDetails', sub: 'Decisions', op: 'supersede' },
@@ -132,6 +136,30 @@ const OPS = {
     const parsed = parseBullets(block)
     parsed.bullets.push(`- [ ] ${inputToText(input)}`)
     return serializeBullets(parsed)
+  },
+
+  // Replace the "overview" of a section — everything before the first H3
+  // subheading — with new prose + a Mermaid diagram. Used by the Project
+  // Details tab so Claude can propose updated descriptions and flowcharts
+  // without disturbing the Decisions/Actions/Step descriptions sub-blocks
+  // below. Caller passes the WHOLE section body (no sub) and we splice.
+  setOverview: (block, input) => {
+    const body = String(block || '')
+    const firstH3 = body.search(/^###\s/m)
+    const tail = firstH3 === -1 ? '' : body.slice(firstH3).trimEnd()
+    const prose = (input.prose || '').trim()
+    const mermaid = (input.mermaid || '').trim()
+    const out = []
+    if (prose) out.push(prose)
+    if (mermaid) {
+      if (out.length) out.push('')
+      out.push('```mermaid', mermaid, '```')
+    }
+    if (tail) {
+      if (out.length) out.push('')
+      out.push(tail)
+    }
+    return out.join('\n') + '\n'
   },
 
   // Flip an action from [ ] to [x]. Match by id (if provided) else by

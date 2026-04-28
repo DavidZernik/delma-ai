@@ -162,7 +162,14 @@ export function starterTemplate({ projectName, oneLiner } = {}) {
     title: name,
     summary: oneLiner || 'One-line description of what this project is.',
     sections: {
-      projectDetails: 'System flow, decisions, and open actions for this project.',
+      projectDetails: [
+        'A short paragraph describing what this project does goes here. Below it, a Mermaid flowchart shows the data flow / system logic. Both fill in as you chat with Delma.',
+        '',
+        '```mermaid',
+        'flowchart TD',
+        '  Project[Project overview will appear here]',
+        '```'
+      ].join('\n'),
       generalNotes: [
         'Conventions, rules, unwritten norms, links to longer docs.',
         '',
